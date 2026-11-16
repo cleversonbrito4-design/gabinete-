@@ -12,7 +12,8 @@
   "dependencies": {
     "@supabase/supabase-js": "2.119.0",
     "docxtemplater": "3.71.1",
-    "pizzip": "3.3.0"
+    "pizzip": "3.3.0",
+    "read-excel-file": "5.8.6"
   },
   "devDependencies": {
     "vite": "6.4.6"

@@ -155,3 +155,35 @@ html,body{min-height:100%}
 }
 [hidden]{display:none!important}
 a.btn{text-decoration:none}
+/* avisos */
+.bell{position:relative;font-size:16px;line-height:1}
+.bell .n{position:absolute;top:-4px;right:-4px;min-width:18px;height:18px;border-radius:9px;background:var(--late);color:#fff;font:700 11px/18px var(--mono);padding:0 4px;text-align:center}
+/* anexos */
+.anx{grid-column:1/-1;border-top:1px solid var(--line);padding-top:12px}
+.anx-list{list-style:none;padding:0;margin:6px 0 0;display:flex;flex-direction:column;gap:6px}
+.anx-list li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 8px;align-items:center}
+.anx-list li .linkbtn{text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0}
+.anx-list li .m{grid-column:1;font-size:11.5px}
+.anx-list li .btn{grid-column:2;grid-row:1/3}
+/* relatórios e importação */
+.rel-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;margin-top:14px}
+.rel-kpis{margin-top:12px}
+.rel-head{margin-bottom:4px}
+.rtab{width:100%;border-collapse:collapse;font-size:13px}
+.rtab th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);font-weight:600;padding:6px 8px;border-bottom:1px solid var(--line)}
+.rtab td{padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+.rtab td.num{text-align:right;white-space:nowrap}
+.rtab.det tbody tr{cursor:pointer}
+.rtab.det tbody tr:hover{background:var(--surface-2)}
+.rtab-wrap{overflow-x:auto}
+.rtab.imp select{width:100%;min-width:150px;border:1px solid var(--line);background:var(--bg);color:var(--fg);border-radius:7px;padding:6px 8px}
+/* formulário público */
+.login-card.pub{width:min(480px,100%)}
+.login-card textarea{min-height:90px;border:1px solid var(--line);background:var(--bg);color:var(--fg);border-radius:7px;padding:8px 10px;font:inherit;resize:vertical}
+.hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
+@media print{
+  .rel .panel{break-inside:avoid;border:1px solid #ccc;box-shadow:none}
+  .rtab.det{font-size:10.5pt}
+  .rtab th,.rtab td{color:#000!important;border-color:#bbb!important}
+  .kpi{border:1px solid #ccc!important;box-shadow:none!important}
+}

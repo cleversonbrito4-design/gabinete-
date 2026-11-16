@@ -19,7 +19,7 @@ export const MODS = {
       { k:'prioridade', l:'Prioridade', type:'select', opts:['Baixa','Média','Alta'] },
       { k:'responsavel', l:'Responsável no gabinete', team:1 },
       { k:'prazo', l:'Prazo de retorno', type:'date' },
-      { k:'origem', l:'Como chegou', type:'select', opts:['Presencial','WhatsApp','Telefone','E-mail','Redes sociais','Liderança local','Visita do parlamentar'] },
+      { k:'origem', l:'Como chegou', type:'select', opts:['Presencial','WhatsApp','Telefone','E-mail','Redes sociais','Liderança local','Visita do parlamentar','Site do gabinete'] },
       { k:'descricao', l:'Descrição', type:'textarea', wide:1 },
       { k:'obs', l:'Andamento / observações', type:'textarea', wide:1 },
     ],

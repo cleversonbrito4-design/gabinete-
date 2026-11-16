@@ -56,6 +56,7 @@ for (const m of ORDER) {
     ...M.fields.map(f => `${f.k} ${SQL_TYPE[f.type] || 'text'}`),
     ...(M.extraCols || []).map(([k, t]) => `${k} ${t}`),
     "historico jsonb not null default '[]'::jsonb",
+    "anexos jsonb not null default '[]'::jsonb",
     'criado_por uuid references auth.users(id) default auth.uid()',
     'criado_em timestamptz not null default now()',
     'atualizado_em timestamptz not null default now()',
@@ -65,6 +66,7 @@ for (const m of ORDER) {
   // colunas novas em tabelas já existentes
   for (const f of M.fields) p(`alter table public.${m} add column if not exists ${f.k} ${SQL_TYPE[f.type] || 'text'};`);
   for (const [k, t] of (M.extraCols || [])) p(`alter table public.${m} add column if not exists ${k} ${t};`);
+  p(`alter table public.${m} add column if not exists anexos jsonb not null default '[]'::jsonb;`);
   p(`alter table public.${m} enable row level security;
 drop policy if exists "equipe acessa ${m}" on public.${m};
 create policy "equipe acessa ${m}" on public.${m} for all to authenticated using (public.is_equipe()) with check (public.is_equipe());
@@ -81,5 +83,43 @@ do $$ declare t text; begin
     end if;
   end loop;
 end $$;`);
+
+
+p(`
+-- Anexos (fotos, PDFs, ofícios assinados): pasta privada, só a equipe acessa
+insert into storage.buckets (id, name, public, file_size_limit)
+values ('anexos', 'anexos', false, 20971520)
+on conflict (id) do update set public = false, file_size_limit = 20971520;
+drop policy if exists "equipe le anexos" on storage.objects;
+create policy "equipe le anexos" on storage.objects for select to authenticated using (bucket_id = 'anexos' and public.is_equipe());
+drop policy if exists "equipe envia anexos" on storage.objects;
+create policy "equipe envia anexos" on storage.objects for insert to authenticated with check (bucket_id = 'anexos' and public.is_equipe());
+drop policy if exists "equipe apaga anexos" on storage.objects;
+create policy "equipe apaga anexos" on storage.objects for delete to authenticated using (bucket_id = 'anexos' and public.is_equipe());
+
+-- Formulário público: o cidadão abre uma demanda sem login.
+-- Só esta função é liberada para visitantes; eles não leem nada do banco.
+create or replace function public.nova_demanda_publica(
+  p_nome text, p_telefone text, p_municipio text, p_bairro text, p_assunto text, p_descricao text
+) returns boolean language plpgsql security definer set search_path = public as $$
+begin
+  if coalesce(trim(p_nome), '') = '' or coalesce(trim(p_assunto), '') = '' or coalesce(trim(p_telefone), '') = '' then
+    raise exception 'Preencha nome, telefone e assunto.';
+  end if;
+  -- trava contra abuso: no máximo 60 pedidos pelo site por hora e 3 por telefone por dia
+  if (select count(*) from public.demandas where origem = 'Site do gabinete' and criado_em > now() - interval '1 hour') >= 60 then
+    raise exception 'Muitos pedidos agora. Tente de novo mais tarde.';
+  end if;
+  if (select count(*) from public.demandas where origem = 'Site do gabinete' and telefone = left(trim(p_telefone), 30) and criado_em > now() - interval '1 day') >= 3 then
+    raise exception 'Já recebemos seus pedidos de hoje. Em breve entraremos em contato.';
+  end if;
+  insert into public.demandas (status, assunto, solicitante, telefone, municipio, bairro, origem, descricao, prioridade, historico, criado_por)
+  values ('Nova', left(trim(p_assunto), 200), left(trim(p_nome), 120), left(trim(p_telefone), 30), nullif(left(trim(coalesce(p_municipio, '')), 80), ''),
+    nullif(left(trim(coalesce(p_bairro, '')), 80), ''), 'Site do gabinete', nullif(left(trim(coalesce(p_descricao, '')), 3000), ''), 'Média',
+    jsonb_build_array(jsonb_build_object('em', now(), 'txt', 'Recebida pelo formulário do site', 'por', 'Site')), null);
+  return true;
+end $$;
+revoke all on function public.nova_demanda_publica(text, text, text, text, text, text) from public;
+grant execute on function public.nova_demanda_publica(text, text, text, text, text, text) to anon, authenticated;`);
 
 console.log(out.join('\n'));

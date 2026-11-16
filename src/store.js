@@ -137,3 +137,43 @@ export async function removeEquipe(email) {
   const { error } = await sb.from('equipe').delete().eq('email', email);
   if (error) throw error;
 }
+
+/* ---------- importação em lote ---------- */
+export async function insertMany(mod, rows, onProgress) {
+  const out = [];
+  if (!sb) {
+    const d = demoRead(); const a = d[mod] || []; const now = new Date().toISOString();
+    for (const r of rows) { const row = { ...r, id: uuid(), criado_em: now, atualizado_em: now }; a.unshift(row); out.push(row); }
+    d[mod] = a; demoWrite(d); return out;
+  }
+  for (let i = 0; i < rows.length; i += 300) {
+    const { data, error } = await sb.from(mod).insert(rows.slice(i, i + 300)).select();
+    if (error) throw error;
+    out.push(...data);
+    if (onProgress) onProgress(Math.min(i + 300, rows.length), rows.length);
+  }
+  return out;
+}
+
+/* ---------- anexos (Supabase Storage, pasta privada "anexos") ---------- */
+export const anexosDisponiveis = configured;
+export async function enviarAnexo(path, file) {
+  const { error } = await sb.storage.from('anexos').upload(path, file, { upsert: false, contentType: file.type || 'application/octet-stream' });
+  if (error) throw error;
+}
+export async function linkAnexo(path, nome) {
+  const { data, error } = await sb.storage.from('anexos').createSignedUrl(path, 300, nome ? { download: nome } : undefined);
+  if (error) throw error;
+  return data.signedUrl;
+}
+export async function apagarAnexo(path) {
+  const { error } = await sb.storage.from('anexos').remove([path]);
+  if (error) throw error;
+}
+
+/* ---------- formulário público (sem login) ---------- */
+export async function novaDemandaPublica(c) {
+  if (!sb) throw new Error('O formulário só funciona com o banco ligado.');
+  const { error } = await sb.rpc('nova_demanda_publica', { p_nome: c.nome, p_telefone: c.telefone, p_municipio: c.municipio, p_bairro: c.bairro, p_assunto: c.assunto, p_descricao: c.descricao });
+  if (error) throw error;
+}

@@ -56,6 +56,7 @@ create table if not exists public.demandas (
   descricao text,
   obs text,
   historico jsonb not null default '[]'::jsonb,
+  anexos jsonb not null default '[]'::jsonb,
   criado_por uuid references auth.users(id) default auth.uid(),
   criado_em timestamptz not null default now(),
   atualizado_em timestamptz not null default now()
@@ -72,6 +73,7 @@ alter table public.demandas add column if not exists prazo date;
 alter table public.demandas add column if not exists origem text;
 alter table public.demandas add column if not exists descricao text;
 alter table public.demandas add column if not exists obs text;
+alter table public.demandas add column if not exists anexos jsonb not null default '[]'::jsonb;
 alter table public.demandas enable row level security;
 drop policy if exists "equipe acessa demandas" on public.demandas;
 create policy "equipe acessa demandas" on public.demandas for all to authenticated using (public.is_equipe()) with check (public.is_equipe());
@@ -98,6 +100,7 @@ create table if not exists public.servicos (
   corpo text,
   obs text,
   historico jsonb not null default '[]'::jsonb,
+  anexos jsonb not null default '[]'::jsonb,
   criado_por uuid references auth.users(id) default auth.uid(),
   criado_em timestamptz not null default now(),
   atualizado_em timestamptz not null default now()
@@ -117,6 +120,7 @@ alter table public.servicos add column if not exists responsavel text;
 alter table public.servicos add column if not exists vocativo text;
 alter table public.servicos add column if not exists corpo text;
 alter table public.servicos add column if not exists obs text;
+alter table public.servicos add column if not exists anexos jsonb not null default '[]'::jsonb;
 alter table public.servicos enable row level security;
 drop policy if exists "equipe acessa servicos" on public.servicos;
 create policy "equipe acessa servicos" on public.servicos for all to authenticated using (public.is_equipe()) with check (public.is_equipe());
@@ -140,6 +144,7 @@ create table if not exists public.emendas (
   numero text,
   obs text,
   historico jsonb not null default '[]'::jsonb,
+  anexos jsonb not null default '[]'::jsonb,
   criado_por uuid references auth.users(id) default auth.uid(),
   criado_em timestamptz not null default now(),
   atualizado_em timestamptz not null default now()
@@ -156,6 +161,7 @@ alter table public.emendas add column if not exists exercicio integer;
 alter table public.emendas add column if not exists quem_pediu text;
 alter table public.emendas add column if not exists numero text;
 alter table public.emendas add column if not exists obs text;
+alter table public.emendas add column if not exists anexos jsonb not null default '[]'::jsonb;
 alter table public.emendas enable row level security;
 drop policy if exists "equipe acessa emendas" on public.emendas;
 create policy "equipe acessa emendas" on public.emendas for all to authenticated using (public.is_equipe()) with check (public.is_equipe());
@@ -181,6 +187,7 @@ create table if not exists public.proposituras (
   corpo text,
   obs text,
   historico jsonb not null default '[]'::jsonb,
+  anexos jsonb not null default '[]'::jsonb,
   criado_por uuid references auth.users(id) default auth.uid(),
   criado_em timestamptz not null default now(),
   atualizado_em timestamptz not null default now()
@@ -199,6 +206,7 @@ alter table public.proposituras add column if not exists link text;
 alter table public.proposituras add column if not exists texto text;
 alter table public.proposituras add column if not exists corpo text;
 alter table public.proposituras add column if not exists obs text;
+alter table public.proposituras add column if not exists anexos jsonb not null default '[]'::jsonb;
 alter table public.proposituras enable row level security;
 drop policy if exists "equipe acessa proposituras" on public.proposituras;
 create policy "equipe acessa proposituras" on public.proposituras for all to authenticated using (public.is_equipe()) with check (public.is_equipe());
@@ -221,6 +229,7 @@ create table if not exists public.agenda (
   pauta text,
   google_event_id text,
   historico jsonb not null default '[]'::jsonb,
+  anexos jsonb not null default '[]'::jsonb,
   criado_por uuid references auth.users(id) default auth.uid(),
   criado_em timestamptz not null default now(),
   atualizado_em timestamptz not null default now()
@@ -236,6 +245,7 @@ alter table public.agenda add column if not exists contato text;
 alter table public.agenda add column if not exists acompanha text;
 alter table public.agenda add column if not exists pauta text;
 alter table public.agenda add column if not exists google_event_id text;
+alter table public.agenda add column if not exists anexos jsonb not null default '[]'::jsonb;
 alter table public.agenda enable row level security;
 drop policy if exists "equipe acessa agenda" on public.agenda;
 create policy "equipe acessa agenda" on public.agenda for all to authenticated using (public.is_equipe()) with check (public.is_equipe());
@@ -262,6 +272,7 @@ create table if not exists public.pessoas (
   indicado_por text,
   obs text,
   historico jsonb not null default '[]'::jsonb,
+  anexos jsonb not null default '[]'::jsonb,
   criado_por uuid references auth.users(id) default auth.uid(),
   criado_em timestamptz not null default now(),
   atualizado_em timestamptz not null default now()
@@ -281,6 +292,7 @@ alter table public.pessoas add column if not exists uf text;
 alter table public.pessoas add column if not exists cep text;
 alter table public.pessoas add column if not exists indicado_por text;
 alter table public.pessoas add column if not exists obs text;
+alter table public.pessoas add column if not exists anexos jsonb not null default '[]'::jsonb;
 alter table public.pessoas enable row level security;
 drop policy if exists "equipe acessa pessoas" on public.pessoas;
 create policy "equipe acessa pessoas" on public.pessoas for all to authenticated using (public.is_equipe()) with check (public.is_equipe());
@@ -295,3 +307,39 @@ do $$ declare t text; begin
     end if;
   end loop;
 end $$;
+
+-- Anexos (fotos, PDFs, ofícios assinados): pasta privada, só a equipe acessa
+insert into storage.buckets (id, name, public, file_size_limit)
+values ('anexos', 'anexos', false, 20971520)
+on conflict (id) do update set public = false, file_size_limit = 20971520;
+drop policy if exists "equipe le anexos" on storage.objects;
+create policy "equipe le anexos" on storage.objects for select to authenticated using (bucket_id = 'anexos' and public.is_equipe());
+drop policy if exists "equipe envia anexos" on storage.objects;
+create policy "equipe envia anexos" on storage.objects for insert to authenticated with check (bucket_id = 'anexos' and public.is_equipe());
+drop policy if exists "equipe apaga anexos" on storage.objects;
+create policy "equipe apaga anexos" on storage.objects for delete to authenticated using (bucket_id = 'anexos' and public.is_equipe());
+
+-- Formulário público: o cidadão abre uma demanda sem login.
+-- Só esta função é liberada para visitantes; eles não leem nada do banco.
+create or replace function public.nova_demanda_publica(
+  p_nome text, p_telefone text, p_municipio text, p_bairro text, p_assunto text, p_descricao text
+) returns boolean language plpgsql security definer set search_path = public as $$
+begin
+  if coalesce(trim(p_nome), '') = '' or coalesce(trim(p_assunto), '') = '' or coalesce(trim(p_telefone), '') = '' then
+    raise exception 'Preencha nome, telefone e assunto.';
+  end if;
+  -- trava contra abuso: no máximo 60 pedidos pelo site por hora e 3 por telefone por dia
+  if (select count(*) from public.demandas where origem = 'Site do gabinete' and criado_em > now() - interval '1 hour') >= 60 then
+    raise exception 'Muitos pedidos agora. Tente de novo mais tarde.';
+  end if;
+  if (select count(*) from public.demandas where origem = 'Site do gabinete' and telefone = left(trim(p_telefone), 30) and criado_em > now() - interval '1 day') >= 3 then
+    raise exception 'Já recebemos seus pedidos de hoje. Em breve entraremos em contato.';
+  end if;
+  insert into public.demandas (status, assunto, solicitante, telefone, municipio, bairro, origem, descricao, prioridade, historico, criado_por)
+  values ('Nova', left(trim(p_assunto), 200), left(trim(p_nome), 120), left(trim(p_telefone), 30), nullif(left(trim(coalesce(p_municipio, '')), 80), ''),
+    nullif(left(trim(coalesce(p_bairro, '')), 80), ''), 'Site do gabinete', nullif(left(trim(coalesce(p_descricao, '')), 3000), ''), 'Média',
+    jsonb_build_array(jsonb_build_object('em', now(), 'txt', 'Recebida pelo formulário do site', 'por', 'Site')), null);
+  return true;
+end $$;
+revoke all on function public.nova_demanda_publica(text, text, text, text, text, text) from public;
+grant execute on function public.nova_demanda_publica(text, text, text, text, text, text) to anon, authenticated;

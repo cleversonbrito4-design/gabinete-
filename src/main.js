@@ -4,6 +4,7 @@ import * as store from './store.js';
 import * as gcal from './google.js';
 import { MODELOS, folhas } from './etiquetas.js';
 import * as docs from './documentos.js';
+import * as imp from './importar.js';
 
 /* Dados do gabinete: editáveis em "Minha conta"; os do .env são só o ponto de partida. */
 const env = import.meta.env;
@@ -61,9 +62,9 @@ const waAniversario = p => `Olá, ${primeiroNome(p.nome)}! O ${DEP()} e toda a e
 
 /* ---------- estado ---------- */
 const data = Object.fromEntries(ORDER.map(m => [m, []]));
-const state = { view: 'painel', q: '', filter: 'abertos', agendaWin: 'proximos', loaded: false, session: null, profiles: [], et: { tipo: '', grupo: '', municipio: '', mes: '', modelo: '6180', pular: 0 } };
+const state = { imp: { mod: 'pessoas' }, rel: { mod: 'demandas', de: '', ate: '', municipio: '', bairro: '', status: '' }, view: 'painel', q: '', filter: 'abertos', agendaWin: 'proximos', loaded: false, session: null, profiles: [], et: { tipo: '', grupo: '', municipio: '', mes: '', modelo: '6180', pular: 0 } };
 const drawer = { open: false, mod: null, id: null };
-const VIEWS = ['painel', 'etiquetas', 'conta', ...ORDER];
+const VIEWS = ['painel', 'etiquetas', 'conta', 'relatorios', 'importar', ...ORDER];
 
 function readHash() { const h = location.hash.slice(1); if (VIEWS.includes(h)) state.view = h; }
 window.addEventListener('hashchange', () => { readHash(); state.q = ''; state.filter = 'abertos'; render(); });
@@ -156,6 +157,8 @@ function shell() {
   <div class="brand">
     <div class="brand-l"><div class="mark">G</div><h1>${esc(NOME_GAB())}<small>Demandas, ofícios, emendas, proposituras, agenda e pessoas</small></h1></div>
     <div style="display:flex;gap:8px;align-items:center">
+      <button class="btn ghost bell" id="btn-avisos" title="Avisos" aria-label="Avisos">🔔<span class="n" id="avisos-n" hidden></span></button>
+      <button class="btn" id="btn-import" hidden>Importar</button>
       <button class="btn" id="btn-export" hidden>Exportar</button>
       <button class="btn primary" id="btn-new">+ Novo</button>
       <button class="btn ghost" data-go="conta" title="Minha conta" aria-label="Minha conta">☰</button>
@@ -170,13 +173,15 @@ function shell() {
 const myName = () => (state.profiles.find(p => p.id === state.session?.user?.id) || {}).nome || '';
 
 function renderTabs() {
-  const tabs = [['painel', 'Painel', null]].concat(ORDER.map(m => [m, MODS[m].label, data[m].filter(r => isOpen(m, r)).length]));
-  const cur = state.view === 'etiquetas' ? 'pessoas' : state.view;
+  const tabs = [['painel', 'Painel', null]].concat(ORDER.map(m => [m, MODS[m].label, data[m].filter(r => isOpen(m, r)).length]), [['relatorios', 'Relatórios', null]]);
+  const cur = state.view === 'etiquetas' ? 'pessoas' : state.view === 'importar' ? state.imp.mod : state.view;
   $('#tabs').innerHTML = tabs.map(([k, l, n]) => `<button class="tab" role="tab" data-go="${k}" aria-selected="${cur === k}">${l}${n != null ? `<span class="n">${n}</span>` : ''}</button>`).join('');
   const nb = $('#btn-new');
-  nb.hidden = state.view === 'conta' || state.view === 'etiquetas';
+  nb.hidden = ['conta', 'etiquetas', 'relatorios', 'importar'].includes(state.view);
   nb.textContent = '+ ' + (state.view === 'painel' ? MODS.demandas.novo : MODS[state.view]?.novo || 'Novo');
   $('#btn-export').hidden = !MODS[state.view];
+  $('#btn-import').hidden = !MODS[state.view];
+  const nAv = avisos().urgentes; const an = $('#avisos-n'); an.hidden = !nAv; an.textContent = nAv;
 }
 
 function banner() {
@@ -367,6 +372,10 @@ function renderConta() {
     <section class="panel"><h3>Modelos de Word</h3><p class="m" style="margin-top:0">Baixe o modelo, mude o que quiser no Word (brasão, fonte, textos) e envie de volta. Os campos entre chaves são preenchidos pelo sistema.</p>
       <div id="modelos-box"><div class="m">Carregando…</div></div>
       <details style="margin-top:10px"><summary class="m" style="cursor:pointer">Campos que você pode usar no modelo</summary><div class="hist"><ol>${docs.CAMPOS.map(([k, l]) => `<li><time>{${k}}</time><span>${esc(l)}</span></li>`).join('')}</ol></div></details></section>
+    ${store.configured ? `<section class="panel"><h3>Formulário para o cidadão</h3>
+      <p class="m" style="margin-top:0">Divulgue este link no WhatsApp, Instagram e site. Quem preencher cai direto em <b>Demandas</b>, como "Nova", com origem "Site do gabinete". A pessoa não vê nada do sistema.</p>
+      <div class="f"><label for="pub-link">Link do formulário</label><input id="pub-link" value="${esc(linkPublico())}" readonly></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><button class="btn mini" id="pub-copiar" type="button">Copiar link</button><a class="btn mini wa" href="${esc('https://wa.me/?text=' + encodeURIComponent('Precisa de ajuda do gabinete do ' + DEP() + '? Faça seu pedido aqui: ' + linkPublico()))}" target="_blank" rel="noopener">Enviar pelo WhatsApp</a><a class="btn mini ghost" href="${esc(linkPublico())}" target="_blank" rel="noopener">Ver formulário</a></div></section>` : ''}
     ${gcal.googleAvailable ? `<section class="panel"><h3>Google Agenda</h3>
       <div class="f"><label for="g-cal">ID do calendário do parlamentar</label><input id="g-cal" value="${esc(gcal.calendarId())}"></div>
       <p class="m">Use "primary" para o seu calendário principal, ou o ID que aparece em Configurações do calendário → Integrar agenda (termina em @group.calendar.google.com ou é o e-mail do parlamentar).</p>
@@ -385,7 +394,7 @@ function render() {
     const b = $('#modelos-box'); if (b) b.innerHTML = await modelosHtml();
     const q = $('#equipe-box'); if (q) { try { const l = await store.listEquipe(); const me = (state.session?.user?.email || '').toLowerCase(); q.innerHTML = l.length ? l.map(e => `<div class="ag-item" style="cursor:default;grid-template-columns:minmax(0,1fr) auto;align-items:center"><div class="t" style="font-weight:500">${esc(e)}${e === me ? ' <span class="m">(você)</span>' : ''}</div>${e === me ? '' : `<button class="btn mini ghost" data-eq-del="${esc(e)}">Remover</button>`}</div>`).join('') : '<div class="m">Nenhum e-mail na lista.</div>'; } catch (err) { q.innerHTML = '<div class="m">' + (store.configured ? esc(errMsg(err)) : 'Disponível quando o banco estiver ligado.') + '</div>'; } }
   }, 0);
-  main.innerHTML = state.view === 'painel' ? renderPainel() : state.view === 'etiquetas' ? renderEtiquetas() : state.view === 'conta' ? renderConta() : renderList(state.view);
+  main.innerHTML = state.view === 'painel' ? renderPainel() : state.view === 'etiquetas' ? renderEtiquetas() : state.view === 'conta' ? renderConta() : state.view === 'relatorios' ? renderRelatorios() : state.view === 'importar' ? renderImportar() : renderList(state.view);
   if (hadFocus) { const q = $('#q'); if (q) { q.focus(); try { q.setSelectionRange(pos, pos); } catch { /* ok */ } } }
   if (drawer.open) refreshDatalists();
 }
@@ -432,7 +441,8 @@ function openDrawer(mod, id, preset = {}) {
   $('#overlay').innerHTML = `<div class="scrim" data-close></div><aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="dr-t">
     <div class="dr-head"><div style="min-width:0"><div class="eyebrow">${esc(M.label)}</div><h3 id="dr-t">${rec ? esc(M.title(rec)) : esc(M.novo)}</h3></div><button class="btn ghost" data-close aria-label="Fechar">✕</button></div>
     <form class="dr-body" id="frm" novalidate>${acts.length ? `<div class="dr-actions">${acts.join('')}</div>` : ''}${statusSel}<div class="f"></div>${fields}
-      <datalist id="dl-munis"></datalist><datalist id="dl-pessoas"></datalist><datalist id="dl-equipe"></datalist><div class="err" id="frm-err" hidden></div>${hist}
+      <datalist id="dl-munis"></datalist><datalist id="dl-pessoas"></datalist><datalist id="dl-equipe"></datalist><div class="err" id="frm-err" hidden></div>
+      ${store.anexosDisponiveis ? `<div class="anx" id="anx">${anexosHtml(rec)}</div>` : ''}${hist}
       ${rec ? `<div class="m" style="grid-column:1/-1">Cadastrado em ${fmtStamp(rec.criado_em)} · atualizado em ${fmtStamp(rec.atualizado_em)}</div>` : ''}</form>
     <div class="dr-foot"><div id="del-zone">${rec ? '<button class="btn danger" id="btn-del" type="button">Excluir</button>' : ''}</div><div class="r"><button class="btn" data-close type="button">Cancelar</button><button class="btn primary" id="btn-save" type="button">Salvar</button></div></div></aside>`;
   refreshDatalists();
@@ -543,7 +553,16 @@ async function gerarDocumento() {
     docs.baixar(blob, `${docs.TIPOS[tipo]}${numero ? '-' + String(numero).replace(/\//g, '-') : ''}-${anoDoc}.docx`.normalize('NFD').replace(/[\u0300-\u036f]/g, ''));
     const rot = numero ? `${docs.TIPOS[tipo]} nº ${numero}${tipo === 'oficio' ? '/' + anoDoc : ''}` : docs.TIPOS[tipo];
     const hist = (r.historico || []).concat({ em: new Date().toISOString(), txt: `${rot} gerado em Word`, por: myName() }).slice(-100);
-    r = await store.saveRow(mod, r.id, { historico: hist }); upsertLocal(mod, r);
+    const extra = {};
+    if (store.anexosDisponiveis) {
+      try {
+        const nomeArq = `${docs.TIPOS[tipo]}${numero ? '-' + String(numero).replace(/\//g, '-') : ''}-${anoDoc}.docx`.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        const path = `${mod}/${r.id}/${Date.now()}-${nomeSeguro(nomeArq)}`;
+        await store.enviarAnexo(path, new File([blob], nomeArq, { type: blob.type || 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }));
+        extra.anexos = (r.anexos || []).concat({ path, nome: nomeArq, tamanho: blob.size, em: new Date().toISOString(), por: myName() });
+      } catch { /* sem a pasta de anexos, segue só com o download */ }
+    }
+    r = await store.saveRow(mod, r.id, { historico: hist, ...extra }); upsertLocal(mod, r);
     toast(`${rot} gerado`);
     openDrawer(mod, r.id);
   } catch (e) { toast(errMsg(e)); if (btn) { btn.disabled = false; btn.textContent = 'Gerar ' + docs.TIPOS[tipo] + ' (Word)'; } }
@@ -595,6 +614,221 @@ function exportCsv() {
   a.download = m + '-' + todayStr() + '.csv'; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
 }
 
+/* ---------- avisos (lembretes) ---------- */
+function avisos() {
+  const t = todayStr(), am = addDays(t, 1), md = t.slice(5);
+  const itens = [];
+  ['demandas', 'servicos'].forEach(m => data[m].forEach(r => {
+    if (!isOpen(m, r) || !r.prazo) return;
+    if (r.prazo < t) itens.push({ m, r, nivel: 'late', txt: 'Prazo vencido em ' + fmtDate(r.prazo), urg: 1 });
+    else if (r.prazo <= am) itens.push({ m, r, nivel: 'and', txt: r.prazo === t ? 'Prazo vence hoje' : 'Prazo vence amanhã', urg: 1 });
+  }));
+  data.demandas.forEach(r => { if (r.status === 'Nova' && r.origem === 'Site do gabinete') itens.push({ m: 'demandas', r, nivel: 'novo', txt: 'Pedido novo pelo site', urg: 1 }); });
+  data.agenda.forEach(r => { if (r.data === t && r.status !== 'Cancelado') itens.push({ m: 'agenda', r, nivel: 'and', txt: 'Hoje ' + (hhmm(r.inicio) || ''), urg: 0 }); });
+  data.pessoas.forEach(r => { if (r.nascimento && r.status !== 'Inativo' && r.nascimento.slice(5) === md) itens.push({ m: 'pessoas', r, nivel: 'ok', txt: 'Faz aniversário hoje', urg: 1, wa: waLink(r.telefone, waAniversario(r)) }); });
+  const ordem = { late: 0, novo: 1, and: 2, ok: 3 };
+  itens.sort((a, b) => ordem[a.nivel] - ordem[b.nivel]);
+  return { itens, urgentes: itens.filter(i => i.urg).length };
+}
+function abrirAvisos() {
+  const { itens } = avisos();
+  const titulo = i => i.m === 'pessoas' ? i.r.nome : MODS[i.m].title(i.r);
+  const podeNotif = 'Notification' in window && Notification.permission === 'default';
+  drawer.open = true; drawer.mod = null; drawer.id = null;
+  $('#overlay').innerHTML = `<div class="scrim" data-close></div><aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="av-t">
+    <div class="dr-head"><div><div class="eyebrow">Lembretes de hoje</div><h3 id="av-t">Avisos</h3></div><button class="btn ghost" data-close aria-label="Fechar">✕</button></div>
+    <div class="dr-body" style="display:block">
+      ${podeNotif ? '<div class="dr-actions" style="margin-bottom:12px"><button class="btn mini" id="av-notif" type="button">Receber estes avisos no computador</button></div>' : ''}
+      ${itens.length ? itens.map(i => `<div class="ag-item" data-open="${i.m}:${i.r.id}"><div class="ag-when"><b>${esc(MODS[i.m].sing || MODS[i.m].label)}</b></div><div style="min-width:0"><div class="t">${esc(titulo(i))}</div><div class="m">${esc(i.txt)}</div></div>${i.wa ? `<a class="btn wa mini" href="${esc(i.wa)}" target="_blank" rel="noopener" data-stop>Parabenizar</a>` : `<span class="pill k-${i.nivel}">${i.nivel === 'late' ? 'Vencido' : i.nivel === 'novo' ? 'Novo' : 'Hoje'}</span>`}</div>`).join('')
+        : '<div class="empty"><b>Nenhum aviso hoje</b>Prazos vencendo, pedidos do site, compromissos e aniversários do dia aparecem aqui.</div>'}
+    </div></aside>`;
+}
+function notificarNoComputador() {
+  try {
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+    const chave = 'gabinete-aviso-dia', hoje = todayStr();
+    if (localStorage.getItem(chave) === hoje) return;
+    const { itens, urgentes } = avisos(); if (!urgentes) return;
+    const venc = itens.filter(i => i.nivel === 'late').length, site = itens.filter(i => i.nivel === 'novo').length, aniv = itens.filter(i => i.m === 'pessoas').length;
+    const partes = [venc && venc + ' prazo(s) vencido(s)', site && site + ' pedido(s) novo(s) pelo site', aniv && aniv + ' aniversariante(s) hoje'].filter(Boolean);
+    new Notification(NOME_GAB(), { body: partes.join(' · ') || urgentes + ' aviso(s) para hoje' });
+    localStorage.setItem(chave, hoje);
+  } catch { /* navegador sem suporte */ }
+}
+
+/* ---------- anexos ---------- */
+const tamanho = n => n > 1048576 ? (n / 1048576).toFixed(1).replace('.', ',') + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB';
+function anexosHtml(rec) {
+  if (!rec) return '<span class="eyebrow">Anexos</span><div class="m">Salve o registro primeiro para anexar fotos, PDFs e documentos.</div>';
+  const a = rec.anexos || [];
+  return `<span class="eyebrow">Anexos</span>
+    ${a.length ? `<ul class="anx-list">${a.map((x, i) => `<li><button class="linkbtn" type="button" data-anx-abrir="${i}">📎 ${esc(x.nome)}</button><span class="m">${tamanho(x.tamanho || 0)} · ${fmtStamp(x.em)}${x.por ? ' · ' + esc(x.por) : ''}</span><button class="btn mini ghost" type="button" data-anx-del="${i}">Remover</button></li>`).join('')}</ul>` : '<div class="m">Nenhum arquivo anexado.</div>'}
+    <label class="btn mini" style="cursor:pointer;margin-top:8px">+ Anexar arquivo<input type="file" multiple data-anx-add hidden></label>`;
+}
+const nomeSeguro = n => n.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\w.-]+/g, '-').slice(-80);
+async function anexarArquivos(mod, id, files) {
+  let r = data[mod].find(x => x.id === id); if (!r) return;
+  const novos = [];
+  for (const f of files) {
+    if (f.size > 20 * 1048576) { toast(f.name + ' passa de 20 MB'); continue; }
+    const path = `${mod}/${id}/${Date.now()}-${nomeSeguro(f.name)}`;
+    toast('Enviando ' + f.name + '…');
+    await store.enviarAnexo(path, f);
+    novos.push({ path, nome: f.name, tamanho: f.size, em: new Date().toISOString(), por: myName() });
+  }
+  if (!novos.length) return;
+  r = data[mod].find(x => x.id === id);
+  const hist = (r.historico || []).concat(novos.map(n => ({ em: n.em, txt: 'Anexo incluído: ' + n.nome, por: n.por }))).slice(-100);
+  const row = await store.saveRow(mod, id, { anexos: (r.anexos || []).concat(novos), historico: hist });
+  upsertLocal(mod, row);
+  const box = $('#anx'); if (box && drawer.id === id) box.innerHTML = anexosHtml(row);
+  toast(novos.length === 1 ? 'Arquivo anexado' : novos.length + ' arquivos anexados');
+}
+async function removerAnexo(mod, id, i) {
+  const r = data[mod].find(x => x.id === id); const a = (r?.anexos || []).slice(); const x = a[i]; if (!x) return;
+  try { await store.apagarAnexo(x.path); } catch { /* se o arquivo já não existir, segue */ }
+  a.splice(i, 1);
+  const hist = (r.historico || []).concat({ em: new Date().toISOString(), txt: 'Anexo removido: ' + x.nome, por: myName() }).slice(-100);
+  const row = await store.saveRow(mod, id, { anexos: a, historico: hist });
+  upsertLocal(mod, row);
+  const box = $('#anx'); if (box && drawer.id === id) box.innerHTML = anexosHtml(row);
+  toast('Anexo removido');
+}
+
+/* ---------- relatórios (para imprimir ou salvar em PDF) ---------- */
+const DATA_REL = { demandas: r => r.criado_em, servicos: r => r.data_envio || r.criado_em, emendas: r => r.criado_em, proposituras: r => r.data_protocolo || r.criado_em, agenda: r => r.data, pessoas: r => r.criado_em };
+function relFiltrados() {
+  const f = state.rel, m = f.mod;
+  return data[m].filter(r => {
+    const d = String(DATA_REL[m](r) || '').slice(0, 10);
+    return (!f.de || d >= f.de) && (!f.ate || d <= f.ate) && (!f.municipio || r.municipio === f.municipio) && (!f.bairro || r.bairro === f.bairro) && (!f.status || r.status === f.status);
+  }).sort((a, b) => String(DATA_REL[m](a) || '').localeCompare(String(DATA_REL[m](b) || '')));
+}
+function renderRelatorios() {
+  const f = state.rel, m = f.mod, M = MODS[m];
+  const uniq = k => [...new Set(data[m].map(r => r[k]).filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b), 'pt-BR'));
+  const sel = (id, label, opts, v, todos = 'Todos') => `<div class="f"><label for="rl-${id}">${label}</label><select id="rl-${id}" data-rel="${id}">${todos ? `<option value="">${todos}</option>` : ''}${opts.map(o => { const [val, txt] = Array.isArray(o) ? o : [o, o]; return `<option value="${esc(val)}" ${String(val) === String(v) ? 'selected' : ''}>${esc(txt)}</option>`; }).join('')}</select></div>`;
+  const rows = relFiltrados();
+  const conta = (k, vazio) => { const c = {}; rows.forEach(r => { const v = r[k] || vazio; c[v] = (c[v] || 0) + 1; }); return Object.entries(c).sort((a, b) => b[1] - a[1]); };
+  const tabela = (titulo, pares, max = 15) => pares.length ? `<section class="panel rel-box"><h3>${titulo}</h3><table class="rtab"><tbody>${pares.slice(0, max).map(([k, n]) => `<tr><td>${esc(k)}</td><td class="num">${n}</td><td class="num m">${Math.round(n / rows.length * 100)}%</td></tr>`).join('')}${pares.length > max ? `<tr><td class="m">Outros (${pares.length - max})</td><td class="num">${pares.slice(max).reduce((s, x) => s + x[1], 0)}</td><td></td></tr>` : ''}</tbody></table></section>` : '';
+  const val = r => +(r.valor_indicado || r.valor_pedido) || 0;
+  const periodo = f.de || f.ate ? `de ${f.de ? fmtDataBR(f.de) : 'início'} até ${f.ate ? fmtDataBR(f.ate) : 'hoje'}` : 'todo o período';
+  const filtrosTxt = [f.municipio && 'Município: ' + f.municipio, f.bairro && 'Bairro: ' + f.bairro, f.status && 'Situação: ' + f.status].filter(Boolean).join(' · ');
+  const colsDet = { demandas: ['Data', 'Assunto', 'Solicitante', 'Local', 'Situação'], servicos: ['Data', 'Ofício / serviço', 'Órgão', 'Local', 'Situação'], emendas: ['Data', 'Objeto', 'Beneficiário', 'Valor', 'Situação'], proposituras: ['Data', 'Ementa', 'Tipo / nº', 'Tema', 'Situação'], agenda: ['Data', 'Compromisso', 'Local', 'Contato', 'Situação'], pessoas: ['Cadastro', 'Nome', 'Tipo', 'Local', 'Telefone'] }[m];
+  const linha = r => { const d = fmtDataBR(String(DATA_REL[m](r) || '').slice(0, 10)); const loc = [r.bairro, r.municipio].filter(Boolean).join(', ');
+    const c = { demandas: [d, r.assunto, r.solicitante, loc, r.status], servicos: [d, r.servico, r.orgao, loc || r.local, r.status], emendas: [d, r.objeto, r.beneficiario, brl(val(r)), r.status], proposituras: [d, r.ementa, [r.tipo, r.numero && 'nº ' + r.numero].filter(Boolean).join(' '), r.tema, r.status], agenda: [d + (r.inicio ? ' ' + hhmm(r.inicio) : ''), r.titulo, r.local || r.municipio, r.contato, r.status], pessoas: [d, r.nome, r.tipo, loc, r.telefone] }[m];
+    return `<tr data-open="${m}:${r.id}">${c.map(x => `<td>${esc(x || '')}</td>`).join('')}</tr>`; };
+  return `<h2 class="sec">Relatórios</h2><div class="m no-print" style="margin-top:2px">Escolha o assunto e o período. Para salvar em PDF, toque em "Imprimir / salvar PDF" e escolha <b>Salvar como PDF</b> no destino da impressora.</div>
+    <div class="filters">
+      ${sel('mod', 'Relatório de', ORDER.map(k => [k, MODS[k].label]), m, '')}
+      <div class="f"><label for="rl-de">De</label><input id="rl-de" type="date" data-rel="de" value="${esc(f.de)}"></div>
+      <div class="f"><label for="rl-ate">Até</label><input id="rl-ate" type="date" data-rel="ate" value="${esc(f.ate)}"></div>
+      ${M.fields.some(x => x.k === 'municipio') ? sel('municipio', 'Município', uniq('municipio'), f.municipio) : ''}
+      ${M.fields.some(x => x.k === 'bairro') ? sel('bairro', 'Bairro', uniq('bairro'), f.bairro) : ''}
+      ${sel('status', 'Situação', M.statuses.map(s => s[0]), f.status)}
+    </div>
+    <div class="no-print" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px"><button class="btn primary" id="rel-print" ${rows.length ? '' : 'disabled'}>Imprimir / salvar PDF</button>
+      <button class="btn ghost" data-rel-rapido="mes">Este mês</button><button class="btn ghost" data-rel-rapido="ano">Este ano</button><button class="btn ghost" data-rel-rapido="tudo">Tudo</button></div>
+    <div class="rel">
+      <div class="rel-head"><div class="eyebrow">${esc(NOME_GAB())}</div><h2 class="sec" style="margin:2px 0">Relatório de ${esc(M.label.toLowerCase())}</h2>
+        <div class="m">${esc(periodo)}${filtrosTxt ? ' · ' + esc(filtrosTxt) : ''} · emitido em ${fmtStamp(new Date().toISOString())}</div></div>
+      <div class="kpis rel-kpis"><div class="kpi"><span class="eyebrow">Total</span><span class="big">${rows.length}</span><span class="sub">registro(s)</span></div>
+        ${m !== 'pessoas' && m !== 'agenda' ? `<div class="kpi"><span class="eyebrow">Concluídos</span><span class="big">${rows.filter(r => kindOf(m, r.status) === 'ok').length}</span><span class="sub">${rows.length ? Math.round(rows.filter(r => kindOf(m, r.status) === 'ok').length / rows.length * 100) : 0}% do total</span></div>
+        <div class="kpi"><span class="eyebrow">Em aberto</span><span class="big">${rows.filter(r => isOpen(m, r)).length}</span><span class="sub">${M.deadline ? rows.filter(r => isLate(m, r)).length + ' atrasado(s)' : '&nbsp;'}</span></div>` : ''}
+        ${m === 'emendas' ? `<div class="kpi"><span class="eyebrow">Valor</span><span class="big" style="font-size:20px">${brl(rows.reduce((s, r) => s + val(r), 0))}</span><span class="sub">${brl(rows.filter(r => r.status === 'Paga').reduce((s, r) => s + val(r), 0))} pago</span></div>` : ''}</div>
+      ${rows.length ? `<div class="rel-grid">
+        ${tabela('Por situação', conta('status', '—'))}
+        ${M.fields.some(x => x.k === 'municipio') && !f.municipio ? tabela('Por município', conta('municipio', 'Sem município')) : ''}
+        ${M.fields.some(x => x.k === 'bairro') ? tabela('Por bairro', conta('bairro', 'Sem bairro')) : ''}
+        ${M.fields.some(x => x.k === 'area') ? tabela('Por área', conta('area', 'Sem área')) : ''}
+        ${M.fields.some(x => x.k === 'tipo') ? tabela('Por tipo', conta('tipo', 'Sem tipo')) : ''}
+        ${M.fields.some(x => x.k === 'responsavel') ? tabela('Por responsável', conta('responsavel', 'Sem responsável')) : ''}
+      </div>
+      <section class="panel" style="margin-top:14px"><h3>Lista (${rows.length})</h3><div class="rtab-wrap"><table class="rtab det"><thead><tr>${colsDet.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>${rows.map(linha).join('')}</tbody></table></div></section>`
+      : '<div class="empty"><b>Nenhum registro nesse filtro</b>Mude o período ou os filtros acima.</div>'}
+    </div>`;
+}
+function fmtDataBR(s) { if (!s) return ''; const [y, mm, d] = s.split('-'); return d + '/' + mm + '/' + y; }
+
+/* ---------- importar planilha ---------- */
+function renderImportar() {
+  const s = state.imp, M = MODS[s.mod];
+  const campos = [['', '— não importar —'], ['status', 'Situação']].concat(M.fields.map(f => [f.k, f.l + (f.req ? ' *' : '')]));
+  let corpo = '';
+  if (s.cabecalho) {
+    const { regs, semObrig } = imp.montarRegistros(s.mod, s.linhas, s.mapa, myName());
+    const { regs: finais, dup } = imp.semDuplicados(s.mod, regs, data[s.mod]);
+    const exemplo = i => s.linhas.slice(0, 3).map(l => l[i] instanceof Date ? fmtDataBR(ymd(l[i])) : l[i]).filter(v => v != null && v !== '').map(v => String(v).slice(0, 40)).join(' · ');
+    const faltando = M.fields.filter(f => f.req && !s.mapa.includes(f.k)).map(f => f.l);
+    corpo = `<section class="panel"><h3>2. Confira as colunas <span class="m" style="font-weight:400">${esc(s.arquivo)} · ${s.linhas.length} linha(s)</span></h3>
+      <p class="m" style="margin-top:0">Para cada coluna da sua planilha, escolha o campo do sistema. Já deixei sugerido o que reconheci.</p>
+      <table class="rtab imp"><thead><tr><th>Coluna da planilha</th><th>Exemplos</th><th>Vai para o campo</th></tr></thead><tbody>
+      ${s.cabecalho.map((h, i) => `<tr><td><b>${esc(h || '(sem título)')}</b></td><td class="m">${esc(exemplo(i))}</td><td><select data-imp-col="${i}">${campos.map(([k, l]) => `<option value="${k}" ${s.mapa[i] === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></td></tr>`).join('')}
+      </tbody></table></section>
+      <section class="panel" style="margin-top:14px"><h3>3. Importar</h3>
+        ${faltando.length ? `<div class="err">Escolha uma coluna para: ${esc(faltando.join(', '))}.</div>` : ''}
+        <p class="m" style="margin-top:0"><b>${finais.length}</b> registro(s) serão criados em ${esc(M.label)}.${semObrig ? ` ${semObrig} linha(s) sem ${esc(M.fields.filter(f => f.req).map(f => f.l).join(' / '))} serão puladas.` : ''}${dup ? ` ${dup} pessoa(s) que já estão cadastradas serão puladas.` : ''}</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" id="imp-go" ${finais.length && !faltando.length ? '' : 'disabled'}>Importar ${finais.length} registro(s)</button><button class="btn ghost" id="imp-reset">Escolher outra planilha</button></div></section>`;
+  }
+  return `<div class="no-print"><a class="linkbtn" data-go="${s.mod}">← ${esc(M.label)}</a></div>
+    <h2 class="sec" style="margin-top:6px">Importar planilha</h2>
+    <div class="m">Traga para o sistema os cadastros que hoje estão no Excel. Nada é apagado; os registros importados são somados aos que já existem.</div>
+    <section class="panel" style="margin-top:14px"><h3>1. Escolha a planilha</h3>
+      <div class="filters" style="margin:0 0 10px">
+        <div class="f"><label for="imp-mod">Importar para</label><select id="imp-mod">${ORDER.map(k => `<option value="${k}" ${k === s.mod ? 'selected' : ''}>${esc(MODS[k].label)}</option>`).join('')}</select></div>
+      </div>
+      <label class="btn" style="cursor:pointer">${s.cabecalho ? 'Trocar planilha' : 'Escolher arquivo (.xlsx ou .csv)'}<input type="file" id="imp-file" accept=".xlsx,.csv,.txt,.xls" hidden></label>
+      <p class="m">A primeira linha precisa ter os títulos das colunas, por exemplo: <i>Nome, Telefone, Bairro, Cidade, Aniversário</i>.</p></section>
+    ${corpo}`;
+}
+async function importarAgora() {
+  const s = state.imp, btn = $('#imp-go'); if (btn) { btn.disabled = true; btn.textContent = 'Importando…'; }
+  try {
+    const { regs } = imp.montarRegistros(s.mod, s.linhas, s.mapa, myName());
+    const { regs: finais } = imp.semDuplicados(s.mod, regs, data[s.mod]);
+    const rows = await store.insertMany(s.mod, finais, (n, t) => { if (btn) btn.textContent = `Importando… ${n} de ${t}`; });
+    rows.forEach(r => { if (!data[s.mod].some(x => x.id === r.id)) data[s.mod].unshift(r); });
+    toast(rows.length + ' registro(s) importado(s)');
+    const mod = s.mod; state.imp = { mod }; go(mod);
+  } catch (e) { toast('Não foi possível importar: ' + errMsg(e)); if (btn) { btn.disabled = false; btn.textContent = 'Tentar de novo'; } }
+}
+
+/* ---------- formulário público ---------- */
+const linkPublico = () => location.origin + location.pathname + '?solicitar';
+function renderFormPublico(msg = '', ok = false, vals = {}) {
+  document.title = 'Fale com o gabinete · ' + NOME_GAB();
+  if (ok) {
+    document.body.innerHTML = `<div class="login"><div class="login-card"><div style="display:flex;gap:10px;align-items:center"><div class="mark">G</div><h1>${esc(NOME_GAB())}</h1></div>
+      <h2 class="sec" style="margin:4px 0 0">Pedido recebido! ✅</h2><p class="m">Obrigado. A equipe do gabinete do ${esc(DEP())} vai analisar e entrar em contato pelo telefone informado.</p>
+      <button class="btn" id="fp-outro" style="justify-content:center">Fazer outro pedido</button></div></div>`;
+    $('#fp-outro').addEventListener('click', () => renderFormPublico());
+    return;
+  }
+  const v = k => esc(vals[k] ?? (k === 'municipio' ? cfg.cidade_gabinete : '') ?? '');
+  document.body.innerHTML = `<div class="login"><form class="login-card pub" id="fpub" novalidate>
+    <div style="display:flex;gap:10px;align-items:center"><div class="mark">G</div><h1>${esc(NOME_GAB())}</h1></div>
+    <div class="m">Conte para o gabinete do ${esc(DEP())} o que você precisa: um buraco na rua, iluminação, saúde, um pedido para o seu bairro. A equipe responde pelo WhatsApp ou telefone.</div>
+    <div class="f"><label for="fp-nome">Seu nome *</label><input id="fp-nome" autocomplete="name" maxlength="120" value="${v('nome')}"></div>
+    <div class="f"><label for="fp-tel">WhatsApp / telefone *</label><input id="fp-tel" type="tel" autocomplete="tel" maxlength="30" placeholder="(45) 99999-9999" value="${v('telefone')}"></div>
+    <div class="f"><label for="fp-mun">Cidade</label><input id="fp-mun" maxlength="80" value="${v('municipio')}"></div>
+    <div class="f"><label for="fp-bairro">Bairro</label><input id="fp-bairro" maxlength="80" value="${v('bairro')}"></div>
+    <div class="f"><label for="fp-ass">Qual é o pedido? *</label><input id="fp-ass" maxlength="200" placeholder="Ex.: Troca de lâmpada na Rua das Flores" value="${v('assunto')}"></div>
+    <div class="f"><label for="fp-desc">Detalhes (endereço, ponto de referência…)</label><textarea id="fp-desc" maxlength="3000">${v('descricao')}</textarea></div>
+    <div class="hp" aria-hidden="true"><label for="fp-site">Não preencha</label><input id="fp-site" tabindex="-1" autocomplete="off"></div>
+    ${msg ? `<div class="err">${esc(msg)}</div>` : ''}
+    <button class="btn primary" type="submit" style="justify-content:center">Enviar pedido</button>
+    <div class="m" style="font-size:11.5px">Seus dados são usados só para o gabinete responder ao seu pedido.</div></form></div>`;
+  $('#fpub').addEventListener('submit', async e => {
+    e.preventDefault();
+    const c = { nome: $('#fp-nome').value.trim(), telefone: $('#fp-tel').value.trim(), municipio: $('#fp-mun').value.trim(), bairro: $('#fp-bairro').value.trim(), assunto: $('#fp-ass').value.trim(), descricao: $('#fp-desc').value.trim() };
+    if ($('#fp-site').value) return renderFormPublico('', true);
+    if (!c.nome || !c.assunto || c.telefone.replace(/\D/g, '').length < 10) return renderFormPublico(!c.nome || !c.assunto ? 'Preencha seu nome e o pedido.' : 'Digite o telefone com DDD.', false, c);
+    const b = e.target.querySelector('[type=submit]'); b.disabled = true; b.textContent = 'Enviando…';
+    try { await store.novaDemandaPublica(c); renderFormPublico('', true); }
+    catch (err) { renderFormPublico(errMsg(err), false, c); }
+  });
+}
+
 /* ---------- eventos ---------- */
 document.addEventListener('click', e => {
   if (e.target.closest('[data-stop]')) { e.stopPropagation(); return; }
@@ -607,6 +841,16 @@ document.addEventListener('click', e => {
   const sr = e.target.closest('[data-search]'); if (sr) { const q = sr.dataset.search; closeDrawer(); go('demandas'); state.q = q; state.filter = 'todos'; render(); return; }
   if (e.target.closest('#btn-new')) { openDrawer(state.view === 'painel' ? 'demandas' : state.view, null); return; }
   if (e.target.closest('#btn-export')) { exportCsv(); return; }
+  if (e.target.closest('#btn-import')) { state.imp = { mod: state.view }; go('importar'); return; }
+  if (e.target.closest('#btn-avisos')) { abrirAvisos(); return; }
+  if (e.target.closest('#av-notif')) { Notification.requestPermission().then(p => { toast(p === 'granted' ? 'Pronto: os avisos aparecem quando você abrir o sistema' : 'O navegador não liberou os avisos'); if (p === 'granted') { try { localStorage.removeItem('gabinete-aviso-dia'); } catch { /* ok */ } notificarNoComputador(); } abrirAvisos(); }); return; }
+  const ab = e.target.closest('[data-anx-abrir]'); if (ab) { const r = data[drawer.mod].find(x => x.id === drawer.id); const x = r?.anexos?.[+ab.dataset.anxAbrir]; if (x) { const w = window.open('', '_blank'); store.linkAnexo(x.path).then(u => { if (w) w.location = u; else location.href = u; }).catch(err => { if (w) w.close(); toast(errMsg(err)); }); } return; }
+  const ad = e.target.closest('[data-anx-del]'); if (ad) { if (ad.dataset.ok) removerAnexo(drawer.mod, drawer.id, +ad.dataset.anxDel).catch(err => toast(errMsg(err))); else { ad.dataset.ok = '1'; ad.textContent = 'Confirmar'; ad.classList.add('danger'); } return; }
+  if (e.target.closest('#rel-print')) { window.print(); return; }
+  const rr = e.target.closest('[data-rel-rapido]'); if (rr) { const t = todayStr(), k = rr.dataset.relRapido; state.rel.de = k === 'mes' ? t.slice(0, 8) + '01' : k === 'ano' ? t.slice(0, 5) + '01-01' : ''; state.rel.ate = k === 'tudo' ? '' : t; render(); return; }
+  if (e.target.closest('#imp-go')) { importarAgora(); return; }
+  if (e.target.closest('#imp-reset')) { state.imp = { mod: state.imp.mod }; render(); return; }
+  if (e.target.closest('#pub-copiar')) { const i = $('#pub-link'); try { navigator.clipboard.writeText(i.value).then(() => toast('Link copiado')); } catch { i.select(); document.execCommand('copy'); toast('Link copiado'); } return; }
   if (e.target.closest('#btn-save')) { saveDrawer(); return; }
   if (e.target.closest('#btn-del')) { $('#del-zone').innerHTML = '<span class="confirm">Excluir de vez? <button class="btn danger" id="btn-del-yes" type="button">Sim, excluir</button><button class="btn ghost" id="btn-del-no" type="button">Não</button></span>'; return; }
   if (e.target.closest('#btn-del-no')) { $('#del-zone').innerHTML = '<button class="btn danger" id="btn-del" type="button">Excluir</button>'; return; }
@@ -629,6 +873,17 @@ document.addEventListener('click', e => {
   if (e.target.closest('#pf-senha')) { renderSetPassword(); return; }
 });
 document.addEventListener('change', async e => {
+  const el = e.target;
+  if (el.dataset && 'anxAdd' in el.dataset) { const files = [...el.files]; el.value = ''; if (files.length) anexarArquivos(drawer.mod, drawer.id, files).catch(err => toast('Não foi possível anexar: ' + errMsg(err))); return; }
+  if (el.dataset && el.dataset.rel) { state.rel[el.dataset.rel] = el.value; if (el.dataset.rel === 'mod') Object.assign(state.rel, { municipio: '', bairro: '', status: '' }); render(); return; }
+  if (el.id === 'imp-mod') { const o = state.imp; state.imp = o.cabecalho ? { ...o, mod: el.value, mapa: imp.sugerirMapa(el.value, o.cabecalho) } : { mod: el.value }; render(); return; }
+  if (el.dataset && el.dataset.impCol != null) { state.imp.mapa[+el.dataset.impCol] = el.value; render(); return; }
+  if (el.id === 'imp-file') {
+    const f = el.files[0]; if (!f) return;
+    try { const { cabecalho, linhas } = await imp.lerArquivo(f); state.imp = { mod: state.imp.mod, arquivo: f.name, cabecalho, linhas, mapa: imp.sugerirMapa(state.imp.mod, cabecalho) }; render(); }
+    catch (err) { toast(errMsg(err)); }
+    return;
+  }
   const t = e.target.dataset && e.target.dataset.modEnviar; if (!t) return;
   const f = e.target.files[0]; if (!f) return;
   try {
@@ -660,11 +915,12 @@ document.addEventListener('input', e => {
   if (e.target.id === 'q') { state.q = e.target.value; render(); }
   if (e.target.dataset && e.target.dataset.et) { state.et[e.target.dataset.et] = e.target.value; const pos = e.target.id; render(); const el = document.getElementById(pos); if (el) el.focus(); }
 });
-document.addEventListener('keydown', e => { if (e.key === 'Escape' && drawer.open) closeDrawer(); if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && drawer.open) saveDrawer(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && drawer.open) closeDrawer(); if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && drawer.open && drawer.mod) saveDrawer(); });
 
 /* ---------- inicialização ---------- */
 let unsub = null;
 async function startApp() {
+  if (new URLSearchParams(location.search).has('solicitar')) return renderFormPublico();
   if (store.configured) {
     state.session = await store.getSession();
     if (!state.session) return renderLogin();
@@ -684,6 +940,7 @@ async function startApp() {
     state.loaded = true;
   } catch (e) { toast('Erro ao carregar dados: ' + errMsg(e)); }
   render();
+  notificarNoComputador();
   if (unsub) unsub();
   unsub = store.subscribe((m, type, nw, old) => {
     if (type === 'DELETE') data[m] = data[m].filter(r => r.id !== old.id);
