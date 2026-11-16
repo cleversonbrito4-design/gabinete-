@@ -40,10 +40,17 @@ export async function saveRow(mod, id, rec) {
     else { row = { ...body, id: uuid(), criado_em: now, atualizado_em: now }; a.unshift(row); }
     d[mod] = a; demoWrite(d); return row;
   }
-  const q = id ? sb.from(mod).update(body).eq('id', id) : sb.from(mod).insert(body);
-  const { data, error } = await q.select().single();
-  if (error) throw error;
-  return data;
+  // se o banco ainda não tiver alguma coluna nova, grava o resto em vez de falhar
+  for (let tent = 0; tent < 8; tent++) {
+    const q = id ? sb.from(mod).update(body).eq('id', id) : sb.from(mod).insert(body);
+    const { data, error } = await q.select().single();
+    if (!error) return data;
+    const m = /Could not find the '(\w+)' column/.exec(error.message || '');
+    if (!m || !(m[1] in body)) throw error;
+    console.warn('Coluna ainda não existe no banco:', m[1]); delete body[m[1]];
+    if (!Object.keys(body).length) throw error;
+  }
+  throw new Error('Não foi possível salvar.');
 }
 
 export async function deleteRow(mod, id) {
@@ -189,4 +196,19 @@ export async function linksAnexos(paths) {
   const { data, error } = await sb.storage.from('anexos').createSignedUrls(paths, 3600);
   if (error) throw error;
   return Object.fromEntries(data.filter(d => d.signedUrl).map(d => [d.path, d.signedUrl]));
+}
+
+export async function prestacaoPublica() {
+  if (!sb) { // modo demonstração: mesma regra da função do banco
+    const d = demoRead(); const dt = r => String(r.atualizado_em || r.criado_em || '').slice(0, 10);
+    return {
+      gabinete: null,
+      demandas: (d.demandas || []).filter(r => r.publico && r.status === 'Concluída').map(r => ({ titulo: r.assunto, bairro: r.bairro, municipio: r.municipio, area: r.area, data: dt(r) })),
+      servicos: (d.servicos || []).filter(r => r.publico && r.status === 'Atendida').map(r => ({ titulo: r.servico, municipio: r.municipio, orgao: r.orgao, data: dt(r) })),
+      emendas: (d.emendas || []).filter(r => r.publico && ['Indicada', 'Empenhada', 'Paga'].includes(r.status)).map(r => ({ titulo: r.objeto, beneficiario: r.beneficiario, municipio: r.municipio, area: r.area, status: r.status, exercicio: r.exercicio, valor: r.valor_pago || r.valor_empenhado || r.valor_indicado })),
+    };
+  }
+  const { data, error } = await sb.rpc('prestacao_publica');
+  if (error) throw error;
+  return data;
 }

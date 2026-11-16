@@ -22,6 +22,7 @@ export const MODS = {
       { k:'origem', l:'Como chegou', type:'select', opts:['Presencial','WhatsApp','Telefone','E-mail','Redes sociais','Liderança local','Visita do parlamentar','Site do gabinete'] },
       { k:'descricao', l:'Descrição', type:'textarea', wide:1 },
       { k:'obs', l:'Andamento / observações', type:'textarea', wide:1 },
+      { k:'publico', l:'Mostrar na prestação de contas pública (sem nome nem telefone do cidadão)', type:'bool', wide:1 },
     ],
     title: r => r.assunto,
     meta: r => [r.solicitante, r.municipio && (r.municipio + (r.bairro ? ' · ' + r.bairro : '')), r.area].filter(Boolean).join(' · '),
@@ -48,6 +49,7 @@ export const MODS = {
       { k:'vocativo', l:'Vocativo (ex.: Senhor Prefeito)' },
       { k:'corpo', l:'Texto do ofício (vai para o Word; um parágrafo por linha)', type:'textarea', wide:1 },
       { k:'obs', l:'Andamento / resposta', type:'textarea', wide:1 },
+      { k:'publico', l:'Mostrar na prestação de contas pública (sem nome nem telefone do cidadão)', type:'bool', wide:1 },
     ],
     title: r => r.servico,
     meta: r => [r.orgao, r.municipio && (r.municipio + (r.local ? ' · ' + r.local : '')), r.protocolo && ('Ofício ' + r.protocolo)].filter(Boolean).join(' · '),
@@ -67,10 +69,13 @@ export const MODS = {
       { k:'modalidade', l:'Modalidade', type:'select', opts:['Individual – finalidade definida','Individual – transferência especial (Pix)','Bancada','Comissão'] },
       { k:'valor_pedido', l:'Valor pedido (R$)', type:'money' },
       { k:'valor_indicado', l:'Valor indicado (R$)', type:'money' },
+      { k:'valor_empenhado', l:'Valor empenhado (R$)', type:'money' },
+      { k:'valor_pago', l:'Valor pago (R$)', type:'money' },
       { k:'exercicio', l:'Exercício (ano)', type:'number' },
       { k:'quem_pediu', l:'Quem fez o pedido (liderança)', people:1 },
       { k:'numero', l:'Nº da emenda / proposta', mono:1 },
       { k:'obs', l:'Andamento / observações', type:'textarea', wide:1 },
+      { k:'publico', l:'Mostrar na prestação de contas pública (sem nome nem telefone do cidadão)', type:'bool', wide:1 },
     ],
     title: r => r.objeto,
     meta: r => [r.beneficiario, r.municipio, r.modalidade, r.exercicio].filter(Boolean).join(' · '),
@@ -163,4 +168,4 @@ export const MODS = {
 
 export const ORDER = ['demandas', 'servicos', 'emendas', 'proposituras', 'agenda', 'tarefas', 'pessoas'];
 
-export const SQL_TYPE = { date:'date', time:'time', money:'numeric(14,2)', number:'integer' };
+export const SQL_TYPE = { date:'date', time:'time', money:'numeric(14,2)', number:'integer', bool:'boolean not null default false' };

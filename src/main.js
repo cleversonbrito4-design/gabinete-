@@ -76,11 +76,11 @@ const waAniversario = p => `Olá, ${primeiroNome(p.nome)}! O ${DEP()} e toda a e
 
 /* ---------- estado ---------- */
 const data = Object.fromEntries(ORDER.map(m => [m, []]));
-const state = { mapa: { mod: 'demandas', so: 'abertos' }, imp: { mod: 'pessoas' }, rel: { mod: 'demandas', de: '', ate: '', municipio: '', bairro: '', status: '' }, view: 'painel', q: '', filter: 'abertos', agendaWin: 'proximos', loaded: false, session: null, profiles: [], et: { tipo: '', grupo: '', municipio: '', mes: '', modelo: '6180', pular: 0 } };
+const state = { rem: { ano: '', municipio: '' }, cid: null, mapa: { mod: 'demandas', so: 'abertos' }, imp: { mod: 'pessoas' }, rel: { mod: 'demandas', de: '', ate: '', municipio: '', bairro: '', status: '' }, view: 'painel', q: '', filter: 'abertos', agendaWin: 'proximos', loaded: false, session: null, profiles: [], et: { tipo: '', grupo: '', municipio: '', mes: '', modelo: '6180', pular: 0 } };
 const drawer = { open: false, mod: null, id: null, geo: null };
 let geoMini = null; // mapinha aberto dentro do registro
 let pedidoInstalar = null; // convite do navegador para instalar o app
-const VIEWS = ['painel', 'etiquetas', 'conta', 'relatorios', 'importar', 'mapa', ...ORDER];
+const VIEWS = ['painel', 'etiquetas', 'conta', 'relatorios', 'importar', 'mapa', 'resumo-emendas', 'cidadao', ...ORDER];
 
 function readHash() { const h = location.hash.slice(1); if (VIEWS.includes(h)) state.view = h; }
 window.addEventListener('hashchange', () => { readHash(); state.q = state.qNext || ''; state.filter = state.qNext ? 'todos' : 'abertos'; state.qNext = ''; render(); });
@@ -190,10 +190,10 @@ const myName = () => (state.profiles.find(p => p.id === state.session?.user?.id)
 
 function renderTabs() {
   const tabs = [['painel', 'Painel', null]].concat(ORDER.map(m => [m, MODS[m].label, data[m].filter(r => isOpen(m, r)).length]), [['relatorios', 'Relatórios', null]]);
-  const cur = state.view === 'etiquetas' ? 'pessoas' : state.view === 'importar' ? state.imp.mod : state.view === 'mapa' ? state.mapa.mod : state.view;
+  const cur = state.view === 'resumo-emendas' ? 'emendas' : state.view === 'cidadao' ? 'pessoas' : state.view === 'etiquetas' ? 'pessoas' : state.view === 'importar' ? state.imp.mod : state.view === 'mapa' ? state.mapa.mod : state.view;
   $('#tabs').innerHTML = tabs.map(([k, l, n]) => `<button class="tab" role="tab" data-go="${k}" aria-selected="${cur === k}">${l}${n != null ? `<span class="n">${n}</span>` : ''}</button>`).join('');
   const nb = $('#btn-new');
-  nb.hidden = ['conta', 'etiquetas', 'relatorios', 'importar', 'mapa'].includes(state.view);
+  nb.hidden = ['conta', 'etiquetas', 'relatorios', 'importar', 'mapa', 'resumo-emendas', 'cidadao'].includes(state.view);
   nb.textContent = '+ ' + (state.view === 'painel' ? MODS.demandas.novo : MODS[state.view]?.novo || 'Novo');
   $('#btn-export').hidden = !MODS[state.view];
   $('#btn-import').hidden = !MODS[state.view];
@@ -327,6 +327,7 @@ function renderList(m) {
     const opts = [['abertos', 'Em aberto']].concat(M.deadline ? [['atrasados', 'Atrasados']] : []).concat(M.fields.some(f => f.k === 'responsavel') ? [['meus', 'Comigo']] : []).concat([['todos', 'Todos']], M.statuses.map(s => [s[0], s[0]]));
     chips = opts.map(([k, l]) => chip('data-filter', k, l, state.filter === k)).join('');
     if (['demandas', 'servicos'].includes(m)) extra = `<div class="no-print" style="margin-bottom:4px"><button class="btn mini" data-mapa-de="${m}">Ver no mapa</button></div>`;
+    if (m === 'emendas') extra = `<div class="no-print" style="margin-bottom:4px"><button class="btn mini primary" data-go="resumo-emendas">Painel de emendas (indicado, empenhado, pago)</button></div>`;
   }
   let body;
   if (!data[m].length) body = `<div class="empty"><b>Nenhum registro ainda</b>Clique em “+ ${esc(M.novo)}” para cadastrar o primeiro.</div>`;
@@ -406,7 +407,11 @@ function renderConta() {
       <p class="m" style="margin-top:0">Instale o sistema na tela inicial do celular ou do computador. Ele abre como um aplicativo, sem a barra do navegador.</p>
       <button class="btn primary" id="btn-instalar" type="button" ${pedidoInstalar ? '' : 'hidden'}>Instalar o aplicativo</button>
       <p class="m"><b>Android (Chrome):</b> menu ⋮ → <i>Instalar app</i> ou <i>Adicionar à tela inicial</i>.<br><b>iPhone (Safari):</b> botão Compartilhar ⬆ → <i>Adicionar à Tela de Início</i>.</p></section>
-    ${store.configured ? `<section class="panel"><h3>Formulário para o cidadão</h3>
+    ${store.configured ? `<section class="panel"><h3>Prestação de contas pública</h3>
+      <p class="m" style="margin-top:0">Página aberta para divulgar nas redes, com o que foi conquistado. Só aparece o que a equipe marcar com <b>"Mostrar na prestação de contas pública"</b>: demandas concluídas, ofícios atendidos e emendas indicadas, empenhadas ou pagas. Nome, telefone e endereço do cidadão nunca aparecem.</p>
+      <div class="f"><label for="prest-link">Link da página</label><input id="prest-link" value="${esc(linkPrestacao())}" readonly></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><a class="btn mini wa" href="${esc('https://wa.me/?text=' + encodeURIComponent('Veja o que o mandato do ' + DEP() + ' já conquistou: ' + linkPrestacao()))}" target="_blank" rel="noopener">Enviar pelo WhatsApp</a><a class="btn mini ghost" href="${esc(linkPrestacao())}" target="_blank" rel="noopener">Ver página</a></div></section>
+    <section class="panel"><h3>Formulário para o cidadão</h3>
       <p class="m" style="margin-top:0">Divulgue este link no WhatsApp, Instagram e site. Quem preencher cai direto em <b>Demandas</b>, como "Nova", com origem "Site do gabinete". A pessoa não vê nada do sistema.</p>
       <div class="f"><label for="pub-link">Link do formulário</label><input id="pub-link" value="${esc(linkPublico())}" readonly></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><button class="btn mini" id="pub-copiar" type="button">Copiar link</button><a class="btn mini wa" href="${esc('https://wa.me/?text=' + encodeURIComponent('Precisa de ajuda do gabinete do ' + DEP() + '? Faça seu pedido aqui: ' + linkPublico()))}" target="_blank" rel="noopener">Enviar pelo WhatsApp</a><a class="btn mini ghost" href="${esc(linkPublico())}" target="_blank" rel="noopener">Ver formulário</a></div></section>` : ''}
@@ -428,7 +433,7 @@ function render() {
     const b = $('#modelos-box'); if (b) b.innerHTML = await modelosHtml();
     const q = $('#equipe-box'); if (q) { try { const l = await store.listEquipe(); const me = (state.session?.user?.email || '').toLowerCase(); q.innerHTML = l.length ? l.map(e => `<div class="ag-item" style="cursor:default;grid-template-columns:minmax(0,1fr) auto;align-items:center"><div class="t" style="font-weight:500">${esc(e)}${e === me ? ' <span class="m">(você)</span>' : ''}</div>${e === me ? '' : `<button class="btn mini ghost" data-eq-del="${esc(e)}">Remover</button>`}</div>`).join('') : '<div class="m">Nenhum e-mail na lista.</div>'; } catch (err) { q.innerHTML = '<div class="m">' + (store.configured ? esc(errMsg(err)) : 'Disponível quando o banco estiver ligado.') + '</div>'; } }
   }, 0);
-  main.innerHTML = state.view === 'painel' ? renderPainel() : state.view === 'etiquetas' ? renderEtiquetas() : state.view === 'conta' ? renderConta() : state.view === 'relatorios' ? renderRelatorios() : state.view === 'importar' ? renderImportar() : state.view === 'mapa' ? renderMapa() : renderList(state.view);
+  main.innerHTML = state.view === 'painel' ? renderPainel() : state.view === 'etiquetas' ? renderEtiquetas() : state.view === 'conta' ? renderConta() : state.view === 'relatorios' ? renderRelatorios() : state.view === 'importar' ? renderImportar() : state.view === 'mapa' ? renderMapa() : state.view === 'resumo-emendas' ? renderResumoEmendas() : state.view === 'cidadao' ? renderCidadao() : renderList(state.view);
   if (state.view === 'mapa') setTimeout(desenharMapa, 0); else mapaLib.destruir();
   if (hadFocus) { const q = $('#q'); if (q) { q.focus(); try { q.setSelectionRange(pos, pos); } catch { /* ok */ } } }
   if (drawer.open) refreshDatalists();
@@ -446,6 +451,7 @@ function refreshDatalists() {
 function fieldInput(f, v, ro) {
   const id = 'f-' + f.k; const dis = ro ? 'disabled' : '';
   if (f.type === 'select') { const opts = f.opts.includes(v) || !v ? f.opts : [v, ...f.opts]; return `<select id="${id}" ${dis}><option value=""></option>${opts.map(o => `<option ${o === v ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`; }
+  if (f.type === 'bool') return `<label class="chk"><input type="checkbox" id="${id}" ${v === true ? 'checked' : ''} ${dis}> <span>${esc(f.l)}</span></label>`;
   if (f.type === 'textarea') return `<textarea id="${id}" ${dis}>${esc(v)}</textarea>`;
   if (f.type === 'money') return `<input id="${id}" inputmode="decimal" placeholder="0,00" value="${v !== '' && v != null ? esc(Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2 })) : ''}" ${dis}>`;
   const type = ['date', 'time', 'number', 'tel', 'email', 'url'].includes(f.type) ? f.type : 'text';
@@ -461,7 +467,7 @@ function openDrawer(mod, id, preset = {}) {
   drawer.geo = rec && rec.lat != null && rec.lng != null ? [+rec.lat, +rec.lng] : (preset.lat != null ? [preset.lat, preset.lng] : null);
   const defaults = { status: M.statuses[0][0], ...(mod === 'agenda' ? { data: todayStr() } : {}), ...(mod === 'emendas' ? { exercicio: new Date().getFullYear() } : {}), ...(mod === 'proposituras' ? { ano: new Date().getFullYear() } : {}), ...(M.fields.some(f => f.k === 'responsavel') ? { responsavel: myName() } : {}) };
   const r = rec || { ...defaults, ...preset };
-  const fields = M.fields.map(f => `<div class="f ${f.wide ? 'wide' : ''}"><label for="f-${f.k}">${esc(f.l)}${f.req ? ' <span class="req">*</span>' : ''}</label>${fieldInput(f, r[f.k] ?? '', false)}</div>`).join('');
+  const fields = M.fields.map(f => f.type === 'bool' ? `<div class="f wide">${fieldInput(f, r[f.k] ?? false, false)}</div>` : `<div class="f ${f.wide ? 'wide' : ''}"><label for="f-${f.k}">${esc(f.l)}${f.req ? ' <span class="req">*</span>' : ''}</label>${fieldInput(f, r[f.k] ?? '', false)}</div>`).join('');
   const statusSel = `<div class="f"><label for="f-status">Situação</label><select id="f-status">${M.statuses.map(s => `<option ${s[0] === r.status ? 'selected' : ''}>${esc(s[0])}</option>`).join('')}</select></div>`;
   const hist = rec && rec.historico && rec.historico.length ? `<div class="hist"><span class="eyebrow">Histórico</span><ol>${rec.historico.slice().reverse().map(h => `<li><time>${fmtStamp(h.em)}</time><span>${esc(h.txt)}${h.por ? ' <span class="m">· ' + esc(h.por) + '</span>' : ''}</span></li>`).join('')}</ol></div>` : '';
   // ações rápidas
@@ -469,10 +475,12 @@ function openDrawer(mod, id, preset = {}) {
   if (rec && M.phone) { const wa = waLink(rec[M.phone], waTexto(mod, rec)); if (wa) acts.push(`<a class="btn wa mini" href="${esc(wa)}" target="_blank" rel="noopener">Abrir WhatsApp</a>`); }
   if (rec && mod === 'pessoas') {
     const linked = ['demandas', 'servicos', 'emendas'].reduce((n, m) => n + data[m].filter(x => [x.solicitante, x.beneficiario, x.quem_pediu].includes(rec.nome)).length, 0);
+    acts.push(`<button class="btn mini primary" type="button" data-cid="${esc(rec.nome)}" data-cid-tel="${esc(rec.telefone || '')}">Histórico do cidadão</button>`);
     acts.push(`<button class="btn mini" type="button" data-new-for="demandas">+ Demanda desta pessoa</button>`);
     if (linked) acts.push(`<button class="btn mini" type="button" data-search="${esc(rec.nome)}">Ver ${linked} registro(s) ligado(s)</button>`);
   }
   if (rec && mod === 'demandas') acts.push(`<button class="btn mini primary" type="button" data-oficio-de>Gerar ofício de solicitação</button>`);
+  if (rec && ['demandas', 'servicos'].includes(mod) && rec.solicitante) acts.push(`<button class="btn mini" type="button" data-cid="${esc(rec.solicitante)}" data-cid-tel="${esc(rec.telefone || '')}">Histórico de ${esc(primeiroNome(rec.solicitante))}</button>`);
   if (rec && mod !== 'tarefas') acts.push(`<button class="btn mini" type="button" data-tarefa-de>+ Tarefa</button>`);
   if (rec && mod === 'demandas') data.servicos.filter(o => o.demanda_id === rec.id).forEach(o => acts.push(`<button class="btn mini ghost" type="button" data-open="servicos:${o.id}">📄 Ofício ${esc(o.protocolo || '(sem nº)')} · ${esc(o.status)}</button>`));
   if (rec && mod === 'servicos' && rec.demanda_id && data.demandas.some(d => d.id === rec.demanda_id)) acts.push(`<button class="btn mini ghost" type="button" data-open="demandas:${rec.demanda_id}">↩ Demanda de origem</button>`);
@@ -540,6 +548,7 @@ function closeDrawer() { drawer.open = false; if (geoMini) { geoMini.remover(); 
 function readForm(mod) {
   const rec = {};
   for (const f of MODS[mod].fields) {
+    if (f.type === 'bool') { rec[f.k] = $('#f-' + f.k).checked; continue; }
     let v = $('#f-' + f.k).value.trim();
     if (f.type === 'money') v = parseMoney(v); else if (f.type === 'number') v = v ? parseInt(v, 10) : null; else if (v === '') v = null;
     rec[f.k] = v;
@@ -1016,7 +1025,7 @@ async function desenharMapa() {
 /* ---------- importar planilha ---------- */
 function renderImportar() {
   const s = state.imp, M = MODS[s.mod];
-  const campos = [['', '— não importar —'], ['status', 'Situação']].concat(M.fields.map(f => [f.k, f.l + (f.req ? ' *' : '')]));
+  const campos = [['', '— não importar —'], ['status', 'Situação']].concat(M.fields.filter(f => f.type !== 'bool').map(f => [f.k, f.l + (f.req ? ' *' : '')]));
   let corpo = '';
   if (s.cabecalho) {
     const { regs, semObrig } = imp.montarRegistros(s.mod, s.linhas, s.mapa, myName());
@@ -1100,6 +1109,133 @@ function renderFormPublico(msg = '', ok = false, vals = {}) {
   });
 }
 
+/* ---------- painel de emendas ---------- */
+const VAL_EM = r => {
+  const ind = +r.valor_indicado || 0, emp = +r.valor_empenhado || 0, pag = +r.valor_pago || 0;
+  const st = r.status;
+  const indicado = ['Indicada', 'Empenhada', 'Paga'].includes(st) ? (ind || emp || pag) : 0;
+  const empenhado = emp || (['Empenhada', 'Paga'].includes(st) ? ind : 0);
+  const pago = pag || (st === 'Paga' ? (emp || ind) : 0);
+  return { pedido: +r.valor_pedido || 0, indicado, empenhado, pago };
+};
+const anoEmenda = r => String(r.exercicio || String(r.criado_em || '').slice(0, 4) || '—');
+function renderResumoEmendas() {
+  const f = state.rem;
+  const anos = [...new Set(data.emendas.map(anoEmenda))].sort().reverse();
+  const base = data.emendas.filter(r => r.status !== 'Não atendida' && (!f.ano || anoEmenda(r) === f.ano) && (!f.municipio || r.municipio === f.municipio));
+  const soma = rows => rows.reduce((a, r) => { const v = VAL_EM(r); a.pedido += v.pedido; a.indicado += v.indicado; a.empenhado += v.empenhado; a.pago += v.pago; a.n++; return a; }, { pedido: 0, indicado: 0, empenhado: 0, pago: 0, n: 0 });
+  const tot = soma(base);
+  const pct = (a, b) => b ? Math.round(a / b * 100) + '%' : '—';
+  const agrupa = (fn) => { const g = {}; base.forEach(r => { const k = fn(r) || '—'; (g[k] = g[k] || []).push(r); }); return Object.entries(g).map(([k, rs]) => [k, soma(rs)]); };
+  const tabela = (titulo, linhas, ordenar) => `<section class="panel"><h3>${titulo}</h3><div class="rtab-wrap"><table class="rtab"><thead><tr><th></th><th class="num">Pedidos</th><th class="num">Indicado</th><th class="num">Empenhado</th><th class="num">Pago</th><th class="num">Pago / indicado</th></tr></thead><tbody>
+    ${linhas.sort(ordenar).map(([k, v]) => `<tr><td><b>${esc(k)}</b> <span class="m">(${v.n})</span></td><td class="num">${brl(v.pedido)}</td><td class="num">${brl(v.indicado)}</td><td class="num">${brl(v.empenhado)}</td><td class="num"><b>${brl(v.pago)}</b></td><td class="num"><span class="barra-mini"><i style="width:${v.indicado ? Math.min(100, v.pago / v.indicado * 100) : 0}%"></i></span> ${pct(v.pago, v.indicado)}</td></tr>`).join('')}
+    </tbody></table></div></section>`;
+  const sel = (id, label, opts, v) => `<div class="f"><label for="re-${id}">${label}</label><select id="re-${id}" data-rem="${id}"><option value="">Todos</option>${opts.map(o => `<option ${String(o) === String(v) ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select></div>`;
+  const munis = [...new Set(data.emendas.map(r => r.municipio).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  const etapa = (rot, v, cor, sub) => `<div class="kpi"><span class="eyebrow">${rot}</span><span class="big" style="font-size:22px;color:${cor}">${brl(v)}</span><span class="sub">${sub}</span></div>`;
+  return `<div class="no-print"><a class="linkbtn" data-go="emendas">← Emendas</a></div>
+    <h2 class="sec" style="margin-top:6px">Painel de emendas</h2>
+    <div class="m">Quanto foi pedido, indicado, empenhado e pago. Preencha "Valor empenhado" e "Valor pago" em cada emenda para os números ficarem exatos; sem eles, o painel usa a situação da emenda.</div>
+    <div class="filters">${sel('ano', 'Exercício (ano)', anos, f.ano)}${sel('municipio', 'Município', munis, f.municipio)}</div>
+    <div class="no-print" style="margin-bottom:12px"><button class="btn primary" id="rel-print">Imprimir / salvar PDF</button></div>
+    <div class="rel"><div class="rel-head print-only"><div class="eyebrow">${esc(NOME_GAB())}</div><h2 class="sec">Painel de emendas${f.ano ? ' · ' + esc(f.ano) : ''}${f.municipio ? ' · ' + esc(f.municipio) : ''}</h2></div>
+    <div class="kpis">${etapa('Pedido', tot.pedido, 'var(--muted)', tot.n + ' emenda(s)')}${etapa('Indicado', tot.indicado, 'var(--azul)', 'compromisso do mandato')}${etapa('Empenhado', tot.empenhado, '#9a5b00', pct(tot.empenhado, tot.indicado) + ' do indicado')}${etapa('Pago', tot.pago, 'var(--accent)', pct(tot.pago, tot.indicado) + ' do indicado')}</div>
+    ${base.length ? `<div style="display:flex;flex-direction:column;gap:14px;margin-top:14px">
+      ${f.ano ? '' : tabela('Por ano', agrupa(anoEmenda), (a, b) => b[0].localeCompare(a[0]))}
+      ${tabela('Por município', agrupa(r => r.municipio), (a, b) => b[1].indicado - a[1].indicado)}
+      ${tabela('Por área', agrupa(r => r.area), (a, b) => b[1].indicado - a[1].indicado)}
+      ${tabela('Por beneficiário', agrupa(r => r.beneficiario), (a, b) => b[1].indicado - a[1].indicado)}
+    </div>` : '<div class="empty"><b>Nenhuma emenda nesse filtro</b>Cadastre as emendas na aba Emendas.</div>'}</div>`;
+}
+
+/* ---------- histórico do cidadão ---------- */
+const normNome = t => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+const dig8 = t => String(t || '').replace(/\D/g, '').slice(-8);
+function registrosDoCidadao(nome, tel) {
+  const n = normNome(nome), d = dig8(tel); const out = [];
+  const bate = (vals, fone) => vals.some(v => v && normNome(v) === n) || (d.length === 8 && dig8(fone) === d);
+  data.demandas.forEach(r => { if (bate([r.solicitante], r.telefone)) out.push(['demandas', r]); });
+  data.servicos.forEach(r => { if (bate([r.solicitante], r.telefone)) out.push(['servicos', r]); });
+  data.emendas.forEach(r => { if (bate([r.beneficiario, r.quem_pediu])) out.push(['emendas', r]); });
+  data.agenda.forEach(r => { if (bate([r.contato])) out.push(['agenda', r]); });
+  data.tarefas.forEach(r => { if (n && normNome(r.relacionado).includes(n)) out.push(['tarefas', r]); });
+  data.pessoas.forEach(r => { if (r.indicado_por && normNome(r.indicado_por) === n) out.push(['pessoas', r]); });
+  return out.sort((a, b) => String(b[1].criado_em || '').localeCompare(String(a[1].criado_em || '')));
+}
+function abrirCidadao(nome, tel) { state.cid = { nome, tel }; go('cidadao'); }
+function renderCidadao() {
+  const c = state.cid || {}; if (!c.nome) return '<div class="empty"><b>Escolha uma pessoa</b>Abra uma pessoa ou demanda e toque em “Histórico do cidadão”.</div>';
+  const p = data.pessoas.find(x => normNome(x.nome) === normNome(c.nome)) || null;
+  const tel = c.tel || p?.telefone;
+  const regs = registrosDoCidadao(c.nome, tel);
+  const pedidos = regs.filter(([m]) => ['demandas', 'servicos', 'emendas'].includes(m));
+  const resolvidos = pedidos.filter(([m, r]) => kindOf(m, r.status) === 'ok').length;
+  const abertos = pedidos.filter(([m, r]) => isOpen(m, r)).length;
+  const atrasados = pedidos.filter(([m, r]) => isLate(m, r)).length;
+  const wa = waLink(tel, `Olá, ${primeiroNome(c.nome)}! Aqui é do gabinete do ${DEP()}.`);
+  const rot = { demandas: 'Demanda', servicos: 'Ofício', emendas: 'Emenda', agenda: 'Agenda', tarefas: 'Tarefa', pessoas: 'Indicou' };
+  return `<div class="no-print"><a class="linkbtn" data-go="${p ? 'pessoas' : 'demandas'}">← Voltar</a></div>
+    <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap;margin-top:6px">
+      <div><div class="eyebrow">Histórico do cidadão</div><h2 class="sec" style="margin:2px 0">${esc(c.nome)}</h2>
+        <div class="m">${esc([p?.tipo, p?.bairro, p?.municipio, tel].filter(Boolean).join(' · ') || 'Sem cadastro em Pessoas')}</div></div>
+      <div class="no-print" style="display:flex;gap:8px;flex-wrap:wrap">${wa ? `<a class="btn wa" href="${esc(wa)}" target="_blank" rel="noopener">WhatsApp</a>` : ''}${p ? `<button class="btn" data-open="pessoas:${p.id}">Cadastro</button>` : `<button class="btn" data-cid-cadastrar>Cadastrar em Pessoas</button>`}<button class="btn primary" data-cid-nova>+ Nova demanda</button><button class="btn" id="rel-print">Imprimir</button></div>
+    </div>
+    <div class="kpis" style="margin-top:12px">
+      <div class="kpi"><span class="eyebrow">Pedidos</span><span class="big">${pedidos.length}</span><span class="sub">demandas, ofícios e emendas</span></div>
+      <div class="kpi"><span class="eyebrow">Resolvidos</span><span class="big" style="color:var(--accent)">${resolvidos}</span><span class="sub">${pedidos.length ? Math.round(resolvidos / pedidos.length * 100) : 0}% do total</span></div>
+      <div class="kpi"><span class="eyebrow">Em aberto</span><span class="big">${abertos}</span><span class="sub">${atrasados ? `<span class="alert">${atrasados} atrasado(s)</span>` : 'nenhum atrasado'}</span></div>
+      <div class="kpi"><span class="eyebrow">Desde</span><span class="big" style="font-size:20px">${regs.length ? fmtDataBR(String(regs[regs.length - 1][1].criado_em || '').slice(0, 10)) : '—'}</span><span class="sub">primeiro registro</span></div>
+    </div>
+    <section class="panel" style="margin-top:14px"><h3>Linha do tempo (${regs.length})</h3>
+      ${regs.length ? `<div class="timeline">${regs.map(([m, r]) => { const late = isLate(m, r); return `<button class="tl-item" data-open="${m}:${r.id}"><span class="tl-dot ${late ? 'k-late' : STATUS_KIND[kindOf(m, r.status)]}"></span><span class="tl-when">${fmtDataBR(String(r.criado_em || '').slice(0, 10))}</span><span class="tl-body"><span class="eyebrow">${rot[m]}</span><b>${esc(MODS[m].title(r) || '')}</b><span class="m">${esc(MODS[m].meta(r))}</span>${r.historico?.length > 1 ? `<span class="m">Último andamento: ${esc(r.historico[r.historico.length - 1].txt)}</span>` : ''}</span><span class="pill ${late ? 'k-late' : STATUS_KIND[kindOf(m, r.status)]}">${late ? 'Atrasado' : esc(r.status)}</span></button>`; }).join('')}</div>`
+        : '<div class="empty"><b>Nenhum registro ligado a esta pessoa</b>Os registros são ligados pelo nome do solicitante ou pelo telefone.</div>'}
+    </section>`;
+}
+
+/* ---------- prestação de contas pública ---------- */
+const linkPrestacao = () => location.origin + location.pathname + '?prestacao';
+async function renderPrestacao() {
+  document.body.innerHTML = '<div class="pub-page"><div class="m" style="padding:40px;text-align:center">Carregando…</div></div>';
+  let d;
+  try { d = await store.prestacaoPublica(); }
+  catch (e) { document.body.innerHTML = `<div class="pub-page"><div class="empty" style="margin:40px auto;max-width:480px"><b>Página indisponível no momento</b>${esc(errMsg(e))}</div></div>`; return; }
+  const g = d.gabinete || {}; if (g.gabinete) cfg.gabinete = g.gabinete; if (g.deputado_nome) cfg.deputado_nome = g.deputado_nome; if (g.deputado_cargo) cfg.deputado_cargo = g.deputado_cargo;
+  document.title = 'Prestação de contas · ' + NOME_GAB();
+  const pub = { f: { area: '', bairro: '' } };
+  const desenha = () => {
+    const f = pub.f;
+    const dem = d.demandas.filter(x => (!f.area || x.area === f.area) && (!f.bairro || x.bairro === f.bairro));
+    const ofs = f.area || f.bairro ? [] : d.servicos;
+    const ems = d.emendas.filter(x => !f.area || x.area === f.area);
+    const totEm = ems.reduce((s, x) => s + (+x.valor || 0), 0);
+    const bairros = new Set(d.demandas.map(x => x.bairro).filter(Boolean));
+    const areas = [...new Set([...d.demandas, ...d.emendas].map(x => x.area).filter(Boolean))].sort();
+    const ico = a => ({ Obras: '🏗️', Infraestrutura: '🛣️', 'Iluminação pública': '💡', Trânsito: '🚦', 'Meio ambiente': '🌳', Saúde: '🏥', Educação: '🏫', 'Assistência social': '🤝', Segurança: '🛡️', Esporte: '⚽', 'Esporte e cultura': '⚽', Cultura: '🎭', Agricultura: '🌾' }[a] || '✅');
+    const card = (t, sub, a, extra = '') => `<article class="pub-card"><span class="pub-ico">${ico(a)}</span><div><b>${esc(t)}</b><div class="m">${esc(sub)}</div>${extra}</div></article>`;
+    const texto = `Prestação de contas do ${DEP()}: ${d.demandas.length + d.servicos.length} pedidos atendidos${totEm ? ' e ' + brl(totEm) + ' em emendas' : ''}. Confira: ${linkPrestacao()}`;
+    document.body.innerHTML = `<div class="pub-page">
+      <header class="pub-hero"><div class="pub-faixa"></div><div class="pub-wrap">
+        <div style="display:flex;gap:10px;align-items:center"><div class="mark">G</div><div class="eyebrow" style="color:#fff">${esc(NOME_GAB())}</div></div>
+        <h1>Trabalho que chega ao bairro</h1><p>Obras, serviços e emendas conquistados pelo mandato do ${esc(DEP())}.</p>
+        <div class="pub-nums"><div><b>${d.demandas.length}</b><span>pedidos da população atendidos</span></div><div><b>${d.servicos.length}</b><span>ofícios atendidos</span></div><div><b>${bairros.size}</b><span>bairros e localidades</span></div><div><b>${brl(d.emendas.reduce((s, x) => s + (+x.valor || 0), 0))}</b><span>em emendas</span></div></div>
+        <div class="pub-share no-print"><a class="btn wa" href="https://wa.me/?text=${encodeURIComponent(texto)}" target="_blank" rel="noopener">Compartilhar no WhatsApp</a><a class="btn" href="https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(linkPrestacao())}" target="_blank" rel="noopener">Facebook</a><button class="btn" id="pub-copiar-link" type="button">Copiar link</button></div>
+      </div></header>
+      <main class="pub-wrap">
+        <div class="filters no-print" style="margin-top:18px"><div class="f"><label for="pf-area">Área</label><select id="pf-area"><option value="">Todas</option>${areas.map(a => `<option ${a === f.area ? 'selected' : ''}>${esc(a)}</option>`).join('')}</select></div>
+          <div class="f"><label for="pf-bairro">Bairro</label><select id="pf-bairro"><option value="">Todos</option>${[...bairros].sort((a, b) => a.localeCompare(b, 'pt-BR')).map(a => `<option ${a === f.bairro ? 'selected' : ''}>${esc(a)}</option>`).join('')}</select></div></div>
+        ${dem.length ? `<h2 class="sec">Pedidos atendidos</h2><div class="pub-grid">${dem.map(x => card(x.titulo, [x.bairro, x.municipio, x.data && fmtDataBR(x.data)].filter(Boolean).join(' · '), x.area)).join('')}</div>` : ''}
+        ${ofs.length ? `<h2 class="sec">Ofícios atendidos pelos órgãos</h2><div class="pub-grid">${ofs.map(x => card(x.titulo, [x.orgao, x.municipio, x.data && fmtDataBR(x.data)].filter(Boolean).join(' · '), 'Obras')).join('')}</div>` : ''}
+        ${ems.length ? `<h2 class="sec">Emendas destinadas</h2><div class="pub-grid">${ems.map(x => card(x.titulo, [x.beneficiario, x.municipio, x.exercicio].filter(Boolean).join(' · '), x.area, `<div class="pub-valor">${brl(x.valor)} <span class="pill ${x.status === 'Paga' ? 'k-ok' : 'k-and'}">${esc(x.status === 'Paga' ? 'Paga' : x.status === 'Empenhada' ? 'Empenhada' : 'Indicada')}</span></div>`)).join('')}</div>` : ''}
+        ${!dem.length && !ofs.length && !ems.length ? '<div class="empty" style="margin-top:20px"><b>Em breve</b>Os resultados do mandato aparecerão aqui.</div>' : ''}
+        <footer class="pub-foot m">${esc(NOME_GAB())} · atualizado em ${fmtStamp(new Date().toISOString())}</footer>
+      </main></div>`;
+    $('#pf-area')?.addEventListener('change', e => { f.area = e.target.value; desenha(); });
+    $('#pf-bairro')?.addEventListener('change', e => { f.bairro = e.target.value; desenha(); });
+    $('#pub-copiar-link')?.addEventListener('click', () => { try { navigator.clipboard.writeText(linkPrestacao()).then(() => toast('Link copiado')); } catch { toast(linkPrestacao()); } });
+  };
+  desenha();
+}
+
 /* ---------- eventos ---------- */
 document.addEventListener('click', e => {
   if (e.target.closest('[data-stop]')) { e.stopPropagation(); return; }
@@ -1111,6 +1247,9 @@ document.addEventListener('click', e => {
   const nf = e.target.closest('[data-new-for]'); if (nf) { const p = data.pessoas.find(x => x.id === drawer.id); closeDrawer(); go(nf.dataset.newFor); openDrawer(nf.dataset.newFor, null, { solicitante: p?.nome, telefone: p?.telefone, municipio: p?.municipio, bairro: p?.bairro }); return; }
   const sr = e.target.closest('[data-search]'); if (sr) { const q = sr.dataset.search; closeDrawer(); go('demandas'); state.q = q; state.filter = 'todos'; render(); return; }
   if (e.target.closest('[data-oficio-de]')) { oficioDaDemanda(); return; }
+  const cb = e.target.closest('[data-cid]'); if (cb) { closeDrawer(); abrirCidadao(cb.dataset.cid, cb.dataset.cidTel); return; }
+  if (e.target.closest('[data-cid-nova]')) { const c = state.cid; const p = data.pessoas.find(x => normNome(x.nome) === normNome(c.nome)); go('demandas'); openDrawer('demandas', null, { solicitante: c.nome, telefone: c.tel || p?.telefone, municipio: p?.municipio, bairro: p?.bairro }); return; }
+  if (e.target.closest('[data-cid-cadastrar]')) { const c = state.cid; const d = data.demandas.find(x => normNome(x.solicitante) === normNome(c.nome)); openDrawer('pessoas', null, { nome: c.nome, telefone: c.tel || d?.telefone, municipio: d?.municipio, bairro: d?.bairro }); return; }
   if (e.target.closest('#geo-buscar')) { geoBuscar(); return; }
   if (e.target.closest('#geo-gps')) { geoGps(); return; }
   if (e.target.closest('#geo-limpar')) { drawer.geo = null; geoMini?.marcar(null); geoInfo(); return; }
@@ -1158,6 +1297,7 @@ document.addEventListener('change', async e => {
   const el = e.target;
   if (el.dataset && 'anxAdd' in el.dataset) { const files = [...el.files]; el.value = ''; if (files.length) anexarArquivos(drawer.mod, drawer.id, files).catch(err => toast('Não foi possível anexar: ' + errMsg(err))); return; }
   if (el.dataset && el.dataset.rel) { state.rel[el.dataset.rel] = el.value; if (el.dataset.rel === 'mod') Object.assign(state.rel, { municipio: '', bairro: '', status: '' }); render(); return; }
+  if (el.dataset && el.dataset.rem) { state.rem[el.dataset.rem] = el.value; render(); return; }
   if (el.id === 'imp-mod') { const o = state.imp; state.imp = o.cabecalho ? { ...o, mod: el.value, mapa: imp.sugerirMapa(el.value, o.cabecalho) } : { mod: el.value }; render(); return; }
   if (el.dataset && el.dataset.impCol != null) { state.imp.mapa[+el.dataset.impCol] = el.value; render(); return; }
   if (el.id === 'imp-file') {
@@ -1203,6 +1343,7 @@ document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.id
 let unsub = null;
 async function startApp() {
   if (new URLSearchParams(location.search).has('solicitar')) return renderFormPublico();
+  if (new URLSearchParams(location.search).has('prestacao')) return renderPrestacao();
   if (store.configured) {
     state.session = await store.getSession();
     if (!state.session) return renderLogin();

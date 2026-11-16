@@ -55,6 +55,7 @@ create table if not exists public.demandas (
   origem text,
   descricao text,
   obs text,
+  publico boolean not null default false,
   lat double precision,
   lng double precision,
   historico jsonb not null default '[]'::jsonb,
@@ -75,6 +76,7 @@ alter table public.demandas add column if not exists prazo date;
 alter table public.demandas add column if not exists origem text;
 alter table public.demandas add column if not exists descricao text;
 alter table public.demandas add column if not exists obs text;
+alter table public.demandas add column if not exists publico boolean not null default false;
 alter table public.demandas add column if not exists lat double precision;
 alter table public.demandas add column if not exists lng double precision;
 alter table public.demandas add column if not exists anexos jsonb not null default '[]'::jsonb;
@@ -103,6 +105,7 @@ create table if not exists public.servicos (
   vocativo text,
   corpo text,
   obs text,
+  publico boolean not null default false,
   demanda_id uuid,
   lat double precision,
   lng double precision,
@@ -127,6 +130,7 @@ alter table public.servicos add column if not exists responsavel text;
 alter table public.servicos add column if not exists vocativo text;
 alter table public.servicos add column if not exists corpo text;
 alter table public.servicos add column if not exists obs text;
+alter table public.servicos add column if not exists publico boolean not null default false;
 alter table public.servicos add column if not exists demanda_id uuid;
 alter table public.servicos add column if not exists lat double precision;
 alter table public.servicos add column if not exists lng double precision;
@@ -149,10 +153,13 @@ create table if not exists public.emendas (
   modalidade text,
   valor_pedido numeric(14,2),
   valor_indicado numeric(14,2),
+  valor_empenhado numeric(14,2),
+  valor_pago numeric(14,2),
   exercicio integer,
   quem_pediu text,
   numero text,
   obs text,
+  publico boolean not null default false,
   historico jsonb not null default '[]'::jsonb,
   anexos jsonb not null default '[]'::jsonb,
   criado_por uuid references auth.users(id) default auth.uid(),
@@ -167,10 +174,13 @@ alter table public.emendas add column if not exists area text;
 alter table public.emendas add column if not exists modalidade text;
 alter table public.emendas add column if not exists valor_pedido numeric(14,2);
 alter table public.emendas add column if not exists valor_indicado numeric(14,2);
+alter table public.emendas add column if not exists valor_empenhado numeric(14,2);
+alter table public.emendas add column if not exists valor_pago numeric(14,2);
 alter table public.emendas add column if not exists exercicio integer;
 alter table public.emendas add column if not exists quem_pediu text;
 alter table public.emendas add column if not exists numero text;
 alter table public.emendas add column if not exists obs text;
+alter table public.emendas add column if not exists publico boolean not null default false;
 alter table public.emendas add column if not exists anexos jsonb not null default '[]'::jsonb;
 alter table public.emendas enable row level security;
 drop policy if exists "equipe acessa emendas" on public.emendas;
@@ -385,3 +395,21 @@ begin
 end $$;
 revoke all on function public.nova_demanda_publica(text, text, text, text, text, text, double precision, double precision) from public;
 grant execute on function public.nova_demanda_publica(text, text, text, text, text, text, double precision, double precision) to anon, authenticated;
+
+-- Prestação de contas pública: só o que a equipe marcou como público e já foi resolvido.
+-- Nunca devolve nome, telefone ou endereço do cidadão.
+create or replace function public.prestacao_publica() returns jsonb
+language sql stable security definer set search_path = public as $$
+  select jsonb_build_object(
+    'gabinete', (select jsonb_build_object('gabinete', valor->>'gabinete', 'deputado_nome', valor->>'deputado_nome', 'deputado_cargo', valor->>'deputado_cargo', 'cidade', valor->>'cidade_gabinete') from public.config where id = 'gabinete'),
+    'demandas', coalesce((select jsonb_agg(x order by x->>'data' desc) from (select jsonb_build_object('titulo', assunto, 'bairro', bairro, 'municipio', municipio, 'area', area, 'data', atualizado_em::date) x
+      from public.demandas where publico and status = 'Concluída' order by atualizado_em desc limit 500) t), '[]'::jsonb),
+    'servicos', coalesce((select jsonb_agg(x order by x->>'data' desc) from (select jsonb_build_object('titulo', servico, 'municipio', municipio, 'orgao', orgao, 'data', atualizado_em::date) x
+      from public.servicos where publico and status = 'Atendida' order by atualizado_em desc limit 500) t), '[]'::jsonb),
+    'emendas', coalesce((select jsonb_agg(x order by x->>'exercicio' desc) from (select jsonb_build_object('titulo', objeto, 'beneficiario', beneficiario, 'municipio', municipio, 'area', area, 'status', status, 'exercicio', exercicio,
+      'valor', coalesce(nullif(valor_pago, 0), nullif(valor_empenhado, 0), valor_indicado)) x
+      from public.emendas where publico and status in ('Indicada', 'Empenhada', 'Paga') order by exercicio desc nulls last limit 500) t), '[]'::jsonb)
+  )
+$$;
+revoke all on function public.prestacao_publica() from public;
+grant execute on function public.prestacao_publica() to anon, authenticated;

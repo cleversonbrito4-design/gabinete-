@@ -125,4 +125,23 @@ end $$;
 revoke all on function public.nova_demanda_publica(text, text, text, text, text, text, double precision, double precision) from public;
 grant execute on function public.nova_demanda_publica(text, text, text, text, text, text, double precision, double precision) to anon, authenticated;`);
 
+p(`
+-- Prestação de contas pública: só o que a equipe marcou como público e já foi resolvido.
+-- Nunca devolve nome, telefone ou endereço do cidadão.
+create or replace function public.prestacao_publica() returns jsonb
+language sql stable security definer set search_path = public as $$
+  select jsonb_build_object(
+    'gabinete', (select jsonb_build_object('gabinete', valor->>'gabinete', 'deputado_nome', valor->>'deputado_nome', 'deputado_cargo', valor->>'deputado_cargo', 'cidade', valor->>'cidade_gabinete') from public.config where id = 'gabinete'),
+    'demandas', coalesce((select jsonb_agg(x order by x->>'data' desc) from (select jsonb_build_object('titulo', assunto, 'bairro', bairro, 'municipio', municipio, 'area', area, 'data', atualizado_em::date) x
+      from public.demandas where publico and status = 'Concluída' order by atualizado_em desc limit 500) t), '[]'::jsonb),
+    'servicos', coalesce((select jsonb_agg(x order by x->>'data' desc) from (select jsonb_build_object('titulo', servico, 'municipio', municipio, 'orgao', orgao, 'data', atualizado_em::date) x
+      from public.servicos where publico and status = 'Atendida' order by atualizado_em desc limit 500) t), '[]'::jsonb),
+    'emendas', coalesce((select jsonb_agg(x order by x->>'exercicio' desc) from (select jsonb_build_object('titulo', objeto, 'beneficiario', beneficiario, 'municipio', municipio, 'area', area, 'status', status, 'exercicio', exercicio,
+      'valor', coalesce(nullif(valor_pago, 0), nullif(valor_empenhado, 0), valor_indicado)) x
+      from public.emendas where publico and status in ('Indicada', 'Empenhada', 'Paga') order by exercicio desc nulls last limit 500) t), '[]'::jsonb)
+  )
+$$;
+revoke all on function public.prestacao_publica() from public;
+grant execute on function public.prestacao_publica() to anon, authenticated;`);
+
 console.log(out.join('\n'));
