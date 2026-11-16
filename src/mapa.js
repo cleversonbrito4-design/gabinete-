@@ -30,7 +30,7 @@ export async function buscarEndereco(texto) {
  * salvarCache(cache) grava o cache no banco.
  * onClique(grupo) ao tocar num círculo.
  */
-export async function desenhar(el, grupos, { cache, salvarCache, uf, cidadePadrao, onProgresso, onClique, esc, pontosExatos = [], onAbrir }) {
+export async function desenhar(el, grupos, { cache, salvarCache, uf, cidadePadrao, onProgresso, onClique, esc, pontosExatos = [], onAbrir, onRota }) {
   await carregarLeaflet();
   if (mapa && mapa.getContainer() !== el) { mapa.remove(); mapa = null; }
   if (!mapa) {
@@ -62,8 +62,8 @@ export async function desenhar(el, grupos, { cache, salvarCache, uf, cidadePadra
     const cor = g.atrasados ? '#b3261e' : g.abertos ? '#c77700' : '#1c7a3d';
     const c = L.circleMarker(pos, { radius: 8 + 22 * Math.sqrt(g.total / max), color: cor, weight: 2, fillColor: cor, fillOpacity: 0.35 }).addTo(camada);
     c.bindTooltip(`<b>${esc(g.bairro)}</b> · ${g.total}`, { direction: 'top' });
-    c.bindPopup(`<b>${esc(g.bairro)}</b>${g.municipio ? ' · ' + esc(g.municipio) : ''}<br>${g.total} pedido(s), ${g.abertos} em aberto${g.atrasados ? ', <b style="color:#b3261e">' + g.atrasados + ' atrasado(s)</b>' : ''}<ul style="margin:6px 0 4px;padding-left:16px">${g.itens.slice(0, 6).map(x => `<li>${esc(x.titulo)} <i>(${esc(x.status)})</i></li>`).join('')}</ul><a href="#" data-mapa-ver="${esc(g.bairro)}">Ver todos deste bairro</a>`);
-    c.on('popupopen', ev => { const a = ev.popup.getElement().querySelector('[data-mapa-ver]'); if (a) a.addEventListener('click', e => { e.preventDefault(); onClique(g); }); });
+    c.bindPopup(`<b>${esc(g.bairro)}</b>${g.municipio ? ' · ' + esc(g.municipio) : ''}<br>${g.total} pedido(s), ${g.abertos} em aberto${g.atrasados ? ', <b style="color:#b3261e">' + g.atrasados + ' atrasado(s)</b>' : ''}<ul style="margin:6px 0 4px;padding-left:16px">${g.itens.slice(0, 6).map(x => `<li>${esc(x.titulo)} <i>(${esc(x.status)})</i></li>`).join('')}</ul><a href="#" data-mapa-ver="${esc(g.bairro)}">Ver todos deste bairro</a>${onRota ? ' · <a href="#" data-mapa-rota>+ Roteiro</a>' : ''}`);
+    c.on('popupopen', ev => { const el = ev.popup.getElement(); const a = el.querySelector('[data-mapa-ver]'); if (a) a.addEventListener('click', e => { e.preventDefault(); onClique(g); }); const r = el.querySelector('[data-mapa-rota]'); if (r) r.addEventListener('click', e => { e.preventDefault(); onRota({ titulo: g.bairro + (g.municipio ? ' · ' + g.municipio : ''), lat: pos[0], lng: pos[1] }); mapa.closePopup(); }); });
   }
   // pedidos com o ponto exato marcado
   for (const p of pontosExatos) {
@@ -71,8 +71,8 @@ export async function desenhar(el, grupos, { cache, salvarCache, uf, cidadePadra
     const cor = p.atrasado ? '#b3261e' : p.aberto ? '#c77700' : '#1c7a3d';
     const c = L.circleMarker([p.lat, p.lng], { radius: 7, color: '#fff', weight: 2, fillColor: cor, fillOpacity: 1 }).addTo(camada);
     c.bindTooltip(esc(p.titulo), { direction: 'top' });
-    c.bindPopup(`<b>${esc(p.titulo)}</b><br><i>${esc(p.status)}</i>${p.sub ? '<br>' + esc(p.sub) : ''}<br><a href="#" data-mapa-abrir>Abrir registro</a> · <a href="https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lng}" target="_blank" rel="noopener">Google Maps</a>`);
-    c.on('popupopen', ev => { const a = ev.popup.getElement().querySelector('[data-mapa-abrir]'); if (a) a.addEventListener('click', e => { e.preventDefault(); onAbrir(p); }); });
+    c.bindPopup(`<b>${esc(p.titulo)}</b><br><i>${esc(p.status)}</i>${p.sub ? '<br>' + esc(p.sub) : ''}<br><a href="#" data-mapa-abrir>Abrir registro</a> · <a href="https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lng}" target="_blank" rel="noopener">Google Maps</a>${onRota ? ' · <a href="#" data-mapa-rota>+ Roteiro</a>' : ''}`);
+    c.on('popupopen', ev => { const el = ev.popup.getElement(); const a = el.querySelector('[data-mapa-abrir]'); if (a) a.addEventListener('click', e => { e.preventDefault(); onAbrir(p); }); const r = el.querySelector('[data-mapa-rota]'); if (r) r.addEventListener('click', e => { e.preventDefault(); onRota({ titulo: p.titulo + (p.sub ? ' · ' + p.sub : ''), lat: p.lat, lng: p.lng }); mapa.closePopup(); }); });
   }
   if (pontos.length) mapa.fitBounds(L.latLngBounds(pontos).pad(0.15), { maxZoom: 14 });
   else mapa.setView([-24.9555, -53.4552], 12); // Cascavel–PR

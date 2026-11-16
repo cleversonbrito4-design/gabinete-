@@ -79,8 +79,9 @@ function msg(tipo, vars) {
   if (!v.link_avaliacao) t = t.replace(/[^.!?]*\{link_avaliacao\}[^.!?]*[.!?]?/g, '').replace(/\s+$/, '');
   return t.replace(/\{(\w+)\}/g, (_, k) => v[k] == null ? '' : String(v[k])).replace(/ {2,}/g, ' ').trim();
 }
-const AVALIACAO_PRONTA = false; // liga quando a página ?avaliar estiver pronta
-const linkAvaliacao = r => AVALIACAO_PRONTA && r && r.avaliacao_token ? location.origin + location.pathname + '?avaliar=' + r.avaliacao_token : '';
+const linkAvaliacao = r => { const tk = r && (r.avaliacao_token || (!store.configured && r.id)); return tk ? location.origin + location.pathname + '?avaliar=' + tk : ''; };
+/** Troca {nome}, {evento}… num texto livre. Campos desconhecidos ficam como estão. */
+const preencher = (t, v) => String(t || '').replace(/\{(\w+)\}/g, (m, k) => k in v ? String(v[k] ?? '') : m);
 function waTexto(mod, r) {
   if (mod === 'pessoas' || mod === 'recepcao') return msg('contato', { nome: primeiroNome(r.nome) });
   if (mod === 'demandas' || mod === 'servicos') return waStatus(mod, r);
@@ -98,11 +99,11 @@ const waAniversario = p => msg('aniversario', { nome: primeiroNome(p.nome) });
 
 /* ---------- estado ---------- */
 const data = Object.fromEntries(ORDER.map(m => [m, []]));
-const state = { rem: { ano: '', municipio: '' }, cid: null, mapa: { mod: 'demandas', so: 'abertos' }, imp: { mod: 'pessoas' }, rel: { mod: 'demandas', de: '', ate: '', municipio: '', bairro: '', status: '' }, view: 'painel', q: '', filter: 'abertos', agendaWin: 'proximos', loaded: false, session: null, profiles: [], et: { tipo: '', grupo: '', municipio: '', mes: '', modelo: '6180', pular: 0 } };
+const state = { rota: [], cal: '', disp: null, rem: { ano: '', municipio: '' }, cid: null, mapa: { mod: 'demandas', so: 'abertos' }, imp: { mod: 'pessoas' }, rel: { mod: 'demandas', de: '', ate: '', municipio: '', bairro: '', status: '' }, view: 'painel', q: '', filter: 'abertos', agendaWin: 'proximos', loaded: false, session: null, profiles: [], et: { tipo: '', grupo: '', municipio: '', mes: '', modelo: '6180', pular: 0 } };
 const drawer = { open: false, mod: null, id: null, geo: null };
 let geoMini = null; // mapinha aberto dentro do registro
 let pedidoInstalar = null; // convite do navegador para instalar o app
-const VIEWS = ['painel', 'etiquetas', 'conta', 'relatorios', 'importar', 'mapa', 'resumo-emendas', 'cidadao', ...ORDER];
+const VIEWS = ['disparo', 'painel', 'etiquetas', 'conta', 'relatorios', 'importar', 'mapa', 'resumo-emendas', 'cidadao', ...ORDER];
 
 function readHash() { const h = location.hash.slice(1); if (VIEWS.includes(h)) state.view = h; }
 window.addEventListener('hashchange', () => { readHash(); state.q = state.qNext || ''; state.filter = state.qNext ? 'todos' : 'abertos'; state.qNext = ''; render(); });
@@ -212,7 +213,7 @@ const myName = () => (state.profiles.find(p => p.id === state.session?.user?.id)
 
 function renderTabs() {
   const tabs = [['painel', 'Painel', null]].concat(ORDER.map(m => [m, MODS[m].label, data[m].filter(r => isOpen(m, r)).length]), [['relatorios', 'Relatórios', null]]);
-  const cur = state.view === 'resumo-emendas' ? 'emendas' : state.view === 'cidadao' ? 'pessoas' : state.view === 'etiquetas' ? 'pessoas' : state.view === 'importar' ? state.imp.mod : state.view === 'mapa' ? state.mapa.mod : state.view;
+  const cur = state.view === 'disparo' ? 'pessoas' : state.view === 'resumo-emendas' ? 'emendas' : state.view === 'cidadao' ? 'pessoas' : state.view === 'etiquetas' ? 'pessoas' : state.view === 'importar' ? state.imp.mod : state.view === 'mapa' ? state.mapa.mod : state.view;
   $('#tabs').innerHTML = tabs.map(([k, l, n]) => `<button class="tab" role="tab" data-go="${k}" aria-selected="${cur === k}">${l}${n != null ? `<span class="n">${n}</span>` : ''}</button>`).join('');
   const nb = $('#btn-new');
   nb.hidden = ['conta', 'etiquetas', 'relatorios', 'importar', 'mapa', 'resumo-emendas', 'cidadao'].includes(state.view);
@@ -252,6 +253,15 @@ function renderPainel() {
   const anivHtml = aniv.length ? aniv.slice(0, 10).map(r => { const wa = waLink(r.telefone, waAniversario(r)); return `<div class="ag-item" data-open="pessoas:${r.id}"><div class="ag-when"><b>${md(r.nascimento) === md(t) ? 'Hoje' : r.nascimento.slice(8, 10) + '/' + r.nascimento.slice(5, 7)}</b></div><div style="min-width:0"><div class="t">${esc(r.nome)}</div><div class="m">${esc([r.tipo, r.municipio].filter(Boolean).join(' · '))}</div></div>${wa ? `<a class="btn wa mini" href="${esc(wa)}" target="_blank" rel="noopener" data-stop>Parabenizar</a>` : ''}</div>`; }).join('')
     : `<div class="empty"><b>Nenhum aniversário nos próximos 7 dias</b>Cadastre a data de aniversário na aba Pessoas.</div>`;
 
+  const anivHoje = aniv.filter(r => md(r.nascimento) === md(t) && r.telefone);
+  const anivBtn = anivHoje.length > 1 ? `<div style="margin-top:8px"><button class="btn mini wa" data-disp-aniv>Parabenizar os ${anivHoje.length} de hoje, um por um</button></div>` : '';
+  const notas = data.demandas.filter(r => r.nota != null);
+  const media = notas.length ? notas.reduce((a, r) => a + +r.nota, 0) / notas.length : 0;
+  const conc = data.demandas.filter(r => r.status === 'Concluída').length;
+  const estrelas = n => '★★★★★'.slice(0, Math.round(n)) + '☆☆☆☆☆'.slice(0, 5 - Math.round(n));
+  const satHtml = notas.length ? `<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap"><b style="font-family:var(--display);font-size:30px">${media.toFixed(1).replace('.', ',')}</b><span class="estrelas">${estrelas(media)}</span><span class="m">${notas.length} avaliação(ões) · ${conc ? Math.round(notas.length / conc * 100) : 0}% das demandas concluídas</span></div>`
+      + notas.filter(r => r.nota_comentario).sort((a, b) => String(b.nota_em || '').localeCompare(String(a.nota_em || ''))).slice(0, 3).map(r => `<div class="ag-item" data-open="demandas:${r.id}"><div class="ag-when"><b class="estrelas">${'★'.repeat(+r.nota)}</b></div><div style="min-width:0"><div class="t">“${esc(r.nota_comentario)}”</div><div class="m">${esc([r.solicitante, r.assunto].filter(Boolean).join(' · '))}</div></div></div>`).join('')
+    : `<div class="empty"><b>Nenhuma avaliação ainda</b>Ao concluir uma demanda, toque em WhatsApp: a mensagem já leva o link para o cidadão dar a nota.</div>`;
   const pend = []; ['demandas', 'servicos'].forEach(m => data[m].forEach(r => { if (isOpen(m, r) && r.prazo && r.prazo <= w) pend.push([m, r]); }));
   pend.sort((a, b) => a[1].prazo.localeCompare(b[1].prazo));
   const pendHtml = pend.length ? pend.slice(0, 8).map(([m, r]) => `<div class="ag-item" data-open="${m}:${r.id}"><div class="ag-when"><b>${fmtDate(r.prazo)}</b>${m === 'demandas' ? 'demanda' : 'ofício'}</div><div style="min-width:0"><div class="t">${esc(MODS[m].title(r))}</div><div class="m">${esc(MODS[m].meta(r))}</div></div><span class="pill ${r.prazo < t ? 'k-late' : 'k-and'}">${r.prazo < t ? 'Vencido' : 'Esta semana'}</span></div>`).join('')
@@ -274,11 +284,12 @@ function renderPainel() {
       <div style="display:flex;flex-direction:column;gap:18px;min-width:0">
         <section class="panel"><h3>Próximos 7 dias na agenda <a data-go="agenda">ver agenda</a></h3>${agHtml}</section>
         <section class="panel"><h3>Minhas tarefas <a data-go="tarefas">ver tarefas</a></h3>${minhasTarefasHtml()}</section>
-        <section class="panel"><h3>Aniversariantes da semana <a data-go="pessoas">ver pessoas</a></h3>${anivHtml}</section>
+        <section class="panel"><h3>Aniversariantes da semana <a data-go="pessoas">ver pessoas</a></h3>${anivHtml}${anivBtn}</section>
       </div>
       <div style="display:flex;flex-direction:column;gap:18px;min-width:0">
         <section class="panel"><h3>Prazos a cobrar</h3>${pendHtml}</section>
         <section class="panel"><h3>Emendas por situação <a data-go="emendas">ver emendas</a></h3>${emHtml}</section>
+        <section class="panel"><h3>Satisfação do cidadão</h3>${satHtml}</section>
         <section class="panel"><h3>Demandas abertas por município <a data-go="mapa">ver mapa</a></h3>${munHtml}</section>
       </div>
     </div>`;
@@ -347,11 +358,11 @@ function renderList(m) {
   const M = MODS[m]; const a = filtered(m);
   let chips, extra = '';
   if (m === 'agenda') {
-    chips = [['proximos', 'Próximos'], ['passados', 'Passados'], ['todos', 'Todos']].map(([k, l]) => chip('data-win', k, l, state.agendaWin === k)).join('');
+    chips = [['proximos', 'Próximos'], ['mes', 'Calendário do mês'], ['passados', 'Passados'], ['todos', 'Todos']].map(([k, l]) => chip('data-win', k, l, state.agendaWin === k)).join('');
     if (gcal.googleAvailable) extra = `<div class="no-print" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px"><button class="btn mini" id="g-sync">${gcal.isConnected() ? 'Sincronizar com Google Agenda' : 'Conectar Google Agenda'}</button><span class="gstat" id="g-stat">${gcal.isConnected() ? 'Conectado · calendário: ' + esc(gcal.calendarId()) : 'Compromissos salvos aqui vão para o Google Agenda do parlamentar.'}</span></div>`;
   } else if (m === 'pessoas') {
     chips = [['abertos', 'Ativos'], ['tipo:Liderança', 'Lideranças'], ['tipo:Entidade / associação', 'Entidades'], ['aniv', 'Aniversariantes do mês'], ['todos', 'Todos']].map(([k, l]) => chip('data-filter', k, l, state.filter === k)).join('');
-    extra = `<div class="no-print" style="margin-bottom:4px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn mini" data-go="etiquetas">Imprimir etiquetas</button><button class="btn mini" data-mapa-de="pessoas">Ver no mapa</button></div>`;
+    extra = `<div class="no-print" style="margin-bottom:4px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn mini" data-go="etiquetas">Imprimir etiquetas</button><button class="btn mini" data-mapa-de="pessoas">Ver no mapa</button><button class="btn mini wa" data-disp-lista>Mensagem para esta lista</button></div>`;
   } else {
     const opts = [['abertos', 'Em aberto']].concat(M.deadline ? [['atrasados', 'Atrasados']] : []).concat(M.fields.some(f => f.k === 'responsavel') ? [['meus', 'Comigo']] : []).concat([['todos', 'Todos']], M.statuses.map(s => [s[0], s[0]]));
     chips = opts.map(([k, l]) => chip('data-filter', k, l, state.filter === k)).join('');
@@ -360,8 +371,9 @@ function renderList(m) {
     if (m === 'emendas') extra = `<div class="no-print" style="margin-bottom:4px"><button class="btn mini primary" data-go="resumo-emendas">Painel de emendas (indicado, empenhado, pago)</button></div>`;
   }
   let body;
-  if (!data[m].length) body = `<div class="empty"><b>Nenhum registro ainda</b>Clique em “+ ${esc(M.novo)}” para cadastrar o primeiro.</div>`;
-  else if (!a.length) body = `<div class="empty"><b>Nada encontrado</b>Mude o filtro ou a busca.</div>`;
+  if (!data[m].length && !(m === 'agenda' && state.agendaWin === 'mes')) body = `<div class="empty"><b>Nenhum registro ainda</b>Clique em “+ ${esc(M.novo)}” para cadastrar o primeiro.</div>`;
+  else if (!a.length && !(m === 'agenda' && state.agendaWin === 'mes')) body = `<div class="empty"><b>Nada encontrado</b>Mude o filtro ou a busca.</div>`;
+  else if (m === 'agenda' && state.agendaWin === 'mes') body = calendarioHtml(a);
   else if (m === 'agenda') {
     const t = todayStr(); let out = '', cur = '';
     a.forEach(r => {
@@ -429,6 +441,10 @@ function renderConta() {
     <section class="panel"><h3>Modelos de Word</h3><p class="m" style="margin-top:0">Baixe o modelo, mude o que quiser no Word (brasão, fonte, textos) e envie de volta. Os campos entre chaves são preenchidos pelo sistema.</p>
       <div id="modelos-box"><div class="m">Carregando…</div></div>
       <details style="margin-top:10px"><summary class="m" style="cursor:pointer">Campos que você pode usar no modelo</summary><div class="hist"><ol>${docs.CAMPOS.map(([k, l]) => `<li><time>{${k}}</time><span>${esc(l)}</span></li>`).join('')}</ol></div></details></section>
+    <section class="panel"><h3>Mensagens prontas do WhatsApp</h3>
+      <p class="m" style="margin-top:0">Textos usados nos botões de WhatsApp. Mude o que quiser. Palavras entre chaves são trocadas sozinhas: <b>{nome}</b>, <b>{assunto}</b>, <b>{situacao}</b>, <b>{orgao}</b>, <b>{vereador}</b>, <b>{link_avaliacao}</b>, <b>{evento}</b>, <b>{data}</b>, <b>{hora}</b>, <b>{local}</b>.</p>
+      <form id="msgs" class="filters" style="grid-template-columns:1fr;margin:0" novalidate>${Object.entries(MSG_PADRAO).map(([k, [l]]) => `<div class="f"><label for="msg-${k}">${esc(l)}${msgs[k] ? ' <span class="m">(personalizada)</span>' : ''}</label><textarea id="msg-${k}" rows="3">${esc(msgTexto(k))}</textarea></div>`).join('')}
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" type="submit">Salvar mensagens</button><button class="btn ghost" type="button" id="msgs-padrao">Voltar ao texto original</button></div></form></section>
     <section class="panel"><h3>Cópia de segurança</h3>
       <p class="m" style="margin-top:0">Baixa uma planilha do Excel com tudo o que está no sistema, uma aba para cada assunto. Faça uma vez por semana e guarde no Google Drive ou mande para o seu e-mail. O 🔔 avisa quando passar de 7 dias.</p>
       <p class="m">${state.backup?.em ? 'Última cópia: ' + fmtStamp(state.backup.em) + (state.backup.por ? ' por ' + esc(state.backup.por) : '') : 'Nenhuma cópia feita ainda.'}</p>
@@ -469,7 +485,7 @@ function render() {
       const f = $('#eq-add'); if (f) f.hidden = !adm;
     } catch (err) { q.innerHTML = '<div class="m">' + (store.configured ? esc(errMsg(err)) : 'Disponível quando o banco estiver ligado.') + '</div>'; } }
   }, 0);
-  main.innerHTML = state.view === 'painel' ? renderPainel() : state.view === 'etiquetas' ? renderEtiquetas() : state.view === 'conta' ? renderConta() : state.view === 'relatorios' ? renderRelatorios() : state.view === 'importar' ? renderImportar() : state.view === 'mapa' ? renderMapa() : state.view === 'resumo-emendas' ? renderResumoEmendas() : state.view === 'cidadao' ? renderCidadao() : renderList(state.view);
+  main.innerHTML = state.view === 'painel' ? renderPainel() : state.view === 'etiquetas' ? renderEtiquetas() : state.view === 'conta' ? renderConta() : state.view === 'relatorios' ? renderRelatorios() : state.view === 'importar' ? renderImportar() : state.view === 'mapa' ? renderMapa() : state.view === 'resumo-emendas' ? renderResumoEmendas() : state.view === 'cidadao' ? renderCidadao() : state.view === 'disparo' ? renderDisparo() : renderList(state.view);
   if (state.view === 'mapa') setTimeout(desenharMapa, 0); else mapaLib.destruir();
   if (hadFocus) { const q = $('#q'); if (q) { q.focus(); try { q.setSelectionRange(pos, pos); } catch { /* ok */ } } }
   if (drawer.open) refreshDatalists();
@@ -515,6 +531,7 @@ function openDrawer(mod, id, preset = {}) {
     acts.push(`<button class="btn mini" type="button" data-new-for="demandas">+ Demanda desta pessoa</button>`);
     if (linked) acts.push(`<button class="btn mini" type="button" data-search="${esc(rec.nome)}">Ver ${linked} registro(s) ligado(s)</button>`);
   }
+  if (rec && mod === 'agenda') acts.push(`<button class="btn mini wa" type="button" data-disp-convite>Convidar pessoas pelo WhatsApp</button>`);
   if (rec && mod === 'recepcao') acts.push(`<button class="btn mini primary" type="button" data-recep-demanda>Transformar em demanda</button>`, `<button class="btn mini" type="button" data-cid="${esc(rec.nome)}" data-cid-tel="${esc(rec.telefone || '')}">Histórico de ${esc(primeiroNome(rec.nome))}</button>`);
   if (rec && mod === 'demandas') acts.push(`<button class="btn mini primary" type="button" data-oficio-de>Gerar ofício de solicitação</button>`);
   if (rec && ['demandas', 'servicos'].includes(mod) && rec.solicitante) acts.push(`<button class="btn mini" type="button" data-cid="${esc(rec.solicitante)}" data-cid-tel="${esc(rec.telefone || '')}">Histórico de ${esc(primeiroNome(rec.solicitante))}</button>`);
@@ -1060,13 +1077,14 @@ function renderMapa() {
   const semBairro = base.filter(r => !r.bairro && r.lat == null).length;
   return `<div class="no-print"><a class="linkbtn" data-go="${mod}">← ${esc(M.label)}</a></div>
     <h2 class="sec" style="margin-top:6px">Mapa por bairro</h2>
-    <div class="m">Pontos pequenos são pedidos com local exato marcado. Círculos grandes juntam os pedidos de um bairro; quanto maior, mais pedidos. <span style="color:#b3261e">Vermelho</span>: tem atrasado · <span style="color:#c77700">laranja</span>: em aberto · <span style="color:#1c7a3d">verde</span>: tudo resolvido.</div>
+    <div class="m">Toque num ponto e em <b>+ Roteiro</b> para montar a rota de visitas. Pontos pequenos são pedidos com local exato marcado. Círculos grandes juntam os pedidos de um bairro; quanto maior, mais pedidos. <span style="color:#b3261e">Vermelho</span>: tem atrasado · <span style="color:#c77700">laranja</span>: em aberto · <span style="color:#1c7a3d">verde</span>: tudo resolvido.</div>
     <div class="toolbar" style="margin-top:10px"><div class="chips">
       ${['demandas', 'servicos', 'pessoas'].map(k => chip('data-mapa-mod', k, MODS[k].label, mod === k)).join('')}
       ${mod !== 'pessoas' ? chip('data-mapa-so', 'abertos', 'Só em aberto', so === 'abertos') + chip('data-mapa-so', 'todos', 'Todos', so !== 'abertos') : ''}
     </div></div>
     <div class="m" id="mapa-prog" hidden></div>
     <div id="mapa-el" class="mapa"></div>
+    <div id="rota-box">${rotaHtml()}</div>
     <div class="m" id="mapa-info" style="margin-top:8px">${semBairro ? semBairro + ' registro(s) sem bairro preenchido não aparecem no mapa.' : ''}</div>`;
 }
 async function desenharMapa() {
@@ -1083,10 +1101,11 @@ async function desenharMapa() {
       onClique: g => { state.qNext = g.bairro; go(state.mapa.mod); },
       pontosExatos: data[state.mapa.mod].filter(r => r.lat != null && r.lng != null && (state.mapa.so !== 'abertos' || isOpen(state.mapa.mod, r))).map(r => ({ id: r.id, lat: +r.lat, lng: +r.lng, titulo: MODS[state.mapa.mod].title(r) || '', status: r.status, sub: [r.bairro, r.solicitante].filter(Boolean).join(' · '), aberto: isOpen(state.mapa.mod, r), atrasado: isLate(state.mapa.mod, r) })),
       onAbrir: p => openDrawer(state.mapa.mod, p.id),
+      onRota: p => { if (state.rota.length >= 10) { toast('O Google Maps aceita até 10 paradas.'); return; } if (state.rota.some(x => x.lat === p.lat && x.lng === p.lng)) { toast('Já está no roteiro'); return; } state.rota.push(p); atualizarRota(); toast('Adicionado ao roteiro'); },
     });
     const info = $('#mapa-info');
     if (info && semLocal.length) info.textContent += (info.textContent ? ' ' : '') + 'Não achei no mapa: ' + semLocal.map(g => g.bairro).join(', ') + '.';
-    if (!grupos.length && info) info.textContent = 'Nenhum registro com bairro preenchido nesse filtro.';
+    if (!grupos.length && info && !data[state.mapa.mod].some(r => r.lat != null && (state.mapa.so !== 'abertos' || isOpen(state.mapa.mod, r)))) info.textContent = 'Nenhum registro com bairro preenchido nesse filtro.';
   } catch (e) { const info = $('#mapa-info'); if (info) info.textContent = 'Não foi possível abrir o mapa: ' + errMsg(e); }
   finally { mapaOcupado = false; if (mapaDeNovo) { mapaDeNovo = false; desenharMapa(); } }
 }
@@ -1264,6 +1283,112 @@ function renderCidadao() {
 
 /* ---------- prestação de contas pública ---------- */
 const linkPrestacao = () => location.origin + location.pathname + '?prestacao';
+/* ---------- calendário do mês (agenda) ---------- */
+function calendarioHtml() {
+  const t = todayStr(); const ym = state.cal || t.slice(0, 7); const [y, mo] = ym.split('-').map(Number);
+  const ini = new Date(y, mo - 1, 1); const vazio = ini.getDay(); const dias = new Date(y, mo, 0).getDate();
+  const q = state.q.trim().toLowerCase();
+  const ev = data.agenda.filter(r => r.data && r.data.startsWith(ym) && (!q || Object.values(r).some(v => typeof v === 'string' && v.toLowerCase().includes(q)))).sort((a, b) => (a.data + hhmm(a.inicio)).localeCompare(b.data + hhmm(b.inicio)));
+  let cel = '';
+  for (let i = 0; i < vazio; i++) cel += '<div class="cal-d fora"></div>';
+  for (let d = 1; d <= dias; d++) {
+    const dia = ym + '-' + pad(d); const es = ev.filter(r => r.data === dia);
+    cel += `<div class="cal-d ${dia === t ? 'hoje' : ''}" data-cal-dia="${dia}" title="Novo compromisso em ${fmtDate(dia)}"><span class="cal-n">${d}</span>${es.slice(0, 3).map(r => `<button class="cal-ev ${r.status === 'Cancelado' ? 'cancel' : ''}" data-open="agenda:${r.id}" title="${esc(r.titulo)}">${r.inicio ? `<b>${esc(hhmm(r.inicio))}</b> ` : ''}${esc(r.titulo)}</button>`).join('')}${es.length > 3 ? `<span class="cal-mais">+${es.length - 3}</span>` : ''}</div>`;
+  }
+  return `<div class="cal"><div class="cal-top"><button class="btn mini" data-cal-nav="-1" aria-label="Mês anterior">‹</button><b>${MESES[mo - 1].replace(/^./, c => c.toUpperCase())} de ${y}</b><button class="btn mini" data-cal-nav="1" aria-label="Próximo mês">›</button>${ym !== t.slice(0, 7) ? '<button class="btn mini ghost" data-cal-nav="0">Hoje</button>' : ''}<span class="m" style="margin-left:auto">${ev.length} compromisso(s) · toque num dia para marcar</span></div>
+    <div class="cal-g">${['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map(d => `<div class="cal-h">${d}</div>`).join('')}${cel}</div></div>`;
+}
+
+/* ---------- roteiro de visitas (mapa) ---------- */
+function ordenarRota(l) {
+  if (l.length < 3) return l.slice();
+  const dist = (a, b) => Math.hypot(a.lat - b.lat, (a.lng - b.lng) * Math.cos(a.lat * Math.PI / 180));
+  const resto = l.slice(1), out = [l[0]];
+  while (resto.length) { const u = out[out.length - 1]; let k = 0; resto.forEach((p, i) => { if (dist(u, p) < dist(u, resto[k])) k = i; }); out.push(resto.splice(k, 1)[0]); }
+  return out;
+}
+function linkRota(l) {
+  const c = p => (+p.lat).toFixed(6) + ',' + (+p.lng).toFixed(6);
+  const dest = l[l.length - 1], meio = l.slice(0, -1);
+  return 'https://www.google.com/maps/dir/?api=1&travelmode=driving&destination=' + c(dest) + (meio.length ? '&waypoints=' + encodeURIComponent(meio.map(c).join('|')) : '');
+}
+function rotaHtml() {
+  const l = state.rota;
+  if (!l.length) return '';
+  return `<section class="panel rota"><h3>Roteiro de visitas <span class="m" style="font-weight:400">${l.length} parada(s)</span></h3>
+    <ol class="rota-l">${l.map((p, i) => `<li><span>${esc(p.titulo)}</span><button class="btn mini ghost" data-rota-del="${i}" aria-label="Tirar do roteiro">✕</button></li>`).join('')}</ol>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">${l.length > 2 ? '<button class="btn mini" data-rota-ordenar>Ordenar pelo caminho mais curto</button>' : ''}<a class="btn mini primary" href="${esc(linkRota(l))}" target="_blank" rel="noopener">Abrir rota no Google Maps</a><button class="btn mini ghost" data-rota-limpar>Limpar</button></div>
+    <p class="m" style="margin-bottom:0">A rota começa onde você estiver e passa pelas paradas nessa ordem.</p></section>`;
+}
+function atualizarRota() { const b = $('#rota-box'); if (b) b.innerHTML = rotaHtml(); }
+
+/* ---------- disparo em sequência pelo WhatsApp ---------- */
+function iniciarDisparo(titulo, lista, texto) {
+  const vistos = new Set();
+  lista = lista.filter(p => { const k = String(p.telefone).replace(/\D/g, ''); if (!k || vistos.has(k)) return false; vistos.add(k); return true; });
+  state.disp = { titulo, lista, texto, i: 0, feitos: [] };
+  closeDrawer(); go('disparo');
+}
+function avancarDisparo(enviado) {
+  const d = state.disp; if (!d) return;
+  if (enviado) d.feitos.push(d.i);
+  d.i++; render();
+}
+function renderDisparo() {
+  const d = state.disp;
+  if (!d) return `<div class="no-print"><a class="linkbtn" data-go="pessoas">← Pessoas</a></div><h2 class="sec">Envio em sequência</h2><div class="empty"><b>Nada para enviar</b>Comece em Pessoas → “Mensagem para esta lista”, no Painel → aniversariantes, ou num compromisso da Agenda → “Convidar pessoas”.</div>`;
+  const p = d.lista[d.i]; const fim = !p;
+  const txt = p ? preencher(d.texto, { nome: primeiroNome(p.nome), vereador: DEP() }) : '';
+  const wa = p ? waLink(p.telefone, txt) : '';
+  return `<div class="no-print"><a class="linkbtn" data-go="pessoas">← Pessoas</a></div>
+    <h2 class="sec" style="margin-top:6px">${esc(d.titulo)}</h2>
+    <div class="m">Você manda uma por uma: toque no botão verde, envie no WhatsApp e volte aqui para a próxima. Assim o WhatsApp não bloqueia o número.</div>
+    <div class="cols" style="margin-top:14px">
+      <section class="panel"><h3>Mensagem</h3>
+        <div class="f"><label for="disp-texto">Texto (use {nome} para o primeiro nome)</label><textarea id="disp-texto" rows="6">${esc(d.texto)}</textarea></div>
+        ${p ? `<div class="m" style="margin-top:8px">Como vai chegar para ${esc(primeiroNome(p.nome))}:</div><div class="disp-prev">${esc(txt)}</div>` : ''}</section>
+      <section class="panel"><h3>Envio <span class="m" style="font-weight:400">${Math.min(d.i, d.lista.length)} de ${d.lista.length} · ${d.feitos.length} enviada(s)</span></h3>
+        <div class="barra-mini"><i style="width:${d.lista.length ? (Math.min(d.i, d.lista.length) / d.lista.length * 100).toFixed(1) : 0}%"></i></div>
+        ${fim ? `<div class="empty" style="margin-top:10px"><b>${d.lista.length ? 'Lista concluída!' : 'Ninguém com telefone nessa lista'}</b>${d.feitos.length} mensagem(ns) aberta(s) no WhatsApp.</div><button class="btn" data-disp-reiniciar>Começar de novo</button>`
+          : `<div style="margin:12px 0 6px"><b>${esc(p.nome)}</b> <span class="m">${esc(p.telefone)}</span></div>
+             ${wa ? `<a class="btn wa disp-btn" href="${esc(wa)}" target="_blank" rel="noopener" data-disp-enviar>Abrir WhatsApp de ${esc(primeiroNome(p.nome))} (${d.i + 1} de ${d.lista.length})</a>` : '<div class="m">Telefone inválido.</div>'}
+             <button class="btn ghost" data-disp-pular style="margin-top:8px">Pular esta pessoa</button>`}
+        <details style="margin-top:12px"><summary class="m" style="cursor:pointer">Ver a lista (${d.lista.length})</summary><ol class="disp-l">${d.lista.map((x, i) => `<li class="${d.feitos.includes(i) ? 'ok' : i < d.i ? 'pulou' : i === d.i ? 'agora' : ''}">${esc(x.nome)}</li>`).join('')}</ol></details></section>
+    </div>`;
+}
+
+/* ---------- pesquisa de satisfação (página aberta ao cidadão) ---------- */
+async function renderAvaliacao(token) {
+  document.title = 'Avaliação · ' + NOME_GAB();
+  const caixa = h => { document.body.innerHTML = `<div class="pub-page"><div class="pub-faixa"></div><div class="pub-wrap" style="max-width:520px;padding-top:28px"><div class="panel av">${h}</div></div></div>`; };
+  caixa('<div class="m" style="text-align:center">Carregando…</div>');
+  let info;
+  try { info = /^[0-9a-f-]{36}$/i.test(token) || !store.configured ? await store.avaliacaoInfo(token) : null; }
+  catch (e) { caixa(`<b>Página indisponível no momento.</b><p class="m">${esc(errMsg(e))}</p>`); return; }
+  const g = info?.gabinete || {}; if (g.gabinete) cfg.gabinete = g.gabinete; if (g.deputado_nome) cfg.deputado_nome = g.deputado_nome; if (g.deputado_cargo) cfg.deputado_cargo = g.deputado_cargo;
+  const obrigado = `<div style="text-align:center"><div style="font-size:44px">🇧🇷</div><h2 class="sec">Obrigado pela sua avaliação!</h2><p class="m">Sua opinião ajuda o gabinete do ${esc(DEP())} a trabalhar cada vez melhor.</p></div>`;
+  if (!info) { caixa('<b>Link de avaliação não encontrado.</b><p class="m">Confira se o link foi copiado inteiro.</p>'); return; }
+  if (info.nota != null) { caixa(obrigado); return; }
+  let nota = 0;
+  caixa(`<div class="eyebrow">Gabinete do ${esc(DEP())}</div><h2 class="sec" style="margin-top:4px">Como foi o atendimento?</h2>
+    <p class="m">Pedido: <b>${esc(info.assunto || '')}</b></p>
+    <div class="av-est" role="radiogroup" aria-label="Nota de 1 a 5">${[1, 2, 3, 4, 5].map(n => `<button type="button" role="radio" aria-checked="false" data-nota="${n}" aria-label="${n} de 5">★</button>`).join('')}</div>
+    <div class="m" id="av-rot" style="text-align:center;min-height:18px"></div>
+    <div class="f" style="margin-top:10px"><label for="av-com">Quer deixar um comentário? (opcional)</label><textarea id="av-com" rows="3" maxlength="1000"></textarea></div>
+    <div class="err" id="av-err" hidden></div>
+    <button class="btn primary" id="av-env" style="width:100%;margin-top:12px" disabled>Enviar avaliação</button>`);
+  const rot = ['', 'Muito ruim', 'Ruim', 'Regular', 'Bom', 'Ótimo'];
+  document.querySelectorAll('[data-nota]').forEach(b => b.addEventListener('click', () => {
+    nota = +b.dataset.nota; $('#av-rot').textContent = rot[nota]; $('#av-env').disabled = false;
+    document.querySelectorAll('[data-nota]').forEach(x => { x.classList.toggle('on', +x.dataset.nota <= nota); x.setAttribute('aria-checked', String(+x.dataset.nota === nota)); });
+  }));
+  $('#av-env').addEventListener('click', async () => {
+    const b = $('#av-env'); b.disabled = true; b.textContent = 'Enviando…';
+    try { await store.avaliar(token, nota, $('#av-com').value.trim()); caixa(obrigado); }
+    catch (e) { const er = $('#av-err'); er.hidden = false; er.textContent = 'Não foi possível enviar: ' + errMsg(e); b.disabled = false; b.textContent = 'Enviar avaliação'; }
+  });
+}
+
 async function renderPrestacao() {
   document.body.innerHTML = '<div class="pub-page"><div class="m" style="padding:40px;text-align:center">Carregando…</div></div>';
   let d;
@@ -1317,6 +1442,18 @@ document.addEventListener('click', e => {
   const nf = e.target.closest('[data-new-for]'); if (nf) { const p = data.pessoas.find(x => x.id === drawer.id); closeDrawer(); go(nf.dataset.newFor); openDrawer(nf.dataset.newFor, null, { solicitante: p?.nome, telefone: p?.telefone, municipio: p?.municipio, bairro: p?.bairro }); return; }
   const sr = e.target.closest('[data-search]'); if (sr) { const q = sr.dataset.search; closeDrawer(); go('demandas'); state.q = q; state.filter = 'todos'; render(); return; }
   if (e.target.closest('[data-oficio-de]')) { oficioDaDemanda(); return; }
+  const cd = e.target.closest('[data-cal-dia]'); if (cd) { openDrawer('agenda', null, { data: cd.dataset.calDia }); return; }
+  const cn = e.target.closest('[data-cal-nav]'); if (cn) { const [y, mo] = (state.cal || todayStr().slice(0, 7)).split('-').map(Number); const n = +cn.dataset.calNav; state.cal = n === 0 ? '' : ymd(new Date(y, mo - 1 + n, 1)).slice(0, 7); render(); return; }
+  const rdel = e.target.closest('[data-rota-del]'); if (rdel) { state.rota.splice(+rdel.dataset.rotaDel, 1); atualizarRota(); return; }
+  if (e.target.closest('[data-rota-ordenar]')) { state.rota = ordenarRota(state.rota); atualizarRota(); toast('Paradas em ordem pelo caminho mais curto'); return; }
+  if (e.target.closest('[data-rota-limpar]')) { state.rota = []; atualizarRota(); return; }
+  if (e.target.closest('[data-disp-aniv]')) { const md = s => s.slice(5); const t = todayStr(); iniciarDisparo('Parabéns aos aniversariantes de hoje', data.pessoas.filter(p => p.status !== 'Inativo' && p.telefone && p.nascimento && md(p.nascimento) === md(t)), msgTexto('aniversario')); return; }
+  if (e.target.closest('[data-disp-lista]')) { iniciarDisparo('Mensagem para a lista de pessoas', filtered('pessoas').filter(p => p.telefone), msgTexto('contato')); return; }
+  if (e.target.closest('[data-disp-convite]')) { const r = data.agenda.find(x => x.id === drawer.id); closeDrawer(); const v = { evento: r.titulo, data: fmtDate(r.data), hora: r.inicio ? ', às ' + hhmm(r.inicio) : '', local: r.local ? ', em ' + r.local : '', vereador: DEP() }; iniciarDisparo('Convite: ' + r.titulo, data.pessoas.filter(p => p.status !== 'Inativo' && p.telefone && (!r.municipio || !p.municipio || p.municipio === r.municipio)), preencher(msgTexto('convite'), v)); return; }
+  const dp = e.target.closest('[data-disp-pular]'); if (dp) { avancarDisparo(false); return; }
+  if (e.target.closest('[data-disp-enviar]')) { setTimeout(() => avancarDisparo(true), 300); return; }
+  if (e.target.closest('[data-disp-reiniciar]')) { state.disp.i = 0; state.disp.feitos = []; render(); return; }
+  if (e.target.closest('#msgs-padrao')) { if (!confirm('Voltar todas as mensagens ao texto original?')) return; store.setConfig('mensagens', {}).then(() => { msgs = {}; render(); toast('Mensagens originais de volta'); }).catch(err => toast(errMsg(err))); return; }
   if (e.target.closest('[data-recep-demanda]')) { const r = data.recepcao.find(x => x.id === drawer.id); const p = data.pessoas.find(x => normNome(x.nome) === normNome(r.nome)); closeDrawer(); if (r.status === 'Aguardando' || r.status === 'Em atendimento') store.saveRow('recepcao', r.id, { status: 'Atendido', historico: (r.historico || []).concat({ em: new Date().toISOString(), txt: 'Virou demanda', por: myName() }) }).then(row => upsertLocal('recepcao', row)).catch(() => {}); go('demandas'); openDrawer('demandas', null, { solicitante: r.nome, telefone: r.telefone || p?.telefone, bairro: r.bairro || p?.bairro, municipio: p?.municipio, assunto: r.motivo, origem: 'Presencial' }); return; }
   const cb = e.target.closest('[data-cid]'); if (cb) { closeDrawer(); abrirCidadao(cb.dataset.cid, cb.dataset.cidTel); return; }
   if (e.target.closest('[data-cid-nova]')) { const c = state.cid; const p = data.pessoas.find(x => normNome(x.nome) === normNome(c.nome)); go('demandas'); openDrawer('demandas', null, { solicitante: c.nome, telefone: c.tel || p?.telefone, municipio: p?.municipio, bairro: p?.bairro }); return; }
@@ -1394,6 +1531,12 @@ document.addEventListener('submit', async e => {
     try { await store.addEquipe(em); toast('E-mail liberado'); render(); } catch (err) { toast(/duplicate/i.test(errMsg(err)) ? 'Esse e-mail já está liberado' : /row-level|policy|permission/i.test(errMsg(err)) ? 'Só o administrador pode liberar e-mails' : errMsg(err)); }
     return;
   }
+  if (e.target.id === 'msgs') {
+    e.preventDefault();
+    const v = {}; Object.entries(MSG_PADRAO).forEach(([k, [, padrao]]) => { const t = $('#msg-' + k).value.trim(); if (t && t !== padrao) v[k] = t; });
+    try { await store.setConfig('mensagens', v); msgs = v; toast('Mensagens salvas'); render(); } catch (err) { toast(errMsg(err)); }
+    return;
+  }
   if (e.target.id === 'cfg') {
     e.preventDefault();
     const v = Object.fromEntries(CFG_CAMPOS.map(([k]) => [k, $('#cfg-' + k).value.trim()]));
@@ -1405,6 +1548,7 @@ document.addEventListener('submit', async e => {
   try { await store.saveProfile(state.session.user.id, n); state.profiles = await store.loadProfiles(); toast('Nome salvo'); render(); } catch (err) { toast(errMsg(err)); }
 });
 document.addEventListener('input', e => {
+  if (e.target.id === 'disp-texto' && state.disp) { state.disp.texto = e.target.value; const p = state.disp.lista[state.disp.i]; if (p) { const t = preencher(state.disp.texto, { nome: primeiroNome(p.nome), vereador: DEP() }); const pv = $('.disp-prev'); if (pv) pv.textContent = t; const b = $('[data-disp-enviar]'); if (b) b.href = waLink(p.telefone, t); } return; }
   if (e.target.id === 'q') { state.q = e.target.value; render(); }
   if (e.target.dataset && e.target.dataset.et) { state.et[e.target.dataset.et] = e.target.value; const pos = e.target.id; render(); const el = document.getElementById(pos); if (el) el.focus(); }
 });
@@ -1415,6 +1559,7 @@ let unsub = null;
 async function startApp() {
   if (new URLSearchParams(location.search).has('solicitar')) return renderFormPublico();
   if (new URLSearchParams(location.search).has('prestacao')) return renderPrestacao();
+  if (new URLSearchParams(location.search).get('avaliar')) return renderAvaliacao(new URLSearchParams(location.search).get('avaliar'));
   if (store.configured) {
     state.session = await store.getSession();
     if (!state.session) return renderLogin();

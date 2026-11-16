@@ -220,3 +220,23 @@ export async function prestacaoPublica() {
   if (error) throw error;
   return data;
 }
+
+/* ---------- pesquisa de satisfação (página aberta, sem login) ---------- */
+export async function avaliacaoInfo(token) {
+  if (!sb) { const r = (demoRead().demandas || []).find(x => (x.avaliacao_token || x.id) === token); return r ? { assunto: r.assunto, nota: r.nota ?? null, gabinete: null } : null; }
+  const { data, error } = await sb.rpc('avaliacao_info', { p_token: token });
+  if (error) throw error;
+  return data;
+}
+export async function avaliar(token, nota, comentario) {
+  if (!sb) {
+    const d = demoRead(); const r = (d.demandas || []).find(x => (x.avaliacao_token || x.id) === token);
+    if (!r || r.nota != null) return false;
+    const em = new Date().toISOString();
+    Object.assign(r, { nota, nota_comentario: comentario || null, nota_em: em, historico: (r.historico || []).concat({ em, txt: 'Avaliação do cidadão: ' + nota + ' de 5', por: 'Cidadão' }) });
+    demoWrite(d); return true;
+  }
+  const { data, error } = await sb.rpc('avaliar_demanda', { p_token: token, p_nota: nota, p_comentario: comentario || '' });
+  if (error) throw error;
+  return data;
+}
