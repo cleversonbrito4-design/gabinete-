@@ -27,7 +27,7 @@ export const MODS = {
     title: r => r.assunto,
     meta: r => [r.solicitante, r.municipio && (r.municipio + (r.bairro ? ' · ' + r.bairro : '')), r.area].filter(Boolean).join(' · '),
     deadline: 'prazo', phone: 'telefone',
-    extraCols: [['lat','double precision'],['lng','double precision']], geo: 1,
+    extraCols: [['lat','double precision'],['lng','double precision'],['avaliacao_token','uuid default gen_random_uuid()'],['nota','integer'],['nota_comentario','text'],['nota_em','timestamptz']], geo: 1,
   },
   servicos: {
     label: 'Ofícios e serviços', sing: 'Ofício / serviço', novo: 'Novo ofício',
@@ -139,6 +139,23 @@ export const MODS = {
     meta: r => [r.responsavel, r.relacionado].filter(Boolean).join(' · '),
     deadline: 'prazo',
   },
+  recepcao: {
+    label: 'Recepção', sing: 'Atendimento', novo: 'Registrar chegada',
+    hint: 'Quem chegou ao gabinete hoje. A fila mostra quem está aguardando, na ordem de chegada.',
+    statuses: [['Aguardando','novo'],['Em atendimento','and'],['Atendido','ok'],['Desistiu','neg']],
+    fields: [
+      { k:'nome', l:'Nome', req:1, people:1 },
+      { k:'telefone', l:'Telefone / WhatsApp', type:'tel' },
+      { k:'motivo', l:'Motivo da visita', req:1, wide:1 },
+      { k:'hora_chegada', l:'Chegou às', type:'time' },
+      { k:'atendente', l:'Quem atende', team:1 },
+      { k:'bairro', l:'Bairro' },
+      { k:'obs', l:'Observações', type:'textarea', wide:1 },
+    ],
+    title: r => r.nome,
+    meta: r => [r.motivo, r.bairro].filter(Boolean).join(' · '),
+    phone: 'telefone',
+  },
   pessoas: {
     label: 'Pessoas', sing: 'Pessoa', novo: 'Nova pessoa',
     hint: 'Cadastro de eleitores, apoiadores, lideranças e entidades atendidos pelo gabinete.',
@@ -166,6 +183,6 @@ export const MODS = {
   },
 };
 
-export const ORDER = ['demandas', 'servicos', 'emendas', 'proposituras', 'agenda', 'tarefas', 'pessoas'];
+export const ORDER = ['demandas', 'servicos', 'emendas', 'proposituras', 'agenda', 'tarefas', 'recepcao', 'pessoas'];
 
 export const SQL_TYPE = { date:'date', time:'time', money:'numeric(14,2)', number:'integer', bool:'boolean not null default false' };

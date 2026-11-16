@@ -164,4 +164,26 @@ $$;
 revoke all on function public.prestacao_publica() from public;
 grant execute on function public.prestacao_publica() to anon, authenticated;`);
 
+p(`
+-- Pesquisa de satisfação: o cidadão avalia pelo link secreto que recebe no WhatsApp.
+create or replace function public.avaliacao_info(p_token uuid) returns jsonb
+language sql stable security definer set search_path = public as $$
+  select jsonb_build_object('assunto', d.assunto, 'nota', d.nota,
+    'gabinete', (select jsonb_build_object('gabinete', valor->>'gabinete', 'deputado_nome', valor->>'deputado_nome', 'deputado_cargo', valor->>'deputado_cargo') from public.config where id = 'gabinete'))
+  from public.demandas d where d.avaliacao_token = p_token
+$$;
+create or replace function public.avaliar_demanda(p_token uuid, p_nota integer, p_comentario text) returns boolean
+language plpgsql security definer set search_path = public as $$
+begin
+  if p_nota is null or p_nota < 1 or p_nota > 5 then raise exception 'Escolha uma nota de 1 a 5.'; end if;
+  update public.demandas set nota = p_nota, nota_comentario = nullif(left(trim(coalesce(p_comentario, '')), 1000), ''), nota_em = now(),
+    historico = historico || jsonb_build_array(jsonb_build_object('em', now(), 'txt', 'Avaliação do cidadão: ' || p_nota || ' de 5', 'por', 'Cidadão'))
+  where avaliacao_token = p_token and nota is null;
+  return found;
+end $$;
+revoke all on function public.avaliacao_info(uuid) from public;
+revoke all on function public.avaliar_demanda(uuid, integer, text) from public;
+grant execute on function public.avaliacao_info(uuid) to anon, authenticated;
+grant execute on function public.avaliar_demanda(uuid, integer, text) to anon, authenticated;`);
+
 console.log(out.join('\n'));

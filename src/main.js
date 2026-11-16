@@ -60,19 +60,41 @@ function waLink(phone, text) {
   return 'https://wa.me/' + d + (text ? '?text=' + encodeURIComponent(text) : '');
 }
 const primeiroNome = n => String(n || '').trim().split(/\s+/)[0] || '';
+/* Mensagens de WhatsApp: editáveis em Minha conta → Mensagens prontas. */
+const MSG_PADRAO = {
+  contato: ['Contato geral', 'Olá, {nome}! Aqui é do gabinete do {vereador}.'],
+  andamento: ['Pedido em andamento', 'Olá, {nome}! Aqui é do gabinete do {vereador}. Atualização sobre o seu pedido "{assunto}": a situação agora é "{situacao}". Assim que houver novidade, avisamos você.'],
+  oficio: ['Ofício enviado', 'Olá, {nome}! Aqui é do gabinete do {vereador}. Sobre o seu pedido "{assunto}": enviamos ofício para {orgao}. Assim que tivermos resposta, avisamos você.'],
+  concluida: ['Pedido concluído', 'Olá, {nome}! Aqui é do gabinete do {vereador}. Seu pedido "{assunto}" foi concluído! Ficamos felizes em ajudar. Pode nos dar uma nota de 1 a 5? Leva 10 segundos: {link_avaliacao}'],
+  negado: ['Pedido não atendido', 'Olá, {nome}! Aqui é do gabinete do {vereador}. Sobre o seu pedido "{assunto}": infelizmente a situação é "{situacao}". Se precisar de algo mais, estamos à disposição.'],
+  aniversario: ['Aniversário', 'Olá, {nome}! O {vereador} e toda a equipe do gabinete desejam a você um feliz aniversário, com muita saúde e alegria!'],
+  convite: ['Convite para evento', 'Olá, {nome}! O {vereador} convida você para {evento}, no dia {data}{hora}{local}. Contamos com sua presença!'],
+};
+let msgs = {}; // textos salvos pela equipe
+const msgTexto = tipo => msgs[tipo] || MSG_PADRAO[tipo][1];
+function msg(tipo, vars) {
+  let t = msgTexto(tipo);
+  const v = { vereador: DEP(), ...vars };
+  // sem link de avaliação, tira a frase que pede a nota
+  if (!v.link_avaliacao) t = t.replace(/[^.!?]*\{link_avaliacao\}[^.!?]*[.!?]?/g, '').replace(/\s+$/, '');
+  return t.replace(/\{(\w+)\}/g, (_, k) => v[k] == null ? '' : String(v[k])).replace(/ {2,}/g, ' ').trim();
+}
+const AVALIACAO_PRONTA = false; // liga quando a página ?avaliar estiver pronta
+const linkAvaliacao = r => AVALIACAO_PRONTA && r && r.avaliacao_token ? location.origin + location.pathname + '?avaliar=' + r.avaliacao_token : '';
 function waTexto(mod, r) {
-  if (mod === 'pessoas') return `Olá, ${primeiroNome(r.nome)}! Aqui é do gabinete do ${DEP()}.`;
-  if (mod === 'demandas') return `Olá, ${primeiroNome(r.solicitante)}! Aqui é do gabinete do ${DEP()}. Sobre a sua solicitação "${r.assunto}": a situação atual é "${r.status}".`;
-  if (mod === 'servicos') return `Olá, ${primeiroNome(r.solicitante)}! Aqui é do gabinete do ${DEP()}. Sobre o pedido "${r.servico}"${r.orgao ? ' enviado para ' + r.orgao : ''}: a situação atual é "${r.status}".`;
+  if (mod === 'pessoas' || mod === 'recepcao') return msg('contato', { nome: primeiroNome(r.nome) });
+  if (mod === 'demandas' || mod === 'servicos') return waStatus(mod, r);
   return '';
 }
 function waStatus(mod, r) {
-  const nome = primeiroNome(r.solicitante), assunto = mod === 'demandas' ? r.assunto : r.servico;
   const k = kindOf(mod, r.status);
-  const fim = k === 'ok' ? ' Ficamos felizes em ajudar! Qualquer coisa, conte com a gente.' : k === 'neg' ? ' Se precisar de algo mais, estamos à disposição.' : ' Assim que houver novidade, avisamos você.';
-  return `Olá${nome ? ', ' + nome : ''}! Aqui é do gabinete do ${DEP()}. Atualização sobre o seu pedido "${assunto}": a situação agora é "${r.status}".${mod === 'servicos' && r.orgao && r.status === 'Ofício enviado' ? ' Enviamos ofício para ' + r.orgao + (r.protocolo ? ' (nº ' + r.protocolo + ')' : '') + '.' : ''}${fim}`;
+  const vars = { nome: primeiroNome(r.solicitante), assunto: mod === 'demandas' ? r.assunto : r.servico, situacao: r.status, orgao: r.orgao || 'o órgão responsável', link_avaliacao: mod === 'demandas' ? linkAvaliacao(r) : '' };
+  if (k === 'ok') return msg('concluida', vars);
+  if (k === 'neg') return msg('negado', vars);
+  if (mod === 'servicos' && r.status === 'Ofício enviado') return msg('oficio', vars);
+  return msg('andamento', vars);
 }
-const waAniversario = p => `Olá, ${primeiroNome(p.nome)}! O ${DEP()} e toda a equipe do gabinete desejam a você um feliz aniversário, com muita saúde e alegria!`;
+const waAniversario = p => msg('aniversario', { nome: primeiroNome(p.nome) });
 
 /* ---------- estado ---------- */
 const data = Object.fromEntries(ORDER.map(m => [m, []]));
@@ -288,6 +310,12 @@ function filtered(m) {
     else if (state.filter === 'atrasados') a = a.filter(r => isLate(m, r));
     else if (state.filter === 'meus') a = a.filter(r => r.responsavel && r.responsavel === myName());
     else if (state.filter !== 'todos') a = a.filter(r => r.status === state.filter);
+    if (m === 'recepcao') { // fila: quem chegou primeiro aparece primeiro
+      if (state.filter === 'hoje') a = data.recepcao.filter(r => String(r.criado_em || '').slice(0, 10) === t);
+      a.sort((x, y) => (isOpen(m, x) ? 0 : 1) - (isOpen(m, y) ? 0 : 1) || String(isOpen(m, x) ? x.criado_em : y.criado_em || '').localeCompare(String(isOpen(m, x) ? y.criado_em : x.criado_em || '')));
+      if (q) a = a.filter(r => Object.values(r).some(v => (typeof v === 'string' || typeof v === 'number') && String(v).toLowerCase().includes(q)));
+      return a;
+    }
     const px = { Alta: 0, 'Média': 1, Baixa: 2 };
     a.sort((x, y) => { const lx = isLate(m, x) ? 0 : 1, ly = isLate(m, y) ? 0 : 1; if (lx !== ly) return lx - ly; const d = (px[x.prioridade] ?? 1) - (px[y.prioridade] ?? 1); if (d) return d; return String(y.criado_em || '').localeCompare(String(x.criado_em || '')); });
   }
@@ -300,6 +328,7 @@ function midText(m, r) {
   if (m === 'servicos') return r.prazo ? 'Resposta até ' + fmtDate(r.prazo) : (r.data_envio ? 'Enviado ' + fmtDate(r.data_envio) : '');
   if (m === 'emendas') { const v = r.valor_indicado || r.valor_pedido; return v ? brl(v) : ''; }
   if (m === 'tarefas') return r.prazo ? 'Prazo ' + fmtDate(r.prazo) : '';
+  if (m === 'recepcao') { const dia = String(r.criado_em || '').slice(0, 10); return (dia && dia !== todayStr() ? fmtDate(dia) + ' ' : 'Chegou ') + (hhmm(r.hora_chegada) || ''); }
   if (m === 'proposituras') return r.data_protocolo ? 'Protocolo ' + fmtDate(r.data_protocolo) : '';
   if (m === 'pessoas') return r.nascimento ? 'Aniv. ' + r.nascimento.slice(8, 10) + '/' + r.nascimento.slice(5, 7) : (r.grupo || '');
   return '';
@@ -327,6 +356,7 @@ function renderList(m) {
     const opts = [['abertos', 'Em aberto']].concat(M.deadline ? [['atrasados', 'Atrasados']] : []).concat(M.fields.some(f => f.k === 'responsavel') ? [['meus', 'Comigo']] : []).concat([['todos', 'Todos']], M.statuses.map(s => [s[0], s[0]]));
     chips = opts.map(([k, l]) => chip('data-filter', k, l, state.filter === k)).join('');
     if (['demandas', 'servicos'].includes(m)) extra = `<div class="no-print" style="margin-bottom:4px"><button class="btn mini" data-mapa-de="${m}">Ver no mapa</button></div>`;
+    if (m === 'recepcao') { chips = chip('data-filter', 'abertos', 'Fila agora', state.filter === 'abertos') + chip('data-filter', 'hoje', 'Hoje', state.filter === 'hoje') + chip('data-filter', 'todos', 'Todos', state.filter === 'todos'); const n = data.recepcao.filter(r => r.status === 'Aguardando').length; extra = `<div class="m" style="margin-bottom:4px">${n ? `<b>${n}</b> pessoa(s) aguardando.` : 'Ninguém aguardando agora.'}</div>`; }
     if (m === 'emendas') extra = `<div class="no-print" style="margin-bottom:4px"><button class="btn mini primary" data-go="resumo-emendas">Painel de emendas (indicado, empenhado, pago)</button></div>`;
   }
   let body;
@@ -471,7 +501,7 @@ function openDrawer(mod, id, preset = {}) {
   if (geoMini) { geoMini.remover(); geoMini = null; }
   drawer.open = true; drawer.mod = mod; drawer.id = id;
   drawer.geo = rec && rec.lat != null && rec.lng != null ? [+rec.lat, +rec.lng] : (preset.lat != null ? [preset.lat, preset.lng] : null);
-  const defaults = { status: M.statuses[0][0], ...(mod === 'agenda' ? { data: todayStr() } : {}), ...(mod === 'emendas' ? { exercicio: new Date().getFullYear() } : {}), ...(mod === 'proposituras' ? { ano: new Date().getFullYear() } : {}), ...(M.fields.some(f => f.k === 'responsavel') ? { responsavel: myName() } : {}) };
+  const defaults = { status: M.statuses[0][0], ...(mod === 'agenda' ? { data: todayStr() } : {}), ...(mod === 'emendas' ? { exercicio: new Date().getFullYear() } : {}), ...(mod === 'proposituras' ? { ano: new Date().getFullYear() } : {}), ...(M.fields.some(f => f.k === 'responsavel') ? { responsavel: myName() } : {}), ...(mod === 'recepcao' ? { hora_chegada: pad(new Date().getHours()) + ':' + pad(new Date().getMinutes()) } : {}) };
   const r = rec || { ...defaults, ...preset };
   const fields = M.fields.map(f => f.type === 'bool' ? `<div class="f wide">${fieldInput(f, r[f.k] ?? false, false)}</div>` : `<div class="f ${f.wide ? 'wide' : ''}"><label for="f-${f.k}">${esc(f.l)}${f.req ? ' <span class="req">*</span>' : ''}</label>${fieldInput(f, r[f.k] ?? '', false)}</div>`).join('');
   const statusSel = `<div class="f"><label for="f-status">Situação</label><select id="f-status">${M.statuses.map(s => `<option ${s[0] === r.status ? 'selected' : ''}>${esc(s[0])}</option>`).join('')}</select></div>`;
@@ -485,6 +515,7 @@ function openDrawer(mod, id, preset = {}) {
     acts.push(`<button class="btn mini" type="button" data-new-for="demandas">+ Demanda desta pessoa</button>`);
     if (linked) acts.push(`<button class="btn mini" type="button" data-search="${esc(rec.nome)}">Ver ${linked} registro(s) ligado(s)</button>`);
   }
+  if (rec && mod === 'recepcao') acts.push(`<button class="btn mini primary" type="button" data-recep-demanda>Transformar em demanda</button>`, `<button class="btn mini" type="button" data-cid="${esc(rec.nome)}" data-cid-tel="${esc(rec.telefone || '')}">Histórico de ${esc(primeiroNome(rec.nome))}</button>`);
   if (rec && mod === 'demandas') acts.push(`<button class="btn mini primary" type="button" data-oficio-de>Gerar ofício de solicitação</button>`);
   if (rec && ['demandas', 'servicos'].includes(mod) && rec.solicitante) acts.push(`<button class="btn mini" type="button" data-cid="${esc(rec.solicitante)}" data-cid-tel="${esc(rec.telefone || '')}">Histórico de ${esc(primeiroNome(rec.solicitante))}</button>`);
   if (rec && mod !== 'tarefas') acts.push(`<button class="btn mini" type="button" data-tarefa-de>+ Tarefa</button>`);
@@ -508,7 +539,7 @@ function openDrawer(mod, id, preset = {}) {
   carregarMiniaturas();
   if (M.geo) iniciarGeo();
   // ao escolher uma pessoa cadastrada, preenche telefone e município
-  ['solicitante'].forEach(k => { const el = $('#f-' + k); if (el) el.addEventListener('change', () => { const p = data.pessoas.find(x => x.nome === el.value); if (!p) return; [['telefone', 'telefone'], ['municipio', 'municipio'], ['bairro', 'bairro']].forEach(([a, b]) => { const t = $('#f-' + a); if (t && !t.value && p[b]) t.value = p[b]; }); }); });
+  ['solicitante', ...(mod === 'recepcao' ? ['nome'] : [])].forEach(k => { const el = $('#f-' + k); if (el) el.addEventListener('change', () => { const p = data.pessoas.find(x => x.nome === el.value); if (!p) return; [['telefone', 'telefone'], ['municipio', 'municipio'], ['bairro', 'bairro']].forEach(([a, b]) => { const t = $('#f-' + a); if (t && !t.value && p[b]) t.value = p[b]; }); }); });
   setTimeout(() => { const f = $('#f-' + M.fields[0].k); f && f.focus(); }, 30);
 }
 /* ---------- localização exata no registro ---------- */
@@ -684,6 +715,15 @@ async function gerarDocumento() {
       ? `INDICO, nos termos regimentais desta Casa de Leis, que seja encaminhado expediente ao(à) ${destOrg}, solicitando ${minusc(assunto)}${localTxt}.`
       : `REQUEIRO, nos termos regimentais desta Casa de Leis, ${minusc(assunto)}.`);
     const justificativa = tipo === 'oficio' ? [] : (linhas(r.corpo).length ? linhas(r.corpo) : [r.solicitante ? `A presente proposição atende à demanda apresentada por ${r.solicitante}.` : 'A presente proposição atende à demanda encaminhada ao gabinete.']);
+    // fotos e mapa do local vão numa página de anexo no fim do documento
+    if (btn) btn.textContent = 'Juntando fotos e mapa…';
+    const anexoImgs = await imagensDoDocumento(mod, r);
+    if (anexoImgs.length) {
+      const tem = anexoImgs.some(x => x.mapa) ? (anexoImgs.length > 1 ? 'registro fotográfico e mapa com a localização do local' : 'mapa com a localização do local') : 'registro fotográfico do local';
+      const aviso = `Segue, em anexo, ${tem}.`;
+      if (tipo === 'oficio') { const i = Math.max(0, paragrafos.length - 1); paragrafos.splice(i, 0, aviso); } else justificativa.push(aviso);
+    }
+    if (btn) btn.textContent = 'Gerando…';
     const [cargo1, partido] = String(cfg.deputado_cargo || '').split('/');
     const valores = {
       ...cfg, numero, ano: anoDoc, data_extenso: docs.dataExtenso(), destinatario: r.destinatario || '', orgao: r.orgao || '',
@@ -693,7 +733,8 @@ async function gerarDocumento() {
       gabinete_maiusculo: (cfg.gabinete || '').toLocaleUpperCase('pt-BR'),
       proponente: [cargo1 && cargo1.trim(), cfg.deputado_nome].filter(Boolean).join(' ') + (partido ? '/' + partido.trim() : ''),
     };
-    const blob = await docs.gerarDocx(tipo, valores);
+    let blob = await docs.gerarDocx(tipo, valores);
+    if (anexoImgs.length) { try { blob = await docs.anexarImagens(blob, 'ANEXO – ' + (anexoImgs.some(x => x.mapa) ? (anexoImgs.length > 1 ? 'LOCALIZAÇÃO E REGISTRO FOTOGRÁFICO' : 'LOCALIZAÇÃO') : 'REGISTRO FOTOGRÁFICO'), anexoImgs); } catch (e) { console.warn(e); toast('Documento gerado sem as fotos (não foi possível juntá-las).'); } }
     docs.baixar(blob, `${docs.TIPOS[tipo]}${numero ? '-' + String(numero).replace(/\//g, '-') : ''}-${anoDoc}.docx`.normalize('NFD').replace(/[\u0300-\u036f]/g, ''));
     const rot = numero ? `${docs.TIPOS[tipo]} nº ${numero}${tipo === 'oficio' ? '/' + anoDoc : ''}` : docs.TIPOS[tipo];
     const hist = (r.historico || []).concat({ em: new Date().toISOString(), txt: `${rot} gerado em Word`, por: myName() }).slice(-100);
@@ -710,6 +751,28 @@ async function gerarDocumento() {
     toast(`${rot} gerado`);
     openDrawer(mod, r.id);
   } catch (e) { toast(errMsg(e)); if (btn) { btn.disabled = false; btn.textContent = 'Gerar ' + docs.TIPOS[tipo] + ' (Word)'; } }
+}
+
+/** Mapa do ponto marcado e fotos do registro (e da demanda de origem), prontos para o Word. */
+async function imagensDoDocumento(mod, r) {
+  const origem = mod === 'servicos' && r.demanda_id ? data.demandas.find(d => d.id === r.demanda_id) : null;
+  const out = [];
+  const lat = r.lat ?? origem?.lat, lng = r.lng ?? origem?.lng;
+  const endereco = [r.local || origem?.bairro, r.municipio || origem?.municipio].filter(Boolean).join(', ');
+  if (lat != null && lng != null && lat !== '' && lng !== '') {
+    try { const m = await docs.imagemMapa(+lat, +lng); out.push({ ...m, mapa: true, legenda: `Localização${endereco ? ': ' + endereco : ''} (${(+lat).toFixed(6)}, ${(+lng).toFixed(6)}). Ver no Google Maps: ${linkMaps([+lat, +lng])}` }); }
+    catch (e) { console.warn('mapa', e); }
+  }
+  const fotos = [...(r.anexos || []), ...(origem?.anexos || [])].filter(a => tipoMidia(a) === 'foto').filter((a, i, l) => l.findIndex(b => b.path === a.path) === i).slice(0, 8);
+  if (fotos.length) {
+    let links = {}; try { links = await store.linksAnexos(fotos.map(f => f.path)); } catch { /* sem fotos */ }
+    let n = 0;
+    for (const f of fotos) {
+      if (!links[f.path]) continue;
+      try { const img = await docs.imagemParaWord(links[f.path]); n++; out.push({ ...img, legenda: `Foto ${n}${f.em ? ' – ' + fmtDate(String(f.em).slice(0, 10)) : ''}` }); } catch (e) { console.warn('foto', e); }
+    }
+  }
+  return out;
 }
 
 async function modelosHtml() {
@@ -920,7 +983,7 @@ async function removerAnexo(mod, id, i) {
 }
 
 /* ---------- relatórios (para imprimir ou salvar em PDF) ---------- */
-const DATA_REL = { demandas: r => r.criado_em, servicos: r => r.data_envio || r.criado_em, emendas: r => r.criado_em, proposituras: r => r.data_protocolo || r.criado_em, agenda: r => r.data, tarefas: r => r.prazo || r.criado_em, pessoas: r => r.criado_em };
+const DATA_REL = { demandas: r => r.criado_em, servicos: r => r.data_envio || r.criado_em, emendas: r => r.criado_em, proposituras: r => r.data_protocolo || r.criado_em, agenda: r => r.data, tarefas: r => r.prazo || r.criado_em, recepcao: r => r.criado_em, pessoas: r => r.criado_em };
 function relFiltrados() {
   const f = state.rel, m = f.mod;
   return data[m].filter(r => {
@@ -938,9 +1001,9 @@ function renderRelatorios() {
   const val = r => +(r.valor_indicado || r.valor_pedido) || 0;
   const periodo = f.de || f.ate ? `de ${f.de ? fmtDataBR(f.de) : 'início'} até ${f.ate ? fmtDataBR(f.ate) : 'hoje'}` : 'todo o período';
   const filtrosTxt = [f.municipio && 'Município: ' + f.municipio, f.bairro && 'Bairro: ' + f.bairro, f.status && 'Situação: ' + f.status].filter(Boolean).join(' · ');
-  const colsDet = { demandas: ['Data', 'Assunto', 'Solicitante', 'Local', 'Situação'], servicos: ['Data', 'Ofício / serviço', 'Órgão', 'Local', 'Situação'], emendas: ['Data', 'Objeto', 'Beneficiário', 'Valor', 'Situação'], proposituras: ['Data', 'Ementa', 'Tipo / nº', 'Tema', 'Situação'], agenda: ['Data', 'Compromisso', 'Local', 'Contato', 'Situação'], tarefas: ['Prazo', 'Tarefa', 'Responsável', 'Relacionado a', 'Situação'], pessoas: ['Cadastro', 'Nome', 'Tipo', 'Local', 'Telefone'] }[m];
+  const colsDet = { demandas: ['Data', 'Assunto', 'Solicitante', 'Local', 'Situação'], servicos: ['Data', 'Ofício / serviço', 'Órgão', 'Local', 'Situação'], emendas: ['Data', 'Objeto', 'Beneficiário', 'Valor', 'Situação'], proposituras: ['Data', 'Ementa', 'Tipo / nº', 'Tema', 'Situação'], agenda: ['Data', 'Compromisso', 'Local', 'Contato', 'Situação'], tarefas: ['Prazo', 'Tarefa', 'Responsável', 'Relacionado a', 'Situação'], recepcao: ['Data', 'Nome', 'Motivo', 'Atendente', 'Situação'], pessoas: ['Cadastro', 'Nome', 'Tipo', 'Local', 'Telefone'] }[m];
   const linha = r => { const d = fmtDataBR(String(DATA_REL[m](r) || '').slice(0, 10)); const loc = [r.bairro, r.municipio].filter(Boolean).join(', ');
-    const c = { demandas: [d, r.assunto, r.solicitante, loc, r.status], servicos: [d, r.servico, r.orgao, loc || r.local, r.status], emendas: [d, r.objeto, r.beneficiario, brl(val(r)), r.status], proposituras: [d, r.ementa, [r.tipo, r.numero && 'nº ' + r.numero].filter(Boolean).join(' '), r.tema, r.status], agenda: [d + (r.inicio ? ' ' + hhmm(r.inicio) : ''), r.titulo, r.local || r.municipio, r.contato, r.status], tarefas: [d, r.titulo, r.responsavel, r.relacionado, r.status], pessoas: [d, r.nome, r.tipo, loc, r.telefone] }[m];
+    const c = { demandas: [d, r.assunto, r.solicitante, loc, r.status], servicos: [d, r.servico, r.orgao, loc || r.local, r.status], emendas: [d, r.objeto, r.beneficiario, brl(val(r)), r.status], proposituras: [d, r.ementa, [r.tipo, r.numero && 'nº ' + r.numero].filter(Boolean).join(' '), r.tema, r.status], agenda: [d + (r.inicio ? ' ' + hhmm(r.inicio) : ''), r.titulo, r.local || r.municipio, r.contato, r.status], tarefas: [d, r.titulo, r.responsavel, r.relacionado, r.status], recepcao: [d + (r.hora_chegada ? ' ' + hhmm(r.hora_chegada) : ''), r.nome, r.motivo, r.atendente, r.status], pessoas: [d, r.nome, r.tipo, loc, r.telefone] }[m];
     return `<tr data-open="${m}:${r.id}">${c.map(x => `<td>${esc(x || '')}</td>`).join('')}</tr>`; };
   return `<h2 class="sec">Relatórios</h2><div class="m no-print" style="margin-top:2px">Escolha o assunto e o período. Para salvar em PDF, toque em "Imprimir / salvar PDF" e escolha <b>Salvar como PDF</b> no destino da impressora.</div>
     <div class="filters">
@@ -1165,6 +1228,7 @@ function registrosDoCidadao(nome, tel) {
   data.emendas.forEach(r => { if (bate([r.beneficiario, r.quem_pediu])) out.push(['emendas', r]); });
   data.agenda.forEach(r => { if (bate([r.contato])) out.push(['agenda', r]); });
   data.tarefas.forEach(r => { if (n && normNome(r.relacionado).includes(n)) out.push(['tarefas', r]); });
+  data.recepcao.forEach(r => { if (bate([r.nome], r.telefone)) out.push(['recepcao', r]); });
   data.pessoas.forEach(r => { if (r.indicado_por && normNome(r.indicado_por) === n) out.push(['pessoas', r]); });
   return out.sort((a, b) => String(b[1].criado_em || '').localeCompare(String(a[1].criado_em || '')));
 }
@@ -1179,7 +1243,7 @@ function renderCidadao() {
   const abertos = pedidos.filter(([m, r]) => isOpen(m, r)).length;
   const atrasados = pedidos.filter(([m, r]) => isLate(m, r)).length;
   const wa = waLink(tel, `Olá, ${primeiroNome(c.nome)}! Aqui é do gabinete do ${DEP()}.`);
-  const rot = { demandas: 'Demanda', servicos: 'Ofício', emendas: 'Emenda', agenda: 'Agenda', tarefas: 'Tarefa', pessoas: 'Indicou' };
+  const rot = { demandas: 'Demanda', servicos: 'Ofício', emendas: 'Emenda', agenda: 'Agenda', tarefas: 'Tarefa', recepcao: 'Visita ao gabinete', pessoas: 'Indicou' };
   return `<div class="no-print"><a class="linkbtn" data-go="${p ? 'pessoas' : 'demandas'}">← Voltar</a></div>
     <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap;margin-top:6px">
       <div><div class="eyebrow">Histórico do cidadão</div><h2 class="sec" style="margin:2px 0">${esc(c.nome)}</h2>
@@ -1253,6 +1317,7 @@ document.addEventListener('click', e => {
   const nf = e.target.closest('[data-new-for]'); if (nf) { const p = data.pessoas.find(x => x.id === drawer.id); closeDrawer(); go(nf.dataset.newFor); openDrawer(nf.dataset.newFor, null, { solicitante: p?.nome, telefone: p?.telefone, municipio: p?.municipio, bairro: p?.bairro }); return; }
   const sr = e.target.closest('[data-search]'); if (sr) { const q = sr.dataset.search; closeDrawer(); go('demandas'); state.q = q; state.filter = 'todos'; render(); return; }
   if (e.target.closest('[data-oficio-de]')) { oficioDaDemanda(); return; }
+  if (e.target.closest('[data-recep-demanda]')) { const r = data.recepcao.find(x => x.id === drawer.id); const p = data.pessoas.find(x => normNome(x.nome) === normNome(r.nome)); closeDrawer(); if (r.status === 'Aguardando' || r.status === 'Em atendimento') store.saveRow('recepcao', r.id, { status: 'Atendido', historico: (r.historico || []).concat({ em: new Date().toISOString(), txt: 'Virou demanda', por: myName() }) }).then(row => upsertLocal('recepcao', row)).catch(() => {}); go('demandas'); openDrawer('demandas', null, { solicitante: r.nome, telefone: r.telefone || p?.telefone, bairro: r.bairro || p?.bairro, municipio: p?.municipio, assunto: r.motivo, origem: 'Presencial' }); return; }
   const cb = e.target.closest('[data-cid]'); if (cb) { closeDrawer(); abrirCidadao(cb.dataset.cid, cb.dataset.cidTel); return; }
   if (e.target.closest('[data-cid-nova]')) { const c = state.cid; const p = data.pessoas.find(x => normNome(x.nome) === normNome(c.nome)); go('demandas'); openDrawer('demandas', null, { solicitante: c.nome, telefone: c.tel || p?.telefone, municipio: p?.municipio, bairro: p?.bairro }); return; }
   if (e.target.closest('[data-cid-cadastrar]')) { const c = state.cid; const d = data.demandas.find(x => normNome(x.solicitante) === normNome(c.nome)); openDrawer('pessoas', null, { nome: c.nome, telefone: c.tel || d?.telefone, municipio: d?.municipio, bairro: d?.bairro }); return; }
@@ -1358,6 +1423,7 @@ async function startApp() {
   } else state.session = await store.getSession();
   try { state.profiles = await store.loadProfiles(); } catch { state.profiles = []; }
   try { state.backup = await store.getConfig('backup'); } catch { /* ok */ }
+  try { msgs = (await store.getConfig('mensagens')) || {}; } catch { msgs = {}; }
   try { const c = await store.getConfig('gabinete'); if (c) Object.entries(c).forEach(([k, v]) => { if (v) cfg[k] = v; }); } catch { /* usa os padrões */ }
   document.title = NOME_GAB();
   if (store.configured && !state.profiles.some(p => p.id === state.session.user.id)) return renderAskName();

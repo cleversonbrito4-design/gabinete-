@@ -78,6 +78,10 @@ create table if not exists public.demandas (
   publico boolean not null default false,
   lat double precision,
   lng double precision,
+  avaliacao_token uuid default gen_random_uuid(),
+  nota integer,
+  nota_comentario text,
+  nota_em timestamptz,
   historico jsonb not null default '[]'::jsonb,
   anexos jsonb not null default '[]'::jsonb,
   criado_por uuid references auth.users(id) default auth.uid(),
@@ -99,6 +103,10 @@ alter table public.demandas add column if not exists obs text;
 alter table public.demandas add column if not exists publico boolean not null default false;
 alter table public.demandas add column if not exists lat double precision;
 alter table public.demandas add column if not exists lng double precision;
+alter table public.demandas add column if not exists avaliacao_token uuid default gen_random_uuid();
+alter table public.demandas add column if not exists nota integer;
+alter table public.demandas add column if not exists nota_comentario text;
+alter table public.demandas add column if not exists nota_em timestamptz;
 alter table public.demandas add column if not exists anexos jsonb not null default '[]'::jsonb;
 alter table public.demandas enable row level security;
 drop policy if exists "equipe acessa demandas" on public.demandas;
@@ -321,6 +329,37 @@ create policy "equipe acessa tarefas" on public.tarefas for all to authenticated
 drop trigger if exists tarefas_atualizado_em on public.tarefas;
 create trigger tarefas_atualizado_em before update on public.tarefas for each row execute function public.tocar_atualizado_em();
 
+-- Recepção
+create table if not exists public.recepcao (
+  id uuid primary key default gen_random_uuid(),
+  status text not null default 'Aguardando',
+  nome text,
+  telefone text,
+  motivo text,
+  hora_chegada time,
+  atendente text,
+  bairro text,
+  obs text,
+  historico jsonb not null default '[]'::jsonb,
+  anexos jsonb not null default '[]'::jsonb,
+  criado_por uuid references auth.users(id) default auth.uid(),
+  criado_em timestamptz not null default now(),
+  atualizado_em timestamptz not null default now()
+);
+alter table public.recepcao add column if not exists nome text;
+alter table public.recepcao add column if not exists telefone text;
+alter table public.recepcao add column if not exists motivo text;
+alter table public.recepcao add column if not exists hora_chegada time;
+alter table public.recepcao add column if not exists atendente text;
+alter table public.recepcao add column if not exists bairro text;
+alter table public.recepcao add column if not exists obs text;
+alter table public.recepcao add column if not exists anexos jsonb not null default '[]'::jsonb;
+alter table public.recepcao enable row level security;
+drop policy if exists "equipe acessa recepcao" on public.recepcao;
+create policy "equipe acessa recepcao" on public.recepcao for all to authenticated using (public.is_equipe()) with check (public.is_equipe());
+drop trigger if exists recepcao_atualizado_em on public.recepcao;
+create trigger recepcao_atualizado_em before update on public.recepcao for each row execute function public.tocar_atualizado_em();
+
 -- Pessoas
 create table if not exists public.pessoas (
   id uuid primary key default gen_random_uuid(),
@@ -370,7 +409,7 @@ create trigger pessoas_atualizado_em before update on public.pessoas for each ro
 
 -- Atualização em tempo real entre os usuários
 do $$ declare t text; begin
-  foreach t in array array['demandas','servicos','emendas','proposituras','agenda','tarefas','pessoas'] loop
+  foreach t in array array['demandas','servicos','emendas','proposituras','agenda','tarefas','recepcao','pessoas'] loop
     if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = t) then
       execute format('alter publication supabase_realtime add table public.%I', t);
     end if;
@@ -433,3 +472,24 @@ language sql stable security definer set search_path = public as $$
 $$;
 revoke all on function public.prestacao_publica() from public;
 grant execute on function public.prestacao_publica() to anon, authenticated;
+
+-- Pesquisa de satisfação: o cidadão avalia pelo link secreto que recebe no WhatsApp.
+create or replace function public.avaliacao_info(p_token uuid) returns jsonb
+language sql stable security definer set search_path = public as $$
+  select jsonb_build_object('assunto', d.assunto, 'nota', d.nota,
+    'gabinete', (select jsonb_build_object('gabinete', valor->>'gabinete', 'deputado_nome', valor->>'deputado_nome', 'deputado_cargo', valor->>'deputado_cargo') from public.config where id = 'gabinete'))
+  from public.demandas d where d.avaliacao_token = p_token
+$$;
+create or replace function public.avaliar_demanda(p_token uuid, p_nota integer, p_comentario text) returns boolean
+language plpgsql security definer set search_path = public as $$
+begin
+  if p_nota is null or p_nota < 1 or p_nota > 5 then raise exception 'Escolha uma nota de 1 a 5.'; end if;
+  update public.demandas set nota = p_nota, nota_comentario = nullif(left(trim(coalesce(p_comentario, '')), 1000), ''), nota_em = now(),
+    historico = historico || jsonb_build_array(jsonb_build_object('em', now(), 'txt', 'Avaliação do cidadão: ' || p_nota || ' de 5', 'por', 'Cidadão'))
+  where avaliacao_token = p_token and nota is null;
+  return found;
+end $$;
+revoke all on function public.avaliacao_info(uuid) from public;
+revoke all on function public.avaliar_demanda(uuid, integer, text) from public;
+grant execute on function public.avaliacao_info(uuid) to anon, authenticated;
+grant execute on function public.avaliar_demanda(uuid, integer, text) to anon, authenticated;
