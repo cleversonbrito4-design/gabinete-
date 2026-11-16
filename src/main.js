@@ -389,9 +389,9 @@ function renderConta() {
         <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" type="submit">Salvar nome</button>${store.configured ? '<button class="btn" type="button" id="pf-senha">Trocar senha</button><button class="btn danger" type="button" id="pf-sair">Sair</button>' : ''}</div>
       </form></section>
     <section class="panel"><h3>Equipe</h3>
-      <p class="m" style="margin-top:0">Só os e-mails desta lista conseguem ver os dados. Para incluir alguém, adicione o e-mail aqui e peça para a pessoa abrir o sistema e tocar em <b>"Primeiro acesso? Criar minha conta"</b>.</p>
+      <p class="m" style="margin-top:0">Só os e-mails desta lista conseguem ver os dados. O administrador adiciona o e-mail aqui e a pessoa abre o sistema e toca em <b>"Primeiro acesso? Criar minha conta"</b>.</p>
       <div id="equipe-box"><div class="m">Carregando…</div></div>
-      ${store.configured ? `<form id="eq-add" style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap" novalidate><input id="eq-email" type="email" placeholder="email@exemplo.com" style="flex:1 1 200px;min-width:0;border:1px solid var(--line);background:var(--bg);border-radius:7px;padding:8px 10px"><button class="btn primary" type="submit">Liberar e-mail</button></form>` : ''}
+      ${store.configured ? `<form id="eq-add" hidden style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap" novalidate><input id="eq-email" type="email" placeholder="email@exemplo.com" style="flex:1 1 200px;min-width:0;border:1px solid var(--line);background:var(--bg);border-radius:7px;padding:8px 10px"><button class="btn primary" type="submit">Liberar e-mail</button></form>` : ''}
       ${state.profiles.length ? `<div class="eyebrow" style="margin-top:14px">Nomes cadastrados</div><div class="m">${state.profiles.map(p => esc(p.nome)).join(', ')}</div>` : ''}</section>
     <section class="panel"><h3>Dados do gabinete</h3><p class="m" style="margin-top:0">Aparecem no topo do sistema e nos ofícios e indicações.</p>
       <form id="cfg" class="filters" style="grid-template-columns:1fr;margin:0" novalidate>${CFG_CAMPOS.map(([k, l]) => `<div class="f"><label for="cfg-${k}">${esc(l)}</label><input id="cfg-${k}" value="${esc(cfg[k])}"></div>`).join('')}
@@ -431,7 +431,13 @@ function render() {
   if (state.view !== 'etiquetas') $('#page-css').textContent = '';
   if (state.view === 'conta') setTimeout(async () => {
     const b = $('#modelos-box'); if (b) b.innerHTML = await modelosHtml();
-    const q = $('#equipe-box'); if (q) { try { const l = await store.listEquipe(); const me = (state.session?.user?.email || '').toLowerCase(); q.innerHTML = l.length ? l.map(e => `<div class="ag-item" style="cursor:default;grid-template-columns:minmax(0,1fr) auto;align-items:center"><div class="t" style="font-weight:500">${esc(e)}${e === me ? ' <span class="m">(você)</span>' : ''}</div>${e === me ? '' : `<button class="btn mini ghost" data-eq-del="${esc(e)}">Remover</button>`}</div>`).join('') : '<div class="m">Nenhum e-mail na lista.</div>'; } catch (err) { q.innerHTML = '<div class="m">' + (store.configured ? esc(errMsg(err)) : 'Disponível quando o banco estiver ligado.') + '</div>'; } }
+    const q = $('#equipe-box'); if (q) { try {
+      const [l, adm] = await Promise.all([store.listEquipe(), store.isAdmin()]); state.admin = adm;
+      const me = (state.session?.user?.email || '').toLowerCase();
+      q.innerHTML = (l.length ? l.map(({ email: e, admin }) => `<div class="ag-item" style="cursor:default;grid-template-columns:minmax(0,1fr) auto;align-items:center"><div class="t" style="font-weight:500">${esc(e)}${e === me ? ' <span class="m">(você)</span>' : ''}${admin ? ' <span class="pill k-novo">Administrador</span>' : ''}</div>${e === me || admin || !adm ? '' : `<button class="btn mini ghost" data-eq-del="${esc(e)}">Remover</button>`}</div>`).join('') : '<div class="m">Nenhum e-mail na lista.</div>')
+        + (adm ? '' : '<p class="m" style="margin-bottom:0">Só o administrador do sistema pode liberar ou remover e-mails. Peça a ele.</p>');
+      const f = $('#eq-add'); if (f) f.hidden = !adm;
+    } catch (err) { q.innerHTML = '<div class="m">' + (store.configured ? esc(errMsg(err)) : 'Disponível quando o banco estiver ligado.') + '</div>'; } }
   }, 0);
   main.innerHTML = state.view === 'painel' ? renderPainel() : state.view === 'etiquetas' ? renderEtiquetas() : state.view === 'conta' ? renderConta() : state.view === 'relatorios' ? renderRelatorios() : state.view === 'importar' ? renderImportar() : state.view === 'mapa' ? renderMapa() : state.view === 'resumo-emendas' ? renderResumoEmendas() : state.view === 'cidadao' ? renderCidadao() : renderList(state.view);
   if (state.view === 'mapa') setTimeout(desenharMapa, 0); else mapaLib.destruir();
@@ -1285,7 +1291,7 @@ document.addEventListener('click', e => {
   }
   if (e.target.closest('#g-sync')) { syncGoogle(); return; }
   if (e.target.closest('#btn-doc')) { gerarDocumento(); return; }
-  const eqd = e.target.closest('[data-eq-del]'); if (eqd) { const em = eqd.dataset.eqDel; if (eqd.dataset.ok) { store.removeEquipe(em).then(() => { toast('Acesso removido'); render(); }).catch(err => toast(errMsg(err))); } else { eqd.dataset.ok = '1'; eqd.textContent = 'Confirmar remoção'; eqd.classList.add('danger'); } return; }
+  const eqd = e.target.closest('[data-eq-del]'); if (eqd) { const em = eqd.dataset.eqDel; if (eqd.dataset.ok) { store.removeEquipe(em).then(() => { toast('Acesso removido'); render(); }).catch(err => toast(/row-level|policy|permission/i.test(errMsg(err)) ? 'Só o administrador pode remover e-mails' : errMsg(err))); } else { eqd.dataset.ok = '1'; eqd.textContent = 'Confirmar remoção'; eqd.classList.add('danger'); } return; }
   const mb = e.target.closest('[data-mod-baixar]'); if (mb) { docs.carregarModelo(mb.dataset.modBaixar).then(m => docs.baixar(new Blob([m.buf]), 'modelo-' + mb.dataset.modBaixar + '.docx')).catch(err => toast(errMsg(err))); return; }
   const mp = e.target.closest('[data-mod-padrao]'); if (mp) { store.setConfig('modelo:' + mp.dataset.modPadrao, null).then(() => { toast('Voltou ao modelo padrão'); render(); }).catch(err => toast(errMsg(err))); return; }
   if (e.target.closest('#g-cal-save')) { gcal.setCalendarId($('#g-cal').value.trim()); toast('Calendário salvo'); return; }
@@ -1320,7 +1326,7 @@ document.addEventListener('submit', async e => {
   if (e.target.id === 'eq-add') {
     e.preventDefault(); const em = $('#eq-email').value.trim();
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) { toast('Digite um e-mail válido'); return; }
-    try { await store.addEquipe(em); toast('E-mail liberado'); render(); } catch (err) { toast(/duplicate/i.test(errMsg(err)) ? 'Esse e-mail já está liberado' : errMsg(err)); }
+    try { await store.addEquipe(em); toast('E-mail liberado'); render(); } catch (err) { toast(/duplicate/i.test(errMsg(err)) ? 'Esse e-mail já está liberado' : /row-level|policy|permission/i.test(errMsg(err)) ? 'Só o administrador pode liberar e-mails' : errMsg(err)); }
     return;
   }
   if (e.target.id === 'cfg') {

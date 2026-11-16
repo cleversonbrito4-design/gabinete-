@@ -13,8 +13,28 @@ $$;
 revoke all on function public.is_equipe() from public, anon;
 grant execute on function public.is_equipe() to authenticated;
 alter table public.equipe enable row level security;
+
+-- Administrador: só ele inclui ou remove e-mails da equipe.
+-- Na primeira vez, o administrador é o primeiro e-mail cadastrado na lista.
+alter table public.equipe add column if not exists admin boolean not null default false;
+update public.equipe set admin = true
+  where email = (select email from public.equipe order by criado_em, email limit 1)
+    and not exists (select 1 from public.equipe where admin);
+create or replace function public.is_admin() returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.equipe where admin and email = lower(coalesce(auth.jwt() ->> 'email', '')))
+$$;
+revoke all on function public.is_admin() from public, anon;
+grant execute on function public.is_admin() to authenticated;
 drop policy if exists "equipe gerencia equipe" on public.equipe;
-create policy "equipe gerencia equipe" on public.equipe for all to authenticated using (public.is_equipe()) with check (public.is_equipe());
+drop policy if exists "equipe ve equipe" on public.equipe;
+create policy "equipe ve equipe" on public.equipe for select to authenticated using (public.is_equipe());
+drop policy if exists "admin inclui na equipe" on public.equipe;
+create policy "admin inclui na equipe" on public.equipe for insert to authenticated with check (public.is_admin());
+drop policy if exists "admin altera equipe" on public.equipe;
+create policy "admin altera equipe" on public.equipe for update to authenticated using (public.is_admin()) with check (public.is_admin());
+drop policy if exists "admin remove da equipe" on public.equipe;
+create policy "admin remove da equipe" on public.equipe for delete to authenticated using (public.is_admin() and email <> lower(coalesce(auth.jwt() ->> 'email', '')));
 
 create table if not exists public.perfis (
   id uuid primary key references auth.users(id) on delete cascade,

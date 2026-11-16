@@ -132,9 +132,17 @@ export async function isEquipe() {
 }
 export async function listEquipe() {
   if (!sb) return [];
-  const { data, error } = await sb.from('equipe').select('email').order('email');
+  let { data, error } = await sb.from('equipe').select('email, admin').order('email');
+  if (error && /admin/.test(error.message || '')) ({ data, error } = await sb.from('equipe').select('email').order('email'));
   if (error) throw error;
-  return data.map(r => r.email);
+  return data.map(r => ({ email: r.email, admin: !!r.admin }));
+}
+/** true se quem está logado é o administrador (pode liberar e remover e-mails). */
+export async function isAdmin() {
+  if (!sb) return true;
+  const { data, error } = await sb.rpc('is_admin');
+  if (error) return false;
+  return !!data;
 }
 export async function addEquipe(email) {
   const { error } = await sb.from('equipe').insert({ email: email.trim().toLowerCase() });
