@@ -55,8 +55,8 @@ Faça esta parte depois que eu avisar que o código está no GitHub.
 2. Abra **Authentication → Users → Add user → Send invitation** e convide cada uma das 5 pessoas pelo e-mail.
 3. Cada pessoa recebe um e-mail, clica no link, cria a senha e digita o nome. Pronto.
 
-4. Depois de entrar, abra **☰ → Minha conta → Dados do gabinete** e preencha o nome do deputado, o cargo, a casa legislativa, a cidade e o endereço. Esses dados vão para os ofícios e indicações em Word.
-5. Se o gabinete já tem um modelo de ofício com brasão e timbre, use **Modelos de Word → Baixar modelo atual**. Abra o arquivo no Word, copie para o seu modelo os campos entre chaves, como `{numero}` e `{destinatario}`, e envie de volta em **Enviar meu modelo**.
+4. Os modelos de ofício, requerimento e indicação já vêm com o timbre da Câmara de Cascavel e os dados do vereador. Para mudar algum dado, como o último número de ofício, abra **☰ → Minha conta → Dados do gabinete**.
+5. Para mudar o layout de um modelo, use **Modelos de Word → Baixar modelo atual**. Edite o arquivo no Word, mantendo os campos entre chaves como `{numero}`, e envie de volta em **Enviar meu modelo**.
 
 Se alguém esquecer a senha, é só clicar em **"Esqueci minha senha"** na tela de login.
 
@@ -66,7 +66,7 @@ Se alguém esquecer a senha, é só clicar em **"Esqueci minha senha"** na tela 
 
 Faça esta parte quando o sistema já estiver funcionando.
 
-1. Abra **https://console.cloud.google.com** com a conta Google que gerencia a agenda do deputado.
+1. Abra **https://console.cloud.google.com** com a conta Google que gerencia a agenda do vereador.
 2. No topo, clique no seletor de projetos → **Novo projeto** → nome `gabinete` → **Criar**.
 3. Abra **https://console.cloud.google.com/apis/library/calendar-json.googleapis.com** e clique em **Ativar**.
 4. Abra **https://console.cloud.google.com/auth/overview** e clique em **Começar**:
@@ -81,7 +81,7 @@ Faça esta parte quando o sistema já estiver funcionando.
 
 **Me envie:** o ID do cliente. Ele também é público. Não envie a "chave secreta do cliente".
 
-Quem for usar a sincronização precisa ter permissão de **"Fazer alterações nos eventos"** na agenda do deputado. Para isso, o deputado compartilha a agenda com o e-mail do assessor no Google Agenda: Configurações → Compartilhar com pessoas.
+Quem for usar a sincronização precisa ter permissão de **"Fazer alterações nos eventos"** na agenda do vereador. Para isso, o vereador compartilha a agenda com o e-mail do assessor no Google Agenda: Configurações → Compartilhar com pessoas.
 
 ---
 

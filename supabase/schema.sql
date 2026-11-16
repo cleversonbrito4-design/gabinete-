@@ -79,6 +79,7 @@ create table if not exists public.servicos (
   data_envio date,
   prazo date,
   responsavel text,
+  vocativo text,
   corpo text,
   obs text,
   historico jsonb not null default '[]'::jsonb,
@@ -98,6 +99,7 @@ alter table public.servicos add column if not exists protocolo text;
 alter table public.servicos add column if not exists data_envio date;
 alter table public.servicos add column if not exists prazo date;
 alter table public.servicos add column if not exists responsavel text;
+alter table public.servicos add column if not exists vocativo text;
 alter table public.servicos add column if not exists corpo text;
 alter table public.servicos add column if not exists obs text;
 alter table public.servicos enable row level security;
@@ -160,6 +162,7 @@ create table if not exists public.proposituras (
   destinatario text,
   orgao text,
   link text,
+  texto text,
   corpo text,
   obs text,
   historico jsonb not null default '[]'::jsonb,
@@ -178,6 +181,7 @@ alter table public.proposituras add column if not exists tema text;
 alter table public.proposituras add column if not exists destinatario text;
 alter table public.proposituras add column if not exists orgao text;
 alter table public.proposituras add column if not exists link text;
+alter table public.proposituras add column if not exists texto text;
 alter table public.proposituras add column if not exists corpo text;
 alter table public.proposituras add column if not exists obs text;
 alter table public.proposituras enable row level security;

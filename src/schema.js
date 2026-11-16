@@ -19,7 +19,7 @@ export const MODS = {
       { k:'prioridade', l:'Prioridade', type:'select', opts:['Baixa','Média','Alta'] },
       { k:'responsavel', l:'Responsável no gabinete', team:1 },
       { k:'prazo', l:'Prazo de retorno', type:'date' },
-      { k:'origem', l:'Como chegou', type:'select', opts:['Presencial','WhatsApp','Telefone','E-mail','Redes sociais','Liderança local','Visita do deputado'] },
+      { k:'origem', l:'Como chegou', type:'select', opts:['Presencial','WhatsApp','Telefone','E-mail','Redes sociais','Liderança local','Visita do parlamentar'] },
       { k:'descricao', l:'Descrição', type:'textarea', wide:1 },
       { k:'obs', l:'Andamento / observações', type:'textarea', wide:1 },
     ],
@@ -44,7 +44,8 @@ export const MODS = {
       { k:'data_envio', l:'Data de envio', type:'date' },
       { k:'prazo', l:'Prazo de resposta', type:'date' },
       { k:'responsavel', l:'Responsável no gabinete', team:1 },
-      { k:'corpo', l:'Texto do ofício / justificativa (vai para o Word)', type:'textarea', wide:1 },
+      { k:'vocativo', l:'Vocativo (ex.: Senhor Prefeito)' },
+      { k:'corpo', l:'Texto do ofício (vai para o Word; um parágrafo por linha)', type:'textarea', wide:1 },
       { k:'obs', l:'Andamento / resposta', type:'textarea', wide:1 },
     ],
     title: r => r.servico,
@@ -74,7 +75,7 @@ export const MODS = {
   },
   proposituras: {
     label: 'Proposituras', sing: 'Propositura', novo: 'Nova propositura',
-    hint: 'Projetos de lei, indicações, requerimentos e moções apresentados pelo deputado.',
+    hint: 'Projetos de lei, indicações, requerimentos e moções apresentados pelo parlamentar.',
     statuses: [['Em elaboração','novo'],['Protocolada','and'],['Em comissão','and'],['Em pauta','and'],['Aprovada','ok'],['Transformada em lei','ok'],['Rejeitada','neg'],['Arquivada','neg']],
     fields: [
       { k:'ementa', l:'Ementa', req:1, wide:1, type:'textarea' },
@@ -88,7 +89,8 @@ export const MODS = {
       { k:'destinatario', l:'Destinatário (indicações e requerimentos)' },
       { k:'orgao', l:'Órgão destinatário' },
       { k:'link', l:'Link da tramitação', type:'url', wide:1 },
-      { k:'corpo', l:'Justificativa (vai para o Word)', type:'textarea', wide:1 },
+      { k:'texto', l:'Texto (REQUEIRO… / INDICO…) – vai para o Word', type:'textarea', wide:1 },
+      { k:'corpo', l:'Justificativa (vai para o Word; um parágrafo por linha)', type:'textarea', wide:1 },
       { k:'obs', l:'Tramitação / observações', type:'textarea', wide:1 },
     ],
     title: r => r.ementa,
@@ -96,7 +98,7 @@ export const MODS = {
   },
   agenda: {
     label: 'Agenda', sing: 'Compromisso', novo: 'Novo compromisso',
-    hint: 'Compromissos do deputado: reuniões, eventos, visitas e sessões.',
+    hint: 'Compromissos do parlamentar: reuniões, eventos, visitas e sessões.',
     statuses: [['A confirmar','novo'],['Confirmado','ok'],['Realizado','neg'],['Cancelado','neg']],
     fields: [
       { k:'titulo', l:'Compromisso', req:1, wide:1 },

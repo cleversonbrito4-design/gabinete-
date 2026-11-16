@@ -14,10 +14,12 @@ const CFG_CAMPOS = [
   ['casa_legislativa', 'Casa legislativa', env.VITE_CASA || 'Assembleia Legislativa do Estado'],
   ['cidade_gabinete', 'Cidade do gabinete (para a data dos documentos)', env.VITE_CIDADE || ''],
   ['endereco_gabinete', 'Endereço, telefone e e-mail do gabinete (rodapé)', env.VITE_ENDERECO_GABINETE || ''],
+  ['ultimo_oficio', 'Último nº de ofício já emitido fora do sistema (ex.: 163)', env.VITE_ULTIMO_OFICIO || ''],
 ];
 const cfg = Object.fromEntries(CFG_CAMPOS.map(([k, , v]) => [k, v]));
 const NOME_GAB = () => cfg.gabinete || 'Gestão do Gabinete';
-const DEP = () => cfg.deputado_nome ? 'deputado ' + cfg.deputado_nome : 'deputado';
+const TITULO = () => (String(cfg.deputado_cargo || 'Deputado').split('/')[0].trim().toLowerCase() || 'deputado');
+const DEP = () => cfg.deputado_nome ? TITULO() + ' ' + cfg.deputado_nome : TITULO();
 
 /* ---------- utilidades ---------- */
 const $ = s => document.querySelector(s);
@@ -264,7 +266,7 @@ function renderList(m) {
   let chips, extra = '';
   if (m === 'agenda') {
     chips = [['proximos', 'Próximos'], ['passados', 'Passados'], ['todos', 'Todos']].map(([k, l]) => chip('data-win', k, l, state.agendaWin === k)).join('');
-    if (gcal.googleAvailable) extra = `<div class="no-print" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px"><button class="btn mini" id="g-sync">${gcal.isConnected() ? 'Sincronizar com Google Agenda' : 'Conectar Google Agenda'}</button><span class="gstat" id="g-stat">${gcal.isConnected() ? 'Conectado · calendário: ' + esc(gcal.calendarId()) : 'Compromissos salvos aqui vão para o Google Agenda do deputado.'}</span></div>`;
+    if (gcal.googleAvailable) extra = `<div class="no-print" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px"><button class="btn mini" id="g-sync">${gcal.isConnected() ? 'Sincronizar com Google Agenda' : 'Conectar Google Agenda'}</button><span class="gstat" id="g-stat">${gcal.isConnected() ? 'Conectado · calendário: ' + esc(gcal.calendarId()) : 'Compromissos salvos aqui vão para o Google Agenda do parlamentar.'}</span></div>`;
   } else if (m === 'pessoas') {
     chips = [['abertos', 'Ativos'], ['tipo:Liderança', 'Lideranças'], ['tipo:Entidade / associação', 'Entidades'], ['aniv', 'Aniversariantes do mês'], ['todos', 'Todos']].map(([k, l]) => chip('data-filter', k, l, state.filter === k)).join('');
     extra = `<div class="no-print" style="margin-bottom:4px"><button class="btn mini" data-go="etiquetas">Imprimir etiquetas</button></div>`;
@@ -340,8 +342,8 @@ function renderConta() {
       <div id="modelos-box"><div class="m">Carregando…</div></div>
       <details style="margin-top:10px"><summary class="m" style="cursor:pointer">Campos que você pode usar no modelo</summary><div class="hist"><ol>${docs.CAMPOS.map(([k, l]) => `<li><time>{${k}}</time><span>${esc(l)}</span></li>`).join('')}</ol></div></details></section>
     ${gcal.googleAvailable ? `<section class="panel"><h3>Google Agenda</h3>
-      <div class="f"><label for="g-cal">ID do calendário do deputado</label><input id="g-cal" value="${esc(gcal.calendarId())}"></div>
-      <p class="m">Use "primary" para o seu calendário principal, ou o ID que aparece em Configurações do calendário → Integrar agenda (termina em @group.calendar.google.com ou é o e-mail do deputado).</p>
+      <div class="f"><label for="g-cal">ID do calendário do parlamentar</label><input id="g-cal" value="${esc(gcal.calendarId())}"></div>
+      <p class="m">Use "primary" para o seu calendário principal, ou o ID que aparece em Configurações do calendário → Integrar agenda (termina em @group.calendar.google.com ou é o e-mail do parlamentar).</p>
       <button class="btn" id="g-cal-save">Salvar calendário</button></section>` : ''}
   </div>`;
 }
@@ -449,14 +451,15 @@ function upsertLocal(mod, row) { if (!row) return; const a = data[mod]; const i 
 
 /* ---------- documentos Word ---------- */
 function docTipo(mod, r) {
-  if (mod === 'servicos') return r.tipo_doc === 'Indicação' ? 'indicacao' : (!r.tipo_doc || ['Ofício', 'Requerimento'].includes(r.tipo_doc)) ? 'oficio' : null;
-  if (mod === 'proposituras') return r.tipo === 'Indicação' ? 'indicacao' : r.tipo === 'Requerimento' ? 'oficio' : null;
+  if (mod === 'servicos') return r.tipo_doc === 'Indicação' ? 'indicacao' : r.tipo_doc === 'Requerimento' ? 'requerimento' : (!r.tipo_doc || r.tipo_doc === 'Ofício') ? 'oficio' : null;
+  if (mod === 'proposituras') return r.tipo === 'Indicação' ? 'indicacao' : r.tipo === 'Requerimento' ? 'requerimento' : null;
   return null;
 }
 function proximoNumero(mod, r, ano) {
   let nums;
   if (mod === 'servicos') nums = data.servicos.filter(x => x.tipo_doc === r.tipo_doc || (!x.tipo_doc && !r.tipo_doc)).map(x => /^(\d+)\s*\/\s*(\d{4})$/.exec(x.protocolo || '')).filter(m => m && m[2] === String(ano)).map(m => +m[1]);
   else nums = data.proposituras.filter(x => x.tipo === r.tipo && String(x.ano) === String(ano)).map(x => parseInt(x.numero, 10)).filter(n => !isNaN(n));
+  if (String(ano) === String(new Date().getFullYear()) && +cfg.ultimo_oficio) nums.push(+cfg.ultimo_oficio);
   return String((nums.length ? Math.max(...nums) : 0) + 1).padStart(3, '0');
 }
 async function gerarDocumento() {
@@ -472,7 +475,9 @@ async function gerarDocumento() {
     tipo = docTipo(mod, r); if (!tipo) throw new Error('Este tipo de documento não tem modelo de Word.');
     const ano = new Date().getFullYear();
     let numero, anoDoc = ano;
-    if (mod === 'servicos') {
+    if (tipo !== 'oficio') {
+      numero = (mod === 'proposituras' ? r.numero : r.protocolo) || ''; anoDoc = (mod === 'proposituras' && r.ano) || ano;
+    } else if (mod === 'servicos') {
       const m = /^(\d+)\s*\/\s*(\d{4})$/.exec(r.protocolo || '');
       if (m) { numero = m[1]; anoDoc = +m[2]; }
       else if (!r.protocolo) { numero = proximoNumero(mod, r, ano); r = await store.saveRow(mod, r.id, { protocolo: numero + '/' + ano, data_envio: r.data_envio || todayStr() }); upsertLocal(mod, r); }
@@ -481,22 +486,36 @@ async function gerarDocumento() {
       anoDoc = r.ano || ano;
       if (r.numero) numero = r.numero; else { numero = proximoNumero(mod, r, anoDoc); r = await store.saveRow(mod, r.id, { numero, ano: anoDoc }); upsertLocal(mod, r); }
     }
-    const assunto = mod === 'servicos' ? r.servico : r.ementa;
+    const assunto = (mod === 'servicos' ? r.servico : r.ementa) || '';
     const munUf = r.municipio || '';
     const localTxt = mod === 'servicos' ? [r.local && ', na ' + r.local, r.municipio && ', no município de ' + r.municipio].filter(Boolean).join('') : '';
-    const padrao = tipo === 'oficio'
-      ? `Venho, por meio deste, solicitar a Vossa Senhoria ${assunto ? 'providências quanto a: ' + assunto : 'as providências cabíveis'}${localTxt}${r.solicitante ? ', atendendo à solicitação de ' + r.solicitante : ''}.`
-      : `A presente Indicação atende a pedido da comunidade${r.solicitante ? ', apresentado por ' + r.solicitante : ''}, e visa melhorar as condições de vida da população${r.municipio ? ' de ' + r.municipio : ''}.`;
+    const linhas = t => String(t || '').split(/\n+/).map(x => x.trim()).filter(Boolean);
+    const destOrg = [r.destinatario, r.orgao].filter(Boolean).join(', ') || 'órgão competente';
+    const minusc = t => t ? t.charAt(0).toLowerCase() + t.slice(1) : t;
+    const paragrafos = linhas(r.corpo).length && tipo === 'oficio' ? linhas(r.corpo) : [
+      `Solicito ${minusc(assunto)}${localTxt}.`,
+      r.solicitante ? `A solicitação atende à demanda encaminhada ao gabinete por ${r.solicitante}.` : 'A solicitação atende à demanda encaminhada ao gabinete.',
+      'Solicito, ainda, retorno a este gabinete sobre as providências adotadas e a previsão de atendimento.',
+    ];
+    const texto = r.texto || (tipo === 'indicacao'
+      ? `INDICO, nos termos regimentais desta Casa de Leis, que seja encaminhado expediente ao(à) ${destOrg}, solicitando ${minusc(assunto)}${localTxt}.`
+      : `REQUEIRO, nos termos regimentais desta Casa de Leis, ${minusc(assunto)}.`);
+    const justificativa = tipo === 'oficio' ? [] : (linhas(r.corpo).length ? linhas(r.corpo) : [r.solicitante ? `A presente proposição atende à demanda apresentada por ${r.solicitante}.` : 'A presente proposição atende à demanda encaminhada ao gabinete.']);
+    const [cargo1, partido] = String(cfg.deputado_cargo || '').split('/');
     const valores = {
       ...cfg, numero, ano: anoDoc, data_extenso: docs.dataExtenso(), destinatario: r.destinatario || '', orgao: r.orgao || '',
-      destinatario_orgao: [r.destinatario, r.orgao].filter(Boolean).join(', ') || 'órgão competente', municipio_uf: munUf, assunto: assunto || '', local_texto: localTxt, texto: r.corpo || padrao,
-      vocativo: 'Senhor(a)', solicitante: r.solicitante || '',
+      destinatario_orgao: [r.destinatario, r.orgao].filter(Boolean).join(', ') || 'órgão competente', municipio_uf: munUf, assunto, local_texto: localTxt, texto, paragrafos, justificativa,
+      numero_doc: tipo === 'oficio' ? numero : (numero ? String(numero).split('/')[0] : ''),
+      vocativo: r.vocativo || 'Senhor(a)', solicitante: r.solicitante || '',
+      gabinete_maiusculo: (cfg.gabinete || '').toLocaleUpperCase('pt-BR'),
+      proponente: [cargo1 && cargo1.trim(), cfg.deputado_nome].filter(Boolean).join(' ') + (partido ? '/' + partido.trim() : ''),
     };
     const blob = await docs.gerarDocx(tipo, valores);
-    docs.baixar(blob, `${docs.TIPOS[tipo]}-${numero}-${anoDoc}.docx`.normalize('NFD').replace(/[\u0300-\u036f]/g, ''));
-    const hist = (r.historico || []).concat({ em: new Date().toISOString(), txt: `${docs.TIPOS[tipo]} nº ${numero}/${anoDoc} gerado em Word`, por: myName() }).slice(-100);
+    docs.baixar(blob, `${docs.TIPOS[tipo]}${numero ? '-' + String(numero).replace(/\//g, '-') : ''}-${anoDoc}.docx`.normalize('NFD').replace(/[\u0300-\u036f]/g, ''));
+    const rot = numero ? `${docs.TIPOS[tipo]} nº ${numero}${tipo === 'oficio' ? '/' + anoDoc : ''}` : docs.TIPOS[tipo];
+    const hist = (r.historico || []).concat({ em: new Date().toISOString(), txt: `${rot} gerado em Word`, por: myName() }).slice(-100);
     r = await store.saveRow(mod, r.id, { historico: hist }); upsertLocal(mod, r);
-    toast(`${docs.TIPOS[tipo]} nº ${numero}/${anoDoc} gerado`);
+    toast(`${rot} gerado`);
     openDrawer(mod, r.id);
   } catch (e) { toast(errMsg(e)); if (btn) { btn.disabled = false; btn.textContent = 'Gerar ' + docs.TIPOS[tipo] + ' (Word)'; } }
 }
