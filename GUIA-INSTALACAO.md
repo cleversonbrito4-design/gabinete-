@@ -55,6 +55,9 @@ Faça esta parte depois que eu avisar que o código está no GitHub.
 2. Abra **Authentication → Users → Add user → Send invitation** e convide cada uma das 5 pessoas pelo e-mail.
 3. Cada pessoa recebe um e-mail, clica no link, cria a senha e digita o nome. Pronto.
 
+4. Depois de entrar, abra **☰ → Minha conta → Dados do gabinete** e preencha o nome do deputado, o cargo, a casa legislativa, a cidade e o endereço. Esses dados vão para os ofícios e indicações em Word.
+5. Se o gabinete já tem um modelo de ofício com brasão e timbre, use **Modelos de Word → Baixar modelo atual**. Abra o arquivo no Word, copie para o seu modelo os campos entre chaves, como `{numero}` e `{destinatario}`, e envie de volta em **Enviar meu modelo**.
+
 Se alguém esquecer a senha, é só clicar em **"Esqueci minha senha"** na tela de login.
 
 ---

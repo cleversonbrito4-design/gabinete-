@@ -3,10 +3,21 @@ import { MODS, ORDER } from './schema.js';
 import * as store from './store.js';
 import * as gcal from './google.js';
 import { MODELOS, folhas } from './etiquetas.js';
+import * as docs from './documentos.js';
 
-const NOME_GABINETE = import.meta.env.VITE_NOME_GABINETE || 'Gestão do Gabinete';
-const DEPUTADO = import.meta.env.VITE_DEPUTADO || 'deputado';
-document.title = NOME_GABINETE;
+/* Dados do gabinete: editáveis em "Minha conta"; os do .env são só o ponto de partida. */
+const env = import.meta.env;
+const CFG_CAMPOS = [
+  ['gabinete', 'Nome do gabinete', env.VITE_NOME_GABINETE || 'Gestão do Gabinete'],
+  ['deputado_nome', 'Nome do deputado (como assina)', env.VITE_DEPUTADO_NOME || ''],
+  ['deputado_cargo', 'Cargo', env.VITE_DEPUTADO_CARGO || 'Deputado Estadual'],
+  ['casa_legislativa', 'Casa legislativa', env.VITE_CASA || 'Assembleia Legislativa do Estado'],
+  ['cidade_gabinete', 'Cidade do gabinete (para a data dos documentos)', env.VITE_CIDADE || ''],
+  ['endereco_gabinete', 'Endereço, telefone e e-mail do gabinete (rodapé)', env.VITE_ENDERECO_GABINETE || ''],
+];
+const cfg = Object.fromEntries(CFG_CAMPOS.map(([k, , v]) => [k, v]));
+const NOME_GAB = () => cfg.gabinete || 'Gestão do Gabinete';
+const DEP = () => cfg.deputado_nome ? 'deputado ' + cfg.deputado_nome : 'deputado';
 
 /* ---------- utilidades ---------- */
 const $ = s => document.querySelector(s);
@@ -39,12 +50,12 @@ function waLink(phone, text) {
 }
 const primeiroNome = n => String(n || '').trim().split(/\s+/)[0] || '';
 function waTexto(mod, r) {
-  if (mod === 'pessoas') return `Olá, ${primeiroNome(r.nome)}! Aqui é do gabinete do ${DEPUTADO}.`;
-  if (mod === 'demandas') return `Olá, ${primeiroNome(r.solicitante)}! Aqui é do gabinete do ${DEPUTADO}. Sobre a sua solicitação "${r.assunto}": a situação atual é "${r.status}".`;
-  if (mod === 'servicos') return `Olá, ${primeiroNome(r.solicitante)}! Aqui é do gabinete do ${DEPUTADO}. Sobre o pedido "${r.servico}"${r.orgao ? ' enviado para ' + r.orgao : ''}: a situação atual é "${r.status}".`;
+  if (mod === 'pessoas') return `Olá, ${primeiroNome(r.nome)}! Aqui é do gabinete do ${DEP()}.`;
+  if (mod === 'demandas') return `Olá, ${primeiroNome(r.solicitante)}! Aqui é do gabinete do ${DEP()}. Sobre a sua solicitação "${r.assunto}": a situação atual é "${r.status}".`;
+  if (mod === 'servicos') return `Olá, ${primeiroNome(r.solicitante)}! Aqui é do gabinete do ${DEP()}. Sobre o pedido "${r.servico}"${r.orgao ? ' enviado para ' + r.orgao : ''}: a situação atual é "${r.status}".`;
   return '';
 }
-const waAniversario = p => `Olá, ${primeiroNome(p.nome)}! O ${DEPUTADO} e toda a equipe do gabinete desejam a você um feliz aniversário, com muita saúde e alegria!`;
+const waAniversario = p => `Olá, ${primeiroNome(p.nome)}! O ${DEP()} e toda a equipe do gabinete desejam a você um feliz aniversário, com muita saúde e alegria!`;
 
 /* ---------- estado ---------- */
 const data = Object.fromEntries(ORDER.map(m => [m, []]));
@@ -62,7 +73,7 @@ let mustSetPassword = /type=(invite|recovery)/.test(authHash);
 
 function renderLogin(msg = '', ok = '') {
   document.body.innerHTML = `<div class="login"><form class="login-card" id="login" novalidate>
-    <div style="display:flex;gap:10px;align-items:center"><div class="mark">G</div><h1>${esc(NOME_GABINETE)}</h1></div>
+    <div style="display:flex;gap:10px;align-items:center"><div class="mark">G</div><h1>${esc(NOME_GAB())}</h1></div>
     <div class="f"><label for="l-email">E-mail</label><input id="l-email" type="email" autocomplete="username" required></div>
     <div class="f"><label for="l-pass">Senha</label><input id="l-pass" type="password" autocomplete="current-password" required></div>
     ${msg ? `<div class="err">${esc(msg)}</div>` : ''}${ok ? `<div class="ok-msg">${esc(ok)}</div>` : ''}
@@ -118,7 +129,7 @@ function shell() {
   document.body.innerHTML = `
 <header class="top"><div class="wrap">
   <div class="brand">
-    <div class="brand-l"><div class="mark">G</div><h1>${esc(NOME_GABINETE)}<small>Demandas, ofícios, emendas, proposituras, agenda e pessoas</small></h1></div>
+    <div class="brand-l"><div class="mark">G</div><h1>${esc(NOME_GAB())}<small>Demandas, ofícios, emendas, proposituras, agenda e pessoas</small></h1></div>
     <div style="display:flex;gap:8px;align-items:center">
       <button class="btn" id="btn-export" hidden>Exportar</button>
       <button class="btn primary" id="btn-new">+ Novo</button>
@@ -322,6 +333,12 @@ function renderConta() {
       </form></section>
     <section class="panel"><h3>Equipe</h3>${state.profiles.map(p => `<div class="ag-item" style="cursor:default;grid-template-columns:minmax(0,1fr)"><div class="t">${esc(p.nome)}</div></div>`).join('') || '<div class="m">Ninguém cadastrou o nome ainda.</div>'}
       <p class="m">Para incluir alguém da equipe, convide pelo e-mail no Supabase (veja o guia de instalação).</p></section>
+    <section class="panel"><h3>Dados do gabinete</h3><p class="m" style="margin-top:0">Aparecem no topo do sistema e nos ofícios e indicações.</p>
+      <form id="cfg" class="filters" style="grid-template-columns:1fr;margin:0" novalidate>${CFG_CAMPOS.map(([k, l]) => `<div class="f"><label for="cfg-${k}">${esc(l)}</label><input id="cfg-${k}" value="${esc(cfg[k])}"></div>`).join('')}
+      <div><button class="btn primary" type="submit">Salvar dados do gabinete</button></div></form></section>
+    <section class="panel"><h3>Modelos de Word</h3><p class="m" style="margin-top:0">Baixe o modelo, mude o que quiser no Word (brasão, fonte, textos) e envie de volta. Os campos entre chaves são preenchidos pelo sistema.</p>
+      <div id="modelos-box"><div class="m">Carregando…</div></div>
+      <details style="margin-top:10px"><summary class="m" style="cursor:pointer">Campos que você pode usar no modelo</summary><div class="hist"><ol>${docs.CAMPOS.map(([k, l]) => `<li><time>{${k}}</time><span>${esc(l)}</span></li>`).join('')}</ol></div></details></section>
     ${gcal.googleAvailable ? `<section class="panel"><h3>Google Agenda</h3>
       <div class="f"><label for="g-cal">ID do calendário do deputado</label><input id="g-cal" value="${esc(gcal.calendarId())}"></div>
       <p class="m">Use "primary" para o seu calendário principal, ou o ID que aparece em Configurações do calendário → Integrar agenda (termina em @group.calendar.google.com ou é o e-mail do deputado).</p>
@@ -336,6 +353,7 @@ function render() {
   const main = $('#main');
   const hadFocus = document.activeElement && document.activeElement.id === 'q'; const pos = hadFocus ? document.activeElement.selectionStart : 0;
   if (state.view !== 'etiquetas') $('#page-css').textContent = '';
+  if (state.view === 'conta') setTimeout(async () => { const b = $('#modelos-box'); if (b) b.innerHTML = await modelosHtml(); }, 0);
   main.innerHTML = state.view === 'painel' ? renderPainel() : state.view === 'etiquetas' ? renderEtiquetas() : state.view === 'conta' ? renderConta() : renderList(state.view);
   if (hadFocus) { const q = $('#q'); if (q) { q.focus(); try { q.setSelectionRange(pos, pos); } catch { /* ok */ } } }
   if (drawer.open) refreshDatalists();
@@ -377,6 +395,8 @@ function openDrawer(mod, id, preset = {}) {
     acts.push(`<button class="btn mini" type="button" data-new-for="demandas">+ Demanda desta pessoa</button>`);
     if (linked) acts.push(`<button class="btn mini" type="button" data-search="${esc(rec.nome)}">Ver ${linked} registro(s) ligado(s)</button>`);
   }
+  const dt = rec && docTipo(mod, rec);
+  if (dt) acts.push(`<button class="btn mini" type="button" id="btn-doc">Gerar ${docs.TIPOS[dt]} (Word)</button>`);
   if (rec && mod === 'proposituras' && rec.link) acts.push(`<a class="btn mini" href="${esc(rec.link)}" target="_blank" rel="noopener">Abrir tramitação</a>`);
   $('#overlay').innerHTML = `<div class="scrim" data-close></div><aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="dr-t">
     <div class="dr-head"><div style="min-width:0"><div class="eyebrow">${esc(M.label)}</div><h3 id="dr-t">${rec ? esc(M.title(rec)) : esc(M.novo)}</h3></div><button class="btn ghost" data-close aria-label="Fechar">✕</button></div>
@@ -391,14 +411,18 @@ function openDrawer(mod, id, preset = {}) {
 }
 function closeDrawer() { drawer.open = false; $('#overlay').innerHTML = ''; }
 
-async function saveDrawer() {
-  const { mod, id } = drawer; const M = MODS[mod]; const old = id ? data[mod].find(r => r.id === id) : null;
+function readForm(mod) {
   const rec = {};
-  for (const f of M.fields) {
+  for (const f of MODS[mod].fields) {
     let v = $('#f-' + f.k).value.trim();
     if (f.type === 'money') v = parseMoney(v); else if (f.type === 'number') v = v ? parseInt(v, 10) : null; else if (v === '') v = null;
     rec[f.k] = v;
   }
+  return rec;
+}
+async function saveDrawer() {
+  const { mod, id } = drawer; const M = MODS[mod]; const old = id ? data[mod].find(r => r.id === id) : null;
+  const rec = readForm(mod);
   const missing = M.fields.filter(f => f.req && (rec[f.k] == null || rec[f.k] === '')).map(f => f.l);
   if (missing.length) { const e = $('#frm-err'); e.hidden = false; e.textContent = 'Preencha: ' + missing.join(', ') + '.'; return; }
   const st = $('#f-status').value; const now = new Date().toISOString(); const por = myName();
@@ -422,6 +446,71 @@ async function saveDrawer() {
 }
 
 function upsertLocal(mod, row) { if (!row) return; const a = data[mod]; const i = a.findIndex(x => x.id === row.id); if (i >= 0) a[i] = row; else a.unshift(row); render(); }
+
+/* ---------- documentos Word ---------- */
+function docTipo(mod, r) {
+  if (mod === 'servicos') return r.tipo_doc === 'Indicação' ? 'indicacao' : (!r.tipo_doc || ['Ofício', 'Requerimento'].includes(r.tipo_doc)) ? 'oficio' : null;
+  if (mod === 'proposituras') return r.tipo === 'Indicação' ? 'indicacao' : r.tipo === 'Requerimento' ? 'oficio' : null;
+  return null;
+}
+function proximoNumero(mod, r, ano) {
+  let nums;
+  if (mod === 'servicos') nums = data.servicos.filter(x => x.tipo_doc === r.tipo_doc || (!x.tipo_doc && !r.tipo_doc)).map(x => /^(\d+)\s*\/\s*(\d{4})$/.exec(x.protocolo || '')).filter(m => m && m[2] === String(ano)).map(m => +m[1]);
+  else nums = data.proposituras.filter(x => x.tipo === r.tipo && String(x.ano) === String(ano)).map(x => parseInt(x.numero, 10)).filter(n => !isNaN(n));
+  return String((nums.length ? Math.max(...nums) : 0) + 1).padStart(3, '0');
+}
+async function gerarDocumento() {
+  const { mod, id } = drawer; let r = data[mod].find(x => x.id === id); if (!r) return;
+  const btn = $('#btn-doc'); if (btn) { btn.disabled = true; btn.textContent = 'Gerando…'; }
+  let tipo = docTipo(mod, r);
+  try {
+    // grava antes o que foi digitado no formulário
+    const form = readForm(mod); const st = $('#f-status').value;
+    if (MODS[mod].fields.some(f => f.req && (form[f.k] == null || form[f.k] === ''))) throw new Error('Preencha os campos obrigatórios antes de gerar o documento.');
+    const mudou = Object.keys(form).some(k => String(form[k] ?? '') !== String(r[k] ?? '')) || st !== r.status;
+    if (mudou) { const hist = (r.historico || []).slice(); if (st !== r.status) hist.push({ em: new Date().toISOString(), txt: 'Situação: ' + r.status + ' → ' + st, por: myName() }); r = await store.saveRow(mod, r.id, { ...form, status: st, historico: hist }); upsertLocal(mod, r); }
+    tipo = docTipo(mod, r); if (!tipo) throw new Error('Este tipo de documento não tem modelo de Word.');
+    const ano = new Date().getFullYear();
+    let numero, anoDoc = ano;
+    if (mod === 'servicos') {
+      const m = /^(\d+)\s*\/\s*(\d{4})$/.exec(r.protocolo || '');
+      if (m) { numero = m[1]; anoDoc = +m[2]; }
+      else if (!r.protocolo) { numero = proximoNumero(mod, r, ano); r = await store.saveRow(mod, r.id, { protocolo: numero + '/' + ano, data_envio: r.data_envio || todayStr() }); upsertLocal(mod, r); }
+      else numero = r.protocolo;
+    } else {
+      anoDoc = r.ano || ano;
+      if (r.numero) numero = r.numero; else { numero = proximoNumero(mod, r, anoDoc); r = await store.saveRow(mod, r.id, { numero, ano: anoDoc }); upsertLocal(mod, r); }
+    }
+    const assunto = mod === 'servicos' ? r.servico : r.ementa;
+    const munUf = r.municipio || '';
+    const localTxt = mod === 'servicos' ? [r.local && ', na ' + r.local, r.municipio && ', no município de ' + r.municipio].filter(Boolean).join('') : '';
+    const padrao = tipo === 'oficio'
+      ? `Venho, por meio deste, solicitar a Vossa Senhoria ${assunto ? 'providências quanto a: ' + assunto : 'as providências cabíveis'}${localTxt}${r.solicitante ? ', atendendo à solicitação de ' + r.solicitante : ''}.`
+      : `A presente Indicação atende a pedido da comunidade${r.solicitante ? ', apresentado por ' + r.solicitante : ''}, e visa melhorar as condições de vida da população${r.municipio ? ' de ' + r.municipio : ''}.`;
+    const valores = {
+      ...cfg, numero, ano: anoDoc, data_extenso: docs.dataExtenso(), destinatario: r.destinatario || '', orgao: r.orgao || '',
+      destinatario_orgao: [r.destinatario, r.orgao].filter(Boolean).join(', ') || 'órgão competente', municipio_uf: munUf, assunto: assunto || '', local_texto: localTxt, texto: r.corpo || padrao,
+      vocativo: 'Senhor(a)', solicitante: r.solicitante || '',
+    };
+    const blob = await docs.gerarDocx(tipo, valores);
+    docs.baixar(blob, `${docs.TIPOS[tipo]}-${numero}-${anoDoc}.docx`.normalize('NFD').replace(/[\u0300-\u036f]/g, ''));
+    const hist = (r.historico || []).concat({ em: new Date().toISOString(), txt: `${docs.TIPOS[tipo]} nº ${numero}/${anoDoc} gerado em Word`, por: myName() }).slice(-100);
+    r = await store.saveRow(mod, r.id, { historico: hist }); upsertLocal(mod, r);
+    toast(`${docs.TIPOS[tipo]} nº ${numero}/${anoDoc} gerado`);
+    openDrawer(mod, r.id);
+  } catch (e) { toast(errMsg(e)); if (btn) { btn.disabled = false; btn.textContent = 'Gerar ' + docs.TIPOS[tipo] + ' (Word)'; } }
+}
+
+async function modelosHtml() {
+  const out = [];
+  for (const [t, nome] of Object.entries(docs.TIPOS)) {
+    let info = { proprio: false, nome: 'Modelo padrão' };
+    try { const c = await store.getConfig('modelo:' + t); if (c && c.arquivo) info = { proprio: true, nome: c.nome }; } catch { /* ok */ }
+    out.push(`<div class="ag-item" style="cursor:default;grid-template-columns:minmax(0,1fr)"><div><div class="t">${nome}</div><div class="m">${info.proprio ? 'Modelo do gabinete: ' + esc(info.nome) : 'Usando o modelo padrão do sistema'}</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"><button class="btn mini" data-mod-baixar="${t}">Baixar modelo atual</button><label class="btn mini" style="cursor:pointer">Enviar meu modelo (.docx)<input type="file" accept=".docx" data-mod-enviar="${t}" hidden></label>${info.proprio ? `<button class="btn mini ghost" data-mod-padrao="${t}">Voltar ao padrão</button>` : ''}</div></div></div>`);
+  }
+  return out.join('');
+}
 
 /* ---------- Google Agenda ---------- */
 async function syncGoogle() {
@@ -482,12 +571,32 @@ document.addEventListener('click', e => {
     return;
   }
   if (e.target.closest('#g-sync')) { syncGoogle(); return; }
+  if (e.target.closest('#btn-doc')) { gerarDocumento(); return; }
+  const mb = e.target.closest('[data-mod-baixar]'); if (mb) { docs.carregarModelo(mb.dataset.modBaixar).then(m => docs.baixar(new Blob([m.buf]), 'modelo-' + mb.dataset.modBaixar + '.docx')).catch(err => toast(errMsg(err))); return; }
+  const mp = e.target.closest('[data-mod-padrao]'); if (mp) { store.setConfig('modelo:' + mp.dataset.modPadrao, null).then(() => { toast('Voltou ao modelo padrão'); render(); }).catch(err => toast(errMsg(err))); return; }
   if (e.target.closest('#g-cal-save')) { gcal.setCalendarId($('#g-cal').value.trim()); toast('Calendário salvo'); return; }
   if (e.target.closest('#et-print')) { window.print(); return; }
   if (e.target.closest('#pf-sair')) { store.signOut(); return; }
   if (e.target.closest('#pf-senha')) { renderSetPassword(); return; }
 });
+document.addEventListener('change', async e => {
+  const t = e.target.dataset && e.target.dataset.modEnviar; if (!t) return;
+  const f = e.target.files[0]; if (!f) return;
+  try {
+    if (f.size > 3e6) throw new Error('O arquivo passa de 3 MB. Diminua as imagens do modelo.');
+    const buf = await f.arrayBuffer();
+    try { docs.validarModelo(buf); } catch (err) { throw new Error('Não consegui ler esse modelo. Confira se é um .docx e se os campos estão escritos como {numero}.'); }
+    await store.setConfig('modelo:' + t, { nome: f.name, arquivo: docs.bufToB64(buf) });
+    toast('Modelo enviado'); render();
+  } catch (err) { toast(errMsg(err)); }
+});
 document.addEventListener('submit', async e => {
+  if (e.target.id === 'cfg') {
+    e.preventDefault();
+    const v = Object.fromEntries(CFG_CAMPOS.map(([k]) => [k, $('#cfg-' + k).value.trim()]));
+    try { await store.setConfig('gabinete', v); Object.assign(cfg, v); document.title = NOME_GAB(); shell(); render(); toast('Dados do gabinete salvos'); } catch (err) { toast(errMsg(err)); }
+    return;
+  }
   if (e.target.id !== 'perfil') return; e.preventDefault();
   const n = $('#pf-nome').value.trim(); if (!n) return;
   try { await store.saveProfile(state.session.user.id, n); state.profiles = await store.loadProfiles(); toast('Nome salvo'); render(); } catch (err) { toast(errMsg(err)); }
@@ -507,6 +616,8 @@ async function startApp() {
     if (mustSetPassword) return renderSetPassword();
   } else state.session = await store.getSession();
   try { state.profiles = await store.loadProfiles(); } catch { state.profiles = []; }
+  try { const c = await store.getConfig('gabinete'); if (c) Object.entries(c).forEach(([k, v]) => { if (v) cfg[k] = v; }); } catch { /* usa os padrões */ }
+  document.title = NOME_GAB();
   if (store.configured && !state.profiles.some(p => p.id === state.session.user.id)) return renderAskName();
   readHash();
   if (!location.hash) history.replaceState(null, '', location.pathname + '#painel');

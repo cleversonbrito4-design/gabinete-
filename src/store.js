@@ -94,3 +94,18 @@ export async function saveProfile(id, nome) {
   const { error } = await sb.from('perfis').upsert({ id, nome });
   if (error) throw error;
 }
+
+/* ---------- configuração do gabinete e modelos de Word ---------- */
+const LSC = 'gabinete-demo-config';
+export async function getConfig(id) {
+  if (!sb) { try { return (JSON.parse(localStorage.getItem(LSC) || '{}'))[id] || null; } catch { return null; } }
+  const { data, error } = await sb.from('config').select('valor').eq('id', id).maybeSingle();
+  if (error) throw error;
+  return data ? data.valor : null;
+}
+export async function setConfig(id, valor) {
+  if (!sb) { let all = {}; try { all = JSON.parse(localStorage.getItem(LSC) || '{}'); } catch { /* ok */ } if (valor == null) delete all[id]; else all[id] = valor; try { localStorage.setItem(LSC, JSON.stringify(all)); } catch { throw new Error('Sem espaço no navegador para guardar o modelo.'); } return; }
+  if (valor == null) { const { error } = await sb.from('config').delete().eq('id', id); if (error) throw error; return; }
+  const { error } = await sb.from('config').upsert({ id, valor, atualizado_em: new Date().toISOString() });
+  if (error) throw error;
+}

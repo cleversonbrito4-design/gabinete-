@@ -10,7 +10,9 @@
     "sql": "node scripts/gen-sql.mjs > supabase/schema.sql"
   },
   "dependencies": {
-    "@supabase/supabase-js": "2.119.0"
+    "@supabase/supabase-js": "2.119.0",
+    "docxtemplater": "3.71.1",
+    "pizzip": "3.3.0"
   },
   "devDependencies": {
     "vite": "6.4.6"

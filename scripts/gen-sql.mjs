@@ -18,6 +18,16 @@ drop policy if exists "cada um grava o seu perfil" on public.perfis;
 create policy "cada um grava o seu perfil" on public.perfis for all to authenticated using (id = auth.uid()) with check (id = auth.uid());
 `);
 
+p(`create table if not exists public.config (
+  id text primary key,
+  valor jsonb not null default '{}'::jsonb,
+  atualizado_em timestamptz not null default now()
+);
+alter table public.config enable row level security;
+drop policy if exists "equipe acessa config" on public.config;
+create policy "equipe acessa config" on public.config for all to authenticated using (true) with check (true);
+`);
+
 p(`create or replace function public.tocar_atualizado_em() returns trigger language plpgsql as $$
 begin new.atualizado_em = now(); return new; end $$;
 `);

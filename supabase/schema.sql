@@ -12,6 +12,15 @@ create policy "equipe le perfis" on public.perfis for select to authenticated us
 drop policy if exists "cada um grava o seu perfil" on public.perfis;
 create policy "cada um grava o seu perfil" on public.perfis for all to authenticated using (id = auth.uid()) with check (id = auth.uid());
 
+create table if not exists public.config (
+  id text primary key,
+  valor jsonb not null default '{}'::jsonb,
+  atualizado_em timestamptz not null default now()
+);
+alter table public.config enable row level security;
+drop policy if exists "equipe acessa config" on public.config;
+create policy "equipe acessa config" on public.config for all to authenticated using (true) with check (true);
+
 create or replace function public.tocar_atualizado_em() returns trigger language plpgsql as $$
 begin new.atualizado_em = now(); return new; end $$;
 
@@ -70,6 +79,7 @@ create table if not exists public.servicos (
   data_envio date,
   prazo date,
   responsavel text,
+  corpo text,
   obs text,
   historico jsonb not null default '[]'::jsonb,
   criado_por uuid references auth.users(id) default auth.uid(),
@@ -88,6 +98,7 @@ alter table public.servicos add column if not exists protocolo text;
 alter table public.servicos add column if not exists data_envio date;
 alter table public.servicos add column if not exists prazo date;
 alter table public.servicos add column if not exists responsavel text;
+alter table public.servicos add column if not exists corpo text;
 alter table public.servicos add column if not exists obs text;
 alter table public.servicos enable row level security;
 drop policy if exists "equipe acessa servicos" on public.servicos;
@@ -146,7 +157,10 @@ create table if not exists public.proposituras (
   coautores text,
   comissao text,
   tema text,
+  destinatario text,
+  orgao text,
   link text,
+  corpo text,
   obs text,
   historico jsonb not null default '[]'::jsonb,
   criado_por uuid references auth.users(id) default auth.uid(),
@@ -161,7 +175,10 @@ alter table public.proposituras add column if not exists data_protocolo date;
 alter table public.proposituras add column if not exists coautores text;
 alter table public.proposituras add column if not exists comissao text;
 alter table public.proposituras add column if not exists tema text;
+alter table public.proposituras add column if not exists destinatario text;
+alter table public.proposituras add column if not exists orgao text;
 alter table public.proposituras add column if not exists link text;
+alter table public.proposituras add column if not exists corpo text;
 alter table public.proposituras add column if not exists obs text;
 alter table public.proposituras enable row level security;
 drop policy if exists "equipe acessa proposituras" on public.proposituras;
