@@ -109,3 +109,31 @@ export async function setConfig(id, valor) {
   const { error } = await sb.from('config').upsert({ id, valor, atualizado_em: new Date().toISOString() });
   if (error) throw error;
 }
+
+/* ---------- equipe (e-mails liberados) ---------- */
+export async function signUp(email, password) {
+  const { data, error } = await sb.auth.signUp({ email, password, options: { emailRedirectTo: location.origin + location.pathname } });
+  if (error) throw error;
+  return data;
+}
+/** true/false; null se não deu para verificar (aí as regras do banco decidem). */
+export async function isEquipe() {
+  if (!sb) return true;
+  const { data, error } = await sb.rpc('is_equipe');
+  if (error) return null;
+  return !!data;
+}
+export async function listEquipe() {
+  if (!sb) return [];
+  const { data, error } = await sb.from('equipe').select('email').order('email');
+  if (error) throw error;
+  return data.map(r => r.email);
+}
+export async function addEquipe(email) {
+  const { error } = await sb.from('equipe').insert({ email: email.trim().toLowerCase() });
+  if (error) throw error;
+}
+export async function removeEquipe(email) {
+  const { error } = await sb.from('equipe').delete().eq('email', email);
+  if (error) throw error;
+}

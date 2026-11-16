@@ -6,6 +6,22 @@ const p = s => out.push(s);
 p('-- Gerado por scripts/gen-sql.mjs. Cole no SQL Editor do Supabase e clique em Run.');
 p('-- Pode rodar de novo com segurança: só cria o que ainda não existe.\n');
 
+p(`-- Equipe: só e-mails desta lista acessam os dados (mesmo que alguém crie conta)
+create table if not exists public.equipe (
+  email text primary key check (email = lower(email)),
+  criado_em timestamptz not null default now()
+);
+create or replace function public.is_equipe() returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.equipe where email = lower(coalesce(auth.jwt() ->> 'email', '')))
+$$;
+revoke all on function public.is_equipe() from public, anon;
+grant execute on function public.is_equipe() to authenticated;
+alter table public.equipe enable row level security;
+drop policy if exists "equipe gerencia equipe" on public.equipe;
+create policy "equipe gerencia equipe" on public.equipe for all to authenticated using (public.is_equipe()) with check (public.is_equipe());
+`);
+
 p(`create table if not exists public.perfis (
   id uuid primary key references auth.users(id) on delete cascade,
   nome text not null,
@@ -13,9 +29,9 @@ p(`create table if not exists public.perfis (
 );
 alter table public.perfis enable row level security;
 drop policy if exists "equipe le perfis" on public.perfis;
-create policy "equipe le perfis" on public.perfis for select to authenticated using (true);
+create policy "equipe le perfis" on public.perfis for select to authenticated using (public.is_equipe());
 drop policy if exists "cada um grava o seu perfil" on public.perfis;
-create policy "cada um grava o seu perfil" on public.perfis for all to authenticated using (id = auth.uid()) with check (id = auth.uid());
+create policy "cada um grava o seu perfil" on public.perfis for all to authenticated using (id = auth.uid() and public.is_equipe()) with check (id = auth.uid() and public.is_equipe());
 `);
 
 p(`create table if not exists public.config (
@@ -25,7 +41,7 @@ p(`create table if not exists public.config (
 );
 alter table public.config enable row level security;
 drop policy if exists "equipe acessa config" on public.config;
-create policy "equipe acessa config" on public.config for all to authenticated using (true) with check (true);
+create policy "equipe acessa config" on public.config for all to authenticated using (public.is_equipe()) with check (public.is_equipe());
 `);
 
 p(`create or replace function public.tocar_atualizado_em() returns trigger language plpgsql as $$
@@ -51,7 +67,7 @@ for (const m of ORDER) {
   for (const [k, t] of (M.extraCols || [])) p(`alter table public.${m} add column if not exists ${k} ${t};`);
   p(`alter table public.${m} enable row level security;
 drop policy if exists "equipe acessa ${m}" on public.${m};
-create policy "equipe acessa ${m}" on public.${m} for all to authenticated using (true) with check (true);
+create policy "equipe acessa ${m}" on public.${m} for all to authenticated using (public.is_equipe()) with check (public.is_equipe());
 drop trigger if exists ${m}_atualizado_em on public.${m};
 create trigger ${m}_atualizado_em before update on public.${m} for each row execute function public.tocar_atualizado_em();
 `);

@@ -1,6 +1,21 @@
 -- Gerado por scripts/gen-sql.mjs. Cole no SQL Editor do Supabase e clique em Run.
 -- Pode rodar de novo com segurança: só cria o que ainda não existe.
 
+-- Equipe: só e-mails desta lista acessam os dados (mesmo que alguém crie conta)
+create table if not exists public.equipe (
+  email text primary key check (email = lower(email)),
+  criado_em timestamptz not null default now()
+);
+create or replace function public.is_equipe() returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.equipe where email = lower(coalesce(auth.jwt() ->> 'email', '')))
+$$;
+revoke all on function public.is_equipe() from public, anon;
+grant execute on function public.is_equipe() to authenticated;
+alter table public.equipe enable row level security;
+drop policy if exists "equipe gerencia equipe" on public.equipe;
+create policy "equipe gerencia equipe" on public.equipe for all to authenticated using (public.is_equipe()) with check (public.is_equipe());
+
 create table if not exists public.perfis (
   id uuid primary key references auth.users(id) on delete cascade,
   nome text not null,
@@ -8,9 +23,9 @@ create table if not exists public.perfis (
 );
 alter table public.perfis enable row level security;
 drop policy if exists "equipe le perfis" on public.perfis;
-create policy "equipe le perfis" on public.perfis for select to authenticated using (true);
+create policy "equipe le perfis" on public.perfis for select to authenticated using (public.is_equipe());
 drop policy if exists "cada um grava o seu perfil" on public.perfis;
-create policy "cada um grava o seu perfil" on public.perfis for all to authenticated using (id = auth.uid()) with check (id = auth.uid());
+create policy "cada um grava o seu perfil" on public.perfis for all to authenticated using (id = auth.uid() and public.is_equipe()) with check (id = auth.uid() and public.is_equipe());
 
 create table if not exists public.config (
   id text primary key,
@@ -19,7 +34,7 @@ create table if not exists public.config (
 );
 alter table public.config enable row level security;
 drop policy if exists "equipe acessa config" on public.config;
-create policy "equipe acessa config" on public.config for all to authenticated using (true) with check (true);
+create policy "equipe acessa config" on public.config for all to authenticated using (public.is_equipe()) with check (public.is_equipe());
 
 create or replace function public.tocar_atualizado_em() returns trigger language plpgsql as $$
 begin new.atualizado_em = now(); return new; end $$;
@@ -59,7 +74,7 @@ alter table public.demandas add column if not exists descricao text;
 alter table public.demandas add column if not exists obs text;
 alter table public.demandas enable row level security;
 drop policy if exists "equipe acessa demandas" on public.demandas;
-create policy "equipe acessa demandas" on public.demandas for all to authenticated using (true) with check (true);
+create policy "equipe acessa demandas" on public.demandas for all to authenticated using (public.is_equipe()) with check (public.is_equipe());
 drop trigger if exists demandas_atualizado_em on public.demandas;
 create trigger demandas_atualizado_em before update on public.demandas for each row execute function public.tocar_atualizado_em();
 
@@ -104,7 +119,7 @@ alter table public.servicos add column if not exists corpo text;
 alter table public.servicos add column if not exists obs text;
 alter table public.servicos enable row level security;
 drop policy if exists "equipe acessa servicos" on public.servicos;
-create policy "equipe acessa servicos" on public.servicos for all to authenticated using (true) with check (true);
+create policy "equipe acessa servicos" on public.servicos for all to authenticated using (public.is_equipe()) with check (public.is_equipe());
 drop trigger if exists servicos_atualizado_em on public.servicos;
 create trigger servicos_atualizado_em before update on public.servicos for each row execute function public.tocar_atualizado_em();
 
@@ -143,7 +158,7 @@ alter table public.emendas add column if not exists numero text;
 alter table public.emendas add column if not exists obs text;
 alter table public.emendas enable row level security;
 drop policy if exists "equipe acessa emendas" on public.emendas;
-create policy "equipe acessa emendas" on public.emendas for all to authenticated using (true) with check (true);
+create policy "equipe acessa emendas" on public.emendas for all to authenticated using (public.is_equipe()) with check (public.is_equipe());
 drop trigger if exists emendas_atualizado_em on public.emendas;
 create trigger emendas_atualizado_em before update on public.emendas for each row execute function public.tocar_atualizado_em();
 
@@ -186,7 +201,7 @@ alter table public.proposituras add column if not exists corpo text;
 alter table public.proposituras add column if not exists obs text;
 alter table public.proposituras enable row level security;
 drop policy if exists "equipe acessa proposituras" on public.proposituras;
-create policy "equipe acessa proposituras" on public.proposituras for all to authenticated using (true) with check (true);
+create policy "equipe acessa proposituras" on public.proposituras for all to authenticated using (public.is_equipe()) with check (public.is_equipe());
 drop trigger if exists proposituras_atualizado_em on public.proposituras;
 create trigger proposituras_atualizado_em before update on public.proposituras for each row execute function public.tocar_atualizado_em();
 
@@ -223,7 +238,7 @@ alter table public.agenda add column if not exists pauta text;
 alter table public.agenda add column if not exists google_event_id text;
 alter table public.agenda enable row level security;
 drop policy if exists "equipe acessa agenda" on public.agenda;
-create policy "equipe acessa agenda" on public.agenda for all to authenticated using (true) with check (true);
+create policy "equipe acessa agenda" on public.agenda for all to authenticated using (public.is_equipe()) with check (public.is_equipe());
 drop trigger if exists agenda_atualizado_em on public.agenda;
 create trigger agenda_atualizado_em before update on public.agenda for each row execute function public.tocar_atualizado_em();
 
@@ -268,7 +283,7 @@ alter table public.pessoas add column if not exists indicado_por text;
 alter table public.pessoas add column if not exists obs text;
 alter table public.pessoas enable row level security;
 drop policy if exists "equipe acessa pessoas" on public.pessoas;
-create policy "equipe acessa pessoas" on public.pessoas for all to authenticated using (true) with check (true);
+create policy "equipe acessa pessoas" on public.pessoas for all to authenticated using (public.is_equipe()) with check (public.is_equipe());
 drop trigger if exists pessoas_atualizado_em on public.pessoas;
 create trigger pessoas_atualizado_em before update on public.pessoas for each row execute function public.tocar_atualizado_em();
 

@@ -73,22 +73,33 @@ function go(v) { if (location.hash !== '#' + v) location.hash = v; else { state.
 const authHash = window.__authHash || '';
 let mustSetPassword = /type=(invite|recovery)/.test(authHash);
 
-function renderLogin(msg = '', ok = '') {
+let loginMode = 'entrar';
+function renderLogin(msg = '', ok = '', email = '') {
+  const criar = loginMode === 'criar';
   document.body.innerHTML = `<div class="login"><form class="login-card" id="login" novalidate>
     <div style="display:flex;gap:10px;align-items:center"><div class="mark">G</div><h1>${esc(NOME_GAB())}</h1></div>
-    <div class="f"><label for="l-email">E-mail</label><input id="l-email" type="email" autocomplete="username" required></div>
-    <div class="f"><label for="l-pass">Senha</label><input id="l-pass" type="password" autocomplete="current-password" required></div>
+    ${criar ? '<div class="m">Use o e-mail que a equipe liberou para você.</div>' : ''}
+    <div class="f"><label for="l-email">E-mail</label><input id="l-email" type="email" autocomplete="username" value="${esc(email)}" required></div>
+    <div class="f"><label for="l-pass">${criar ? 'Crie uma senha (mínimo 8 caracteres)' : 'Senha'}</label><input id="l-pass" type="password" autocomplete="${criar ? 'new-password' : 'current-password'}" required></div>
     ${msg ? `<div class="err">${esc(msg)}</div>` : ''}${ok ? `<div class="ok-msg">${esc(ok)}</div>` : ''}
-    <button class="btn primary" type="submit" style="justify-content:center">Entrar</button>
-    <button class="linkbtn" type="button" id="l-forgot">Esqueci minha senha</button>
+    <button class="btn primary" type="submit" style="justify-content:center">${criar ? 'Criar minha conta' : 'Entrar'}</button>
+    ${criar ? '<button class="linkbtn" type="button" id="l-mode">Já tenho conta: entrar</button>' : '<button class="linkbtn" type="button" id="l-forgot">Esqueci minha senha</button><button class="linkbtn" type="button" id="l-mode">Primeiro acesso? Criar minha conta</button>'}
   </form></div>`;
+  $('#l-mode').addEventListener('click', () => { loginMode = criar ? 'entrar' : 'criar'; renderLogin('', '', $('#l-email').value.trim()); });
   $('#login').addEventListener('submit', async e => {
     e.preventDefault();
-    const b = e.target.querySelector('[type=submit]'); b.disabled = true; b.textContent = 'Entrando…';
-    try { await store.signIn($('#l-email').value.trim(), $('#l-pass').value); }
-    catch (err) { renderLogin(/invalid/i.test(errMsg(err)) ? 'E-mail ou senha incorretos.' : errMsg(err)); }
+    const em = $('#l-email').value.trim(), pw = $('#l-pass').value;
+    const b = e.target.querySelector('[type=submit]'); b.disabled = true; b.textContent = criar ? 'Criando…' : 'Entrando…';
+    if (criar) {
+      if (pw.length < 8) return renderLogin('A senha precisa ter pelo menos 8 caracteres.', '', em);
+      try { const d = await store.signUp(em, pw); if (!d.session) { loginMode = 'entrar'; renderLogin('', 'Conta criada! Abra o e-mail que enviamos para ' + em + ', clique no link de confirmação e depois entre aqui com a sua senha.', em); } }
+      catch (err) { renderLogin(/registered|already/i.test(errMsg(err)) ? 'Esse e-mail já tem conta. Use "Já tenho conta: entrar".' : errMsg(err), '', em); }
+      return;
+    }
+    try { await store.signIn(em, pw); }
+    catch (err) { renderLogin(/invalid/i.test(errMsg(err)) ? 'E-mail ou senha incorretos.' : /confirm/i.test(errMsg(err)) ? 'Confirme seu e-mail primeiro: abra a mensagem que enviamos e clique no link.' : errMsg(err), '', em); }
   });
-  $('#l-forgot').addEventListener('click', async () => {
+  if ($('#l-forgot')) $('#l-forgot').addEventListener('click', async () => {
     const email = $('#l-email').value.trim();
     if (!email) return renderLogin('Digite seu e-mail acima e clique de novo em "Esqueci minha senha".');
     try { await store.sendReset(email); renderLogin('', 'Enviamos um link para ' + email + '. Abra o e-mail para criar uma nova senha.'); }
@@ -111,6 +122,18 @@ function renderSetPassword(msg = '') {
     try { await store.setPassword(a); mustSetPassword = false; history.replaceState(null, '', location.pathname + '#painel'); startApp(); }
     catch (err) { renderSetPassword(errMsg(err)); }
   });
+}
+
+function renderSemAcesso() {
+  const em = state.session?.user?.email || '';
+  document.body.innerHTML = `<div class="login"><div class="login-card">
+    <h1>Acesso ainda não liberado</h1>
+    <p class="m">O e-mail <b>${esc(em)}</b> entrou, mas ainda não está na lista da equipe do gabinete.</p>
+    <p class="m">Peça para alguém da equipe abrir <b>☰ → Minha conta → Equipe</b> e incluir este e-mail. Depois toque em "Tentar de novo".</p>
+    <button class="btn primary" id="sa-retry" style="justify-content:center">Tentar de novo</button>
+    <button class="linkbtn" id="sa-sair">Sair</button></div></div>`;
+  $('#sa-retry').addEventListener('click', () => startApp());
+  $('#sa-sair').addEventListener('click', () => store.signOut());
 }
 
 function renderAskName(msg = '') {
@@ -333,8 +356,11 @@ function renderConta() {
         <div class="f"><label for="pf-nome">Nome</label><input id="pf-nome" value="${esc(myName())}"></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" type="submit">Salvar nome</button>${store.configured ? '<button class="btn" type="button" id="pf-senha">Trocar senha</button><button class="btn danger" type="button" id="pf-sair">Sair</button>' : ''}</div>
       </form></section>
-    <section class="panel"><h3>Equipe</h3>${state.profiles.map(p => `<div class="ag-item" style="cursor:default;grid-template-columns:minmax(0,1fr)"><div class="t">${esc(p.nome)}</div></div>`).join('') || '<div class="m">Ninguém cadastrou o nome ainda.</div>'}
-      <p class="m">Para incluir alguém da equipe, convide pelo e-mail no Supabase (veja o guia de instalação).</p></section>
+    <section class="panel"><h3>Equipe</h3>
+      <p class="m" style="margin-top:0">Só os e-mails desta lista conseguem ver os dados. Para incluir alguém, adicione o e-mail aqui e peça para a pessoa abrir o sistema e tocar em <b>"Primeiro acesso? Criar minha conta"</b>.</p>
+      <div id="equipe-box"><div class="m">Carregando…</div></div>
+      ${store.configured ? `<form id="eq-add" style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap" novalidate><input id="eq-email" type="email" placeholder="email@exemplo.com" style="flex:1 1 200px;min-width:0;border:1px solid var(--line);background:var(--bg);border-radius:7px;padding:8px 10px"><button class="btn primary" type="submit">Liberar e-mail</button></form>` : ''}
+      ${state.profiles.length ? `<div class="eyebrow" style="margin-top:14px">Nomes cadastrados</div><div class="m">${state.profiles.map(p => esc(p.nome)).join(', ')}</div>` : ''}</section>
     <section class="panel"><h3>Dados do gabinete</h3><p class="m" style="margin-top:0">Aparecem no topo do sistema e nos ofícios e indicações.</p>
       <form id="cfg" class="filters" style="grid-template-columns:1fr;margin:0" novalidate>${CFG_CAMPOS.map(([k, l]) => `<div class="f"><label for="cfg-${k}">${esc(l)}</label><input id="cfg-${k}" value="${esc(cfg[k])}"></div>`).join('')}
       <div><button class="btn primary" type="submit">Salvar dados do gabinete</button></div></form></section>
@@ -355,7 +381,10 @@ function render() {
   const main = $('#main');
   const hadFocus = document.activeElement && document.activeElement.id === 'q'; const pos = hadFocus ? document.activeElement.selectionStart : 0;
   if (state.view !== 'etiquetas') $('#page-css').textContent = '';
-  if (state.view === 'conta') setTimeout(async () => { const b = $('#modelos-box'); if (b) b.innerHTML = await modelosHtml(); }, 0);
+  if (state.view === 'conta') setTimeout(async () => {
+    const b = $('#modelos-box'); if (b) b.innerHTML = await modelosHtml();
+    const q = $('#equipe-box'); if (q) { try { const l = await store.listEquipe(); const me = (state.session?.user?.email || '').toLowerCase(); q.innerHTML = l.length ? l.map(e => `<div class="ag-item" style="cursor:default;grid-template-columns:minmax(0,1fr) auto;align-items:center"><div class="t" style="font-weight:500">${esc(e)}${e === me ? ' <span class="m">(você)</span>' : ''}</div>${e === me ? '' : `<button class="btn mini ghost" data-eq-del="${esc(e)}">Remover</button>`}</div>`).join('') : '<div class="m">Nenhum e-mail na lista.</div>'; } catch (err) { q.innerHTML = '<div class="m">' + (store.configured ? esc(errMsg(err)) : 'Disponível quando o banco estiver ligado.') + '</div>'; } }
+  }, 0);
   main.innerHTML = state.view === 'painel' ? renderPainel() : state.view === 'etiquetas' ? renderEtiquetas() : state.view === 'conta' ? renderConta() : renderList(state.view);
   if (hadFocus) { const q = $('#q'); if (q) { q.focus(); try { q.setSelectionRange(pos, pos); } catch { /* ok */ } } }
   if (drawer.open) refreshDatalists();
@@ -591,6 +620,7 @@ document.addEventListener('click', e => {
   }
   if (e.target.closest('#g-sync')) { syncGoogle(); return; }
   if (e.target.closest('#btn-doc')) { gerarDocumento(); return; }
+  const eqd = e.target.closest('[data-eq-del]'); if (eqd) { const em = eqd.dataset.eqDel; if (eqd.dataset.ok) { store.removeEquipe(em).then(() => { toast('Acesso removido'); render(); }).catch(err => toast(errMsg(err))); } else { eqd.dataset.ok = '1'; eqd.textContent = 'Confirmar remoção'; eqd.classList.add('danger'); } return; }
   const mb = e.target.closest('[data-mod-baixar]'); if (mb) { docs.carregarModelo(mb.dataset.modBaixar).then(m => docs.baixar(new Blob([m.buf]), 'modelo-' + mb.dataset.modBaixar + '.docx')).catch(err => toast(errMsg(err))); return; }
   const mp = e.target.closest('[data-mod-padrao]'); if (mp) { store.setConfig('modelo:' + mp.dataset.modPadrao, null).then(() => { toast('Voltou ao modelo padrão'); render(); }).catch(err => toast(errMsg(err))); return; }
   if (e.target.closest('#g-cal-save')) { gcal.setCalendarId($('#g-cal').value.trim()); toast('Calendário salvo'); return; }
@@ -610,6 +640,12 @@ document.addEventListener('change', async e => {
   } catch (err) { toast(errMsg(err)); }
 });
 document.addEventListener('submit', async e => {
+  if (e.target.id === 'eq-add') {
+    e.preventDefault(); const em = $('#eq-email').value.trim();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) { toast('Digite um e-mail válido'); return; }
+    try { await store.addEquipe(em); toast('E-mail liberado'); render(); } catch (err) { toast(/duplicate/i.test(errMsg(err)) ? 'Esse e-mail já está liberado' : errMsg(err)); }
+    return;
+  }
   if (e.target.id === 'cfg') {
     e.preventDefault();
     const v = Object.fromEntries(CFG_CAMPOS.map(([k]) => [k, $('#cfg-' + k).value.trim()]));
@@ -633,6 +669,7 @@ async function startApp() {
     state.session = await store.getSession();
     if (!state.session) return renderLogin();
     if (mustSetPassword) return renderSetPassword();
+    if ((await store.isEquipe()) === false) return renderSemAcesso();
   } else state.session = await store.getSession();
   try { state.profiles = await store.loadProfiles(); } catch { state.profiles = []; }
   try { const c = await store.getConfig('gabinete'); if (c) Object.entries(c).forEach(([k, v]) => { if (v) cfg[k] = v; }); } catch { /* usa os padrões */ }
