@@ -14,8 +14,10 @@ async function carregarLeaflet() {
 }
 
 /** Procura o centro do bairro no OpenStreetMap (no máximo 1 pedido por segundo). */
-async function geocodificar(bairro, mun, uf) {
-  const q = new URLSearchParams({ format: 'jsonv2', limit: '1', countrycodes: 'br', 'accept-language': 'pt-BR', q: `${bairro}, ${mun}${uf ? ', ' + uf : ''}, Brasil` });
+async function geocodificar(bairro, mun, uf) { return buscarEndereco([bairro, mun, uf].filter(Boolean).join(', ')); }
+/** Procura um endereço livre (rua, nº, bairro, cidade). Devolve [lat, lon] ou null. */
+export async function buscarEndereco(texto) {
+  const q = new URLSearchParams({ format: 'jsonv2', limit: '1', countrycodes: 'br', 'accept-language': 'pt-BR', q: texto + ', Brasil' });
   const r = await fetch('https://nominatim.openstreetmap.org/search?' + q.toString(), { headers: { Accept: 'application/json' } });
   if (!r.ok) throw new Error('Serviço de mapas indisponível agora (' + r.status + ').');
   const j = await r.json();
@@ -28,7 +30,7 @@ async function geocodificar(bairro, mun, uf) {
  * salvarCache(cache) grava o cache no banco.
  * onClique(grupo) ao tocar num círculo.
  */
-export async function desenhar(el, grupos, { cache, salvarCache, uf, cidadePadrao, onProgresso, onClique, esc }) {
+export async function desenhar(el, grupos, { cache, salvarCache, uf, cidadePadrao, onProgresso, onClique, esc, pontosExatos = [], onAbrir }) {
   await carregarLeaflet();
   if (mapa && mapa.getContainer() !== el) { mapa.remove(); mapa = null; }
   if (!mapa) {
@@ -63,6 +65,15 @@ export async function desenhar(el, grupos, { cache, salvarCache, uf, cidadePadra
     c.bindPopup(`<b>${esc(g.bairro)}</b>${g.municipio ? ' · ' + esc(g.municipio) : ''}<br>${g.total} pedido(s), ${g.abertos} em aberto${g.atrasados ? ', <b style="color:#b3261e">' + g.atrasados + ' atrasado(s)</b>' : ''}<ul style="margin:6px 0 4px;padding-left:16px">${g.itens.slice(0, 6).map(x => `<li>${esc(x.titulo)} <i>(${esc(x.status)})</i></li>`).join('')}</ul><a href="#" data-mapa-ver="${esc(g.bairro)}">Ver todos deste bairro</a>`);
     c.on('popupopen', ev => { const a = ev.popup.getElement().querySelector('[data-mapa-ver]'); if (a) a.addEventListener('click', e => { e.preventDefault(); onClique(g); }); });
   }
+  // pedidos com o ponto exato marcado
+  for (const p of pontosExatos) {
+    pontos.push([p.lat, p.lng]);
+    const cor = p.atrasado ? '#b3261e' : p.aberto ? '#c77700' : '#1c7a3d';
+    const c = L.circleMarker([p.lat, p.lng], { radius: 7, color: '#fff', weight: 2, fillColor: cor, fillOpacity: 1 }).addTo(camada);
+    c.bindTooltip(esc(p.titulo), { direction: 'top' });
+    c.bindPopup(`<b>${esc(p.titulo)}</b><br><i>${esc(p.status)}</i>${p.sub ? '<br>' + esc(p.sub) : ''}<br><a href="#" data-mapa-abrir>Abrir registro</a> · <a href="https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lng}" target="_blank" rel="noopener">Google Maps</a>`);
+    c.on('popupopen', ev => { const a = ev.popup.getElement().querySelector('[data-mapa-abrir]'); if (a) a.addEventListener('click', e => { e.preventDefault(); onAbrir(p); }); });
+  }
   if (pontos.length) mapa.fitBounds(L.latLngBounds(pontos).pad(0.15), { maxZoom: 14 });
   else mapa.setView([-24.9555, -53.4552], 12); // Cascavel–PR
   setTimeout(() => mapa.invalidateSize(), 50);
@@ -70,3 +81,23 @@ export async function desenhar(el, grupos, { cache, salvarCache, uf, cidadePadra
 }
 
 export function destruir() { if (mapa) { mapa.remove(); mapa = null; camada = null; } }
+
+/* ---------- mapinha dentro do registro, para marcar o ponto exato ---------- */
+export async function miniMapa(el, pos, onPick, centro) {
+  await carregarLeaflet();
+  const m = L.map(el, { scrollWheelZoom: false, tap: true });
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(m);
+  const icone = L.divIcon({ className: 'pin', html: '<span></span>', iconSize: [26, 34], iconAnchor: [13, 32] });
+  let mk = null;
+  const marcar = (p, centralizar) => {
+    if (!p) { if (mk) { mk.remove(); mk = null; } return; }
+    if (!mk) { mk = L.marker(p, { draggable: true, icon: icone }).addTo(m); mk.on('dragend', () => { const ll = mk.getLatLng(); onPick([ll.lat, ll.lng]); }); }
+    else mk.setLatLng(p);
+    if (centralizar) m.setView(p, Math.max(m.getZoom() || 0, 17));
+  };
+  m.on('click', e => { const p = [e.latlng.lat, e.latlng.lng]; marcar(p); onPick(p); });
+  m.setView(pos || centro || [-24.9555, -53.4552], pos ? 17 : 13);
+  marcar(pos);
+  setTimeout(() => m.invalidateSize(), 60);
+  return { marcar, remover: () => m.remove() };
+}

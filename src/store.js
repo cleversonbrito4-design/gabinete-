@@ -156,17 +156,22 @@ export async function insertMany(mod, rows, onProgress) {
 }
 
 /* ---------- anexos (Supabase Storage, pasta privada "anexos") ---------- */
-export const anexosDisponiveis = configured;
+// No modo demonstração os arquivos ficam só na memória desta aba (somem ao recarregar).
+const demoArq = new Map();
+export const anexosDisponiveis = true;
 export async function enviarAnexo(path, file) {
+  if (!sb) { demoArq.set(path, globalThis.URL.createObjectURL(file)); return; }
   const { error } = await sb.storage.from('anexos').upload(path, file, { upsert: false, contentType: file.type || 'application/octet-stream' });
   if (error) throw error;
 }
 export async function linkAnexo(path, nome) {
+  if (!sb) { if (!demoArq.has(path)) throw new Error('No modo demonstração o arquivo some ao recarregar a página.'); return demoArq.get(path); }
   const { data, error } = await sb.storage.from('anexos').createSignedUrl(path, 300, nome ? { download: nome } : undefined);
   if (error) throw error;
   return data.signedUrl;
 }
 export async function apagarAnexo(path) {
+  if (!sb) { demoArq.delete(path); return; }
   const { error } = await sb.storage.from('anexos').remove([path]);
   if (error) throw error;
 }
@@ -174,6 +179,14 @@ export async function apagarAnexo(path) {
 /* ---------- formulário público (sem login) ---------- */
 export async function novaDemandaPublica(c) {
   if (!sb) throw new Error('O formulário só funciona com o banco ligado.');
-  const { error } = await sb.rpc('nova_demanda_publica', { p_nome: c.nome, p_telefone: c.telefone, p_municipio: c.municipio, p_bairro: c.bairro, p_assunto: c.assunto, p_descricao: c.descricao });
+  const { error } = await sb.rpc('nova_demanda_publica', { p_nome: c.nome, p_telefone: c.telefone, p_municipio: c.municipio, p_bairro: c.bairro, p_assunto: c.assunto, p_descricao: c.descricao, ...(c.lat != null ? { p_lat: c.lat, p_lng: c.lng } : {}) });
   if (error) throw error;
+}
+/** Vários links temporários de uma vez (para as miniaturas). Devolve { path: url }. */
+export async function linksAnexos(paths) {
+  if (!paths.length) return {};
+  if (!sb) return Object.fromEntries(paths.filter(p => demoArq.has(p)).map(p => [p, demoArq.get(p)]));
+  const { data, error } = await sb.storage.from('anexos').createSignedUrls(paths, 3600);
+  if (error) throw error;
+  return Object.fromEntries(data.filter(d => d.signedUrl).map(d => [d.path, d.signedUrl]));
 }

@@ -15,7 +15,7 @@ export const MODS = {
       { k:'telefone', l:'Telefone / WhatsApp', type:'tel' },
       { k:'municipio', l:'Município', list:1 },
       { k:'bairro', l:'Bairro / Localidade' },
-      { k:'area', l:'Área', type:'select', opts:['Saúde','Educação','Infraestrutura','Assistência social','Segurança','Emprego e renda','Esporte e cultura','Outros'] },
+      { k:'area', l:'Área', type:'select', opts:['Obras','Infraestrutura','Iluminação pública','Trânsito','Meio ambiente','Saúde','Educação','Assistência social','Segurança','Emprego e renda','Esporte e cultura','Outros'] },
       { k:'prioridade', l:'Prioridade', type:'select', opts:['Baixa','Média','Alta'] },
       { k:'responsavel', l:'Responsável no gabinete', team:1 },
       { k:'prazo', l:'Prazo de retorno', type:'date' },
@@ -26,6 +26,7 @@ export const MODS = {
     title: r => r.assunto,
     meta: r => [r.solicitante, r.municipio && (r.municipio + (r.bairro ? ' · ' + r.bairro : '')), r.area].filter(Boolean).join(' · '),
     deadline: 'prazo', phone: 'telefone',
+    extraCols: [['lat','double precision'],['lng','double precision']], geo: 1,
   },
   servicos: {
     label: 'Ofícios e serviços', sing: 'Ofício / serviço', novo: 'Novo ofício',
@@ -51,6 +52,7 @@ export const MODS = {
     title: r => r.servico,
     meta: r => [r.orgao, r.municipio && (r.municipio + (r.local ? ' · ' + r.local : '')), r.protocolo && ('Ofício ' + r.protocolo)].filter(Boolean).join(' · '),
     deadline: 'prazo', phone: 'telefone',
+    extraCols: [['demanda_id','uuid'],['lat','double precision'],['lng','double precision']], geo: 1,
   },
   emendas: {
     label: 'Emendas', sing: 'Pedido de emenda', novo: 'Novo pedido de emenda',
@@ -61,7 +63,7 @@ export const MODS = {
       { k:'beneficiario', l:'Beneficiário (prefeitura / entidade)', req:1, people:1 },
       { k:'cnpj', l:'CNPJ', mono:1 },
       { k:'municipio', l:'Município', list:1 },
-      { k:'area', l:'Área', type:'select', opts:['Saúde','Educação','Infraestrutura','Assistência social','Agricultura','Esporte','Cultura','Segurança','Outros'] },
+      { k:'area', l:'Área', type:'select', opts:['Obras','Saúde','Educação','Infraestrutura','Assistência social','Agricultura','Esporte','Cultura','Segurança','Outros'] },
       { k:'modalidade', l:'Modalidade', type:'select', opts:['Individual – finalidade definida','Individual – transferência especial (Pix)','Bancada','Comissão'] },
       { k:'valor_pedido', l:'Valor pedido (R$)', type:'money' },
       { k:'valor_indicado', l:'Valor indicado (R$)', type:'money' },

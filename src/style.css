@@ -192,3 +192,24 @@ a.btn{text-decoration:none}
 .mapa{position:relative;z-index:0;height:min(68vh,560px);border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--surface-2)}
 .mapa .leaflet-popup-content{font:13px/1.4 var(--body)}
 .mapa path.leaflet-interactive:focus{outline:none}
+/* fotos e vídeos */
+.anx-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:6px;margin:8px 0}
+.anx-thumb{position:relative;aspect-ratio:1;border:1px solid var(--line);border-radius:8px;overflow:hidden;padding:0;background:var(--surface-2);cursor:pointer}
+.anx-thumb img,.anx-thumb video{width:100%;height:100%;object-fit:cover;display:block;pointer-events:none}
+.anx-thumb .play{position:absolute;inset:auto auto 6px 6px;background:rgba(0,0,0,.6);color:#fff;border-radius:50%;width:24px;height:24px;font-size:11px;display:grid;place-items:center}
+.anx-prog{margin-top:6px;font-weight:600;color:var(--accent)}
+.lightbox{position:fixed;inset:0;z-index:40;background:rgba(0,0,0,.88);display:flex;flex-direction:column;padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px)}
+.lb-top{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 14px;color:#fff;font-size:13px}
+.lb-top .m{color:#bbb}
+.lb-body{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:0 12px 14px}
+.lb-body img,.lb-body video{max-width:100%;max-height:100%;object-fit:contain;border-radius:6px;background:#000}
+.lb-nav{position:absolute;top:50%;transform:translateY(-50%);background:rgba(255,255,255,.15);color:#fff;border:0;width:44px;height:64px;font-size:30px;cursor:pointer;border-radius:8px}
+.lb-nav.l{left:8px}.lb-nav.r{right:8px}
+/* localização exata */
+.geo{grid-column:1/-1;border-top:1px solid var(--line);padding-top:12px}
+.geo-busca{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 8px}
+.geo-busca input{flex:1 1 180px;min-width:0;border:1px solid var(--line);background:var(--bg);color:var(--fg);border-radius:7px;padding:7px 10px;font:inherit}
+.geo-map{position:relative;z-index:0;height:220px;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--surface-2)}
+.geo-info{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;justify-content:space-between;margin-top:6px}
+.geo-links{display:flex;gap:6px;flex-wrap:wrap}
+.pin span{display:block;width:22px;height:22px;margin:0 2px;background:#b3261e;border:3px solid #fff;border-radius:50% 50% 50% 0;transform:rotate(-45deg);box-shadow:0 2px 6px rgba(0,0,0,.4)}

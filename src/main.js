@@ -77,7 +77,8 @@ const waAniversario = p => `Olá, ${primeiroNome(p.nome)}! O ${DEP()} e toda a e
 /* ---------- estado ---------- */
 const data = Object.fromEntries(ORDER.map(m => [m, []]));
 const state = { mapa: { mod: 'demandas', so: 'abertos' }, imp: { mod: 'pessoas' }, rel: { mod: 'demandas', de: '', ate: '', municipio: '', bairro: '', status: '' }, view: 'painel', q: '', filter: 'abertos', agendaWin: 'proximos', loaded: false, session: null, profiles: [], et: { tipo: '', grupo: '', municipio: '', mes: '', modelo: '6180', pular: 0 } };
-const drawer = { open: false, mod: null, id: null };
+const drawer = { open: false, mod: null, id: null, geo: null };
+let geoMini = null; // mapinha aberto dentro do registro
 let pedidoInstalar = null; // convite do navegador para instalar o app
 const VIEWS = ['painel', 'etiquetas', 'conta', 'relatorios', 'importar', 'mapa', ...ORDER];
 
@@ -455,7 +456,9 @@ function fieldInput(f, v, ro) {
 function openDrawer(mod, id, preset = {}) {
   const M = MODS[mod]; const rec = id ? data[mod].find(r => r.id === id) : null;
   if (id && !rec) return;
+  if (geoMini) { geoMini.remover(); geoMini = null; }
   drawer.open = true; drawer.mod = mod; drawer.id = id;
+  drawer.geo = rec && rec.lat != null && rec.lng != null ? [+rec.lat, +rec.lng] : (preset.lat != null ? [preset.lat, preset.lng] : null);
   const defaults = { status: M.statuses[0][0], ...(mod === 'agenda' ? { data: todayStr() } : {}), ...(mod === 'emendas' ? { exercicio: new Date().getFullYear() } : {}), ...(mod === 'proposituras' ? { ano: new Date().getFullYear() } : {}), ...(M.fields.some(f => f.k === 'responsavel') ? { responsavel: myName() } : {}) };
   const r = rec || { ...defaults, ...preset };
   const fields = M.fields.map(f => `<div class="f ${f.wide ? 'wide' : ''}"><label for="f-${f.k}">${esc(f.l)}${f.req ? ' <span class="req">*</span>' : ''}</label>${fieldInput(f, r[f.k] ?? '', false)}</div>`).join('');
@@ -469,7 +472,10 @@ function openDrawer(mod, id, preset = {}) {
     acts.push(`<button class="btn mini" type="button" data-new-for="demandas">+ Demanda desta pessoa</button>`);
     if (linked) acts.push(`<button class="btn mini" type="button" data-search="${esc(rec.nome)}">Ver ${linked} registro(s) ligado(s)</button>`);
   }
+  if (rec && mod === 'demandas') acts.push(`<button class="btn mini primary" type="button" data-oficio-de>Gerar ofício de solicitação</button>`);
   if (rec && mod !== 'tarefas') acts.push(`<button class="btn mini" type="button" data-tarefa-de>+ Tarefa</button>`);
+  if (rec && mod === 'demandas') data.servicos.filter(o => o.demanda_id === rec.id).forEach(o => acts.push(`<button class="btn mini ghost" type="button" data-open="servicos:${o.id}">📄 Ofício ${esc(o.protocolo || '(sem nº)')} · ${esc(o.status)}</button>`));
+  if (rec && mod === 'servicos' && rec.demanda_id && data.demandas.some(d => d.id === rec.demanda_id)) acts.push(`<button class="btn mini ghost" type="button" data-open="demandas:${rec.demanda_id}">↩ Demanda de origem</button>`);
   const dt = rec && docTipo(mod, rec);
   if (dt) acts.push(`<button class="btn mini" type="button" id="btn-doc">Gerar ${docs.TIPOS[dt]} (Word)</button>`);
   if (rec && mod === 'proposituras' && rec.link) acts.push(`<a class="btn mini" href="${esc(rec.link)}" target="_blank" rel="noopener">Abrir tramitação</a>`);
@@ -477,15 +483,59 @@ function openDrawer(mod, id, preset = {}) {
     <div class="dr-head"><div style="min-width:0"><div class="eyebrow">${esc(M.label)}</div><h3 id="dr-t">${rec ? esc(M.title(rec)) : esc(M.novo)}</h3></div><button class="btn ghost" data-close aria-label="Fechar">✕</button></div>
     <form class="dr-body" id="frm" novalidate>${acts.length ? `<div class="dr-actions">${acts.join('')}</div>` : ''}${statusSel}<div class="f"></div>${fields}
       <datalist id="dl-munis"></datalist><datalist id="dl-pessoas"></datalist><datalist id="dl-equipe"></datalist><div class="err" id="frm-err" hidden></div>
+      ${M.geo ? `<div class="geo" id="geo"><span class="eyebrow">Localização exata</span>
+        <div class="geo-busca"><input id="geo-end" placeholder="Rua, número, bairro" value="${esc(r.local || [r.bairro, r.municipio].filter(Boolean).join(', '))}" autocomplete="off"><button class="btn mini" type="button" id="geo-buscar">🔎 Buscar</button><button class="btn mini" type="button" id="geo-gps">📍 Estou no local</button></div>
+        <div id="geo-map" class="geo-map"></div>
+        <div class="geo-info" id="geo-info"></div></div>` : ''}
       ${store.anexosDisponiveis ? `<div class="anx" id="anx">${anexosHtml(rec)}</div>` : ''}${hist}
       ${rec ? `<div class="m" style="grid-column:1/-1">Cadastrado em ${fmtStamp(rec.criado_em)} · atualizado em ${fmtStamp(rec.atualizado_em)}</div>` : ''}</form>
     <div class="dr-foot"><div id="del-zone">${rec ? '<button class="btn danger" id="btn-del" type="button">Excluir</button>' : ''}</div><div class="r"><button class="btn" data-close type="button">Cancelar</button><button class="btn primary" id="btn-save" type="button">Salvar</button></div></div></aside>`;
   refreshDatalists();
+  carregarMiniaturas();
+  if (M.geo) iniciarGeo();
   // ao escolher uma pessoa cadastrada, preenche telefone e município
   ['solicitante'].forEach(k => { const el = $('#f-' + k); if (el) el.addEventListener('change', () => { const p = data.pessoas.find(x => x.nome === el.value); if (!p) return; [['telefone', 'telefone'], ['municipio', 'municipio'], ['bairro', 'bairro']].forEach(([a, b]) => { const t = $('#f-' + a); if (t && !t.value && p[b]) t.value = p[b]; }); }); });
   setTimeout(() => { const f = $('#f-' + M.fields[0].k); f && f.focus(); }, 30);
 }
-function closeDrawer() { drawer.open = false; $('#overlay').innerHTML = ''; }
+/* ---------- localização exata no registro ---------- */
+const linkMaps = p => `https://www.google.com/maps/search/?api=1&query=${p[0].toFixed(6)},${p[1].toFixed(6)}`;
+const linkWaze = p => `https://waze.com/ul?ll=${p[0].toFixed(6)},${p[1].toFixed(6)}&navigate=yes`;
+function geoInfo() {
+  const el = $('#geo-info'); if (!el) return; const p = drawer.geo;
+  el.innerHTML = p ? `<span class="m">📍 ${p[0].toFixed(5)}, ${p[1].toFixed(5)} · arraste o alfinete para ajustar</span><span class="geo-links"><a class="btn mini" href="${linkMaps(p)}" target="_blank" rel="noopener">Google Maps</a><a class="btn mini" href="${linkWaze(p)}" target="_blank" rel="noopener">Waze</a><button class="btn mini ghost" type="button" id="geo-limpar">Tirar marcação</button></span>`
+    : '<span class="m">Toque no mapa para marcar o ponto exato, busque o endereço ou use "Estou no local" (GPS do celular).</span>';
+}
+async function iniciarGeo() {
+  const el = $('#geo-map'); if (!el) return; geoInfo();
+  const alvo = drawer.id;
+  try {
+    const m = await mapaLib.miniMapa(el, drawer.geo, p => { drawer.geo = p; geoInfo(); });
+    if (!drawer.open || drawer.id !== alvo || !document.body.contains(el)) { m.remover(); return; }
+    geoMini = m;
+  } catch (e) { el.innerHTML = '<div class="m" style="padding:10px">Mapa indisponível: ' + esc(errMsg(e)) + '</div>'; }
+}
+async function geoBuscar() {
+  const t = ($('#geo-end')?.value || '').trim(); if (!t) { toast('Digite o endereço'); return; }
+  const b = $('#geo-buscar'); b.disabled = true; b.textContent = 'Buscando…';
+  try {
+    const mun = $('#f-municipio')?.value || cfg.cidade_gabinete || '';
+    const p = await mapaLib.buscarEndereco([t, t.toLowerCase().includes(mun.toLowerCase()) ? '' : mun, UF_GAB()].filter(Boolean).join(', '));
+    if (!p) toast('Endereço não encontrado. Tente só a rua e o bairro, ou toque no mapa.');
+    else { drawer.geo = p; geoMini?.marcar(p, true); geoInfo(); }
+  } catch (e) { toast(errMsg(e)); }
+  b.disabled = false; b.textContent = '🔎 Buscar';
+}
+function geoGps() {
+  if (!navigator.geolocation) { toast('Este aparelho não tem localização'); return; }
+  const b = $('#geo-gps'); b.disabled = true; b.textContent = 'Localizando…';
+  navigator.geolocation.getCurrentPosition(pos => {
+    const p = [pos.coords.latitude, pos.coords.longitude]; drawer.geo = p; geoMini?.marcar(p, true); geoInfo();
+    b.disabled = false; b.textContent = '📍 Estou no local';
+    if (pos.coords.accuracy > 100) toast('Localização aproximada (±' + Math.round(pos.coords.accuracy) + ' m). Arraste o alfinete se precisar.');
+  }, err => { b.disabled = false; b.textContent = '📍 Estou no local'; toast(err.code === 1 ? 'Permita o acesso à localização no navegador' : 'Não consegui pegar a localização'); }, { enableHighAccuracy: true, timeout: 15000 });
+}
+
+function closeDrawer() { drawer.open = false; if (geoMini) { geoMini.remover(); geoMini = null; } $('#overlay').innerHTML = ''; }
 
 function readForm(mod) {
   const rec = {};
@@ -494,6 +544,8 @@ function readForm(mod) {
     if (f.type === 'money') v = parseMoney(v); else if (f.type === 'number') v = v ? parseInt(v, 10) : null; else if (v === '') v = null;
     rec[f.k] = v;
   }
+  // só manda lat/lng se houver ponto marcado ou se o banco já tiver essas colunas
+  if (MODS[mod].geo && drawer.mod === mod) { const old = drawer.id && data[mod].find(r => r.id === drawer.id); if (drawer.geo || (old && 'lat' in old)) { rec.lat = drawer.geo ? drawer.geo[0] : null; rec.lng = drawer.geo ? drawer.geo[1] : null; } }
   return rec;
 }
 async function saveDrawer() {
@@ -526,6 +578,44 @@ async function saveDrawer() {
 }
 
 function upsertLocal(mod, row) { if (!row) return; const a = data[mod]; const i = a.findIndex(x => x.id === row.id); if (i >= 0) a[i] = row; else a.unshift(row); render(); }
+
+/* ---------- ofício a partir da demanda ---------- */
+const ORGAO_POR_AREA = {
+  'Obras': 'Secretaria Municipal de Obras Públicas', 'Infraestrutura': 'Secretaria Municipal de Obras Públicas', 'Iluminação pública': 'Secretaria Municipal de Obras Públicas',
+  'Trânsito': 'Órgão municipal de trânsito', 'Meio ambiente': 'Secretaria Municipal de Meio Ambiente',
+  'Saúde': 'Secretaria Municipal de Saúde', 'Educação': 'Secretaria Municipal de Educação', 'Assistência social': 'Secretaria Municipal de Assistência Social',
+  'Segurança': 'Secretaria Municipal de Segurança Pública', 'Emprego e renda': 'Secretaria Municipal de Desenvolvimento Econômico', 'Esporte e cultura': 'Secretaria Municipal de Esporte e Lazer',
+};
+async function oficioDaDemanda() {
+  const { id } = drawer; let d = data.demandas.find(x => x.id === id); if (!d) return;
+  const btn = $('[data-oficio-de]'); if (btn) { btn.disabled = true; btn.textContent = 'Criando ofício…'; }
+  try {
+    // grava antes o que foi digitado na demanda
+    const form = readForm('demandas'); const st = $('#f-status').value;
+    if (Object.keys(form).some(k => String(form[k] ?? '') !== String(d[k] ?? '')) || st !== d.status) { d = await store.saveRow('demandas', d.id, { ...form, status: st }); upsertLocal('demandas', d); }
+    const agora = new Date().toISOString(), por = myName();
+    const linhas = [`Solicito a Vossa Senhoria ${d.assunto ? d.assunto.charAt(0).toLowerCase() + d.assunto.slice(1) : 'providências'}${d.bairro ? ', no bairro ' + d.bairro : ''}${d.municipio ? ', no município de ' + d.municipio : ''}.`];
+    if (d.descricao) linhas.push(d.descricao.replace(/\s*\n+\s*/g, ' '));
+    if (d.lat != null) linhas.push('Localização exata: ' + linkMaps([+d.lat, +d.lng]));
+    linhas.push(`A solicitação atende à demanda encaminhada a este gabinete por ${d.solicitante || 'munícipe'}, que aguarda providências.`);
+    linhas.push('Solicito, ainda, retorno a este gabinete sobre as providências adotadas e a previsão de atendimento.');
+    const of = {
+      servico: d.assunto, solicitante: d.solicitante, telefone: d.telefone, municipio: d.municipio, local: d.bairro,
+      orgao: ORGAO_POR_AREA[d.area] || null, tipo_doc: 'Ofício', prazo: addDays(todayStr(), 15), responsavel: por || d.responsavel,
+      corpo: linhas.join('\n'), status: 'Recebida', demanda_id: d.id,
+      ...(d.lat != null ? { lat: d.lat, lng: d.lng } : {}),
+      historico: [{ em: agora, txt: 'Criado a partir da demanda “' + d.assunto + '”', por }],
+    };
+    let row;
+    try { row = await store.saveRow('servicos', null, of); }
+    catch (e) { if (!/demanda_id|lat|lng/.test(errMsg(e))) throw e; delete of.demanda_id; delete of.lat; delete of.lng; of.obs = 'Demanda de origem: ' + d.assunto; row = await store.saveRow('servicos', null, of); }
+    upsertLocal('servicos', row);
+    const hist = (d.historico || []).concat({ em: agora, txt: 'Ofício de solicitação criado' + (of.orgao ? ' para ' + of.orgao : ''), por });
+    d = await store.saveRow('demandas', d.id, { historico: hist.slice(-100), status: d.status === 'Nova' ? 'Encaminhada' : d.status }); upsertLocal('demandas', d);
+    closeDrawer(); go('servicos'); openDrawer('servicos', row.id);
+    toast('Ofício criado. Confira o órgão e o texto e toque em "Gerar Ofício (Word)".');
+  } catch (e) { toast('Não foi possível criar o ofício: ' + errMsg(e)); if (btn) { btn.disabled = false; btn.textContent = 'Gerar ofício de solicitação'; } }
+}
 
 /* ---------- documentos Word ---------- */
 function docTipo(mod, r) {
@@ -723,27 +813,84 @@ const tamanho = n => n > 1048576 ? (n / 1048576).toFixed(1).replace('.', ',') + 
 function anexosHtml(rec) {
   if (!rec) return '<span class="eyebrow">Anexos</span><div class="m">Salve o registro primeiro para anexar fotos, PDFs e documentos.</div>';
   const a = rec.anexos || [];
-  return `<span class="eyebrow">Anexos</span>
-    ${a.length ? `<ul class="anx-list">${a.map((x, i) => `<li><button class="linkbtn" type="button" data-anx-abrir="${i}">📎 ${esc(x.nome)}</button><span class="m">${tamanho(x.tamanho || 0)} · ${fmtStamp(x.em)}${x.por ? ' · ' + esc(x.por) : ''}</span><button class="btn mini ghost" type="button" data-anx-del="${i}">Remover</button></li>`).join('')}</ul>` : '<div class="m">Nenhum arquivo anexado.</div>'}
-    <label class="btn mini" style="cursor:pointer;margin-top:8px">+ Anexar arquivo<input type="file" multiple data-anx-add hidden></label>`;
+  const midias = a.map((x, i) => [x, i]).filter(([x]) => tipoMidia(x));
+  return `<span class="eyebrow">Anexos${midias.length ? ' · ' + midias.length + ' foto(s)/vídeo(s)' : ''}</span>
+    ${midias.length ? `<div class="anx-grid">${midias.map(([x, i]) => `<button type="button" class="anx-thumb" data-anx-ver="${i}" title="${esc(x.nome)}">${tipoMidia(x) === 'video' ? `<video data-path="${esc(x.path)}" muted playsinline preload="metadata"></video><span class="play">▶</span>` : `<img data-path="${esc(x.path)}" alt="${esc(x.nome)}" loading="lazy">`}</button>`).join('')}</div>` : ''}
+    ${a.length ? `<ul class="anx-list">${a.map((x, i) => `<li><button class="linkbtn" type="button" ${tipoMidia(x) ? `data-anx-ver="${i}"` : `data-anx-abrir="${i}"`}>${tipoMidia(x) === 'video' ? '🎬' : tipoMidia(x) === 'foto' ? '🖼️' : '📎'} ${esc(x.nome)}</button><span class="m">${tamanho(x.tamanho || 0)} · ${fmtStamp(x.em)}${x.por ? ' · ' + esc(x.por) : ''}</span><button class="btn mini ghost" type="button" data-anx-del="${i}">Remover</button></li>`).join('')}</ul>` : '<div class="m">Nenhum arquivo anexado.</div>'}
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+      <label class="btn mini" style="cursor:pointer">📷 Foto ou vídeo<input type="file" multiple accept="image/*,video/*" data-anx-add hidden></label>
+      <label class="btn mini" style="cursor:pointer">+ Outro arquivo<input type="file" multiple data-anx-add hidden></label>
+    </div>
+    <div class="m" style="font-size:11.5px;margin-top:4px">Até 50 MB por arquivo (cerca de 1 minuto de vídeo do celular). Fotos grandes são reduzidas automaticamente.</div>`;
+}
+const tipoMidia = x => { const n = String(x.nome || x.path || '').toLowerCase(); const t = String(x.tipo || ''); if (t.startsWith('image/') || /\.(jpe?g|png|gif|webp|bmp|heic|heif)$/.test(n)) return /\.(heic|heif)$/.test(n) ? 'foto-heic' : 'foto'; if (t.startsWith('video/') || /\.(mp4|mov|m4v|webm|3gp|avi|mkv)$/.test(n)) return 'video'; return ''; };
+/** Preenche miniaturas de fotos e vídeos com links temporários. */
+let linksCache = {};
+async function carregarMiniaturas() {
+  const els = [...document.querySelectorAll('#anx [data-path]')]; if (!els.length) return;
+  const faltam = [...new Set(els.map(e => e.dataset.path))].filter(p => !linksCache[p] || linksCache[p].ate < Date.now());
+  if (faltam.length) { try { const l = await store.linksAnexos(faltam); for (const [p, u] of Object.entries(l)) linksCache[p] = { u, ate: Date.now() + 50 * 60e3 }; } catch { return; } }
+  els.forEach(e => { const c = linksCache[e.dataset.path]; if (c) e.src = c.u + (e.tagName === 'VIDEO' ? '#t=0.5' : ''); });
+}
+async function verMidia(i) {
+  const r = data[drawer.mod].find(x => x.id === drawer.id); const a = r?.anexos || [];
+  const lista = a.map((x, j) => [x, j]).filter(([x]) => tipoMidia(x)); let pos = lista.findIndex(([, j]) => j === i); if (pos < 0) return;
+  const lb = document.createElement('div'); lb.className = 'lightbox'; lb.setAttribute('role', 'dialog'); lb.setAttribute('aria-modal', 'true');
+  document.body.appendChild(lb);
+  const fechar = () => { lb.remove(); document.removeEventListener('keydown', tecla, true); };
+  const tecla = e => { if (e.key === 'Escape') { e.stopPropagation(); fechar(); } else if (e.key === 'ArrowRight') mostrar(pos + 1); else if (e.key === 'ArrowLeft') mostrar(pos - 1); };
+  document.addEventListener('keydown', tecla, true);
+  async function mostrar(p) {
+    pos = (p + lista.length) % lista.length; const [x] = lista[pos];
+    lb.innerHTML = `<div class="lb-top"><span>${esc(x.nome)} <span class="m">${pos + 1} de ${lista.length}</span></span><span style="display:flex;gap:6px"><button class="btn mini" data-lb="baixar">Baixar</button><button class="btn mini" data-lb="fechar" aria-label="Fechar">✕</button></span></div><div class="lb-body"><div class="m">Carregando…</div></div>${lista.length > 1 ? '<button class="lb-nav l" data-lb="ant" aria-label="Anterior">‹</button><button class="lb-nav r" data-lb="prox" aria-label="Próximo">›</button>' : ''}`;
+    try {
+      let c = linksCache[x.path]; if (!c || c.ate < Date.now()) { const u = await store.linkAnexo(x.path); c = linksCache[x.path] = { u, ate: Date.now() + 4 * 60e3 }; }
+      const body = lb.querySelector('.lb-body');
+      body.innerHTML = tipoMidia(x) === 'video' ? `<video src="${esc(c.u)}" controls autoplay playsinline></video>` : tipoMidia(x) === 'foto-heic' ? `<div class="m" style="color:#fff">Foto no formato do iPhone (HEIC): toque em Baixar para abrir.</div>` : `<img src="${esc(c.u)}" alt="${esc(x.nome)}">`;
+    } catch (err) { lb.querySelector('.lb-body').innerHTML = `<div class="m" style="color:#fff">${esc(errMsg(err))}</div>`; }
+  }
+  lb.addEventListener('click', e => {
+    const b = e.target.closest('[data-lb]'); const k = b?.dataset.lb;
+    if (k === 'fechar' || e.target === lb || e.target.classList.contains('lb-body')) fechar();
+    else if (k === 'prox') mostrar(pos + 1); else if (k === 'ant') mostrar(pos - 1);
+    else if (k === 'baixar') { const [x] = lista[pos]; store.linkAnexo(x.path, x.nome).then(u => { location.href = u; }).catch(err => toast(errMsg(err))); }
+  });
+  mostrar(pos);
+}
+/** Reduz fotos grandes (lado maior 2000 px, JPEG) para economizar espaço. */
+async function reduzirFoto(f) {
+  if (!/^image\/(jpeg|png|webp)$/.test(f.type) || f.size < 1.5 * 1048576) return f;
+  try {
+    const bmp = await createImageBitmap(f, { imageOrientation: 'from-image' });
+    const k = Math.min(1, 2000 / Math.max(bmp.width, bmp.height));
+    const c = document.createElement('canvas'); c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+    c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+    const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.85));
+    if (!blob || blob.size >= f.size) return f;
+    return new File([blob], f.name.replace(/\.\w+$/, '') + '.jpg', { type: 'image/jpeg' });
+  } catch { return f; }
 }
 const nomeSeguro = n => n.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\w.-]+/g, '-').slice(-80);
 async function anexarArquivos(mod, id, files) {
   let r = data[mod].find(x => x.id === id); if (!r) return;
   const novos = [];
-  for (const f of files) {
-    if (f.size > 20 * 1048576) { toast(f.name + ' passa de 20 MB'); continue; }
+  const box0 = $('#anx'); const aviso = document.createElement('div'); aviso.className = 'm anx-prog'; if (box0) box0.appendChild(aviso);
+  for (let k = 0; k < files.length; k++) {
+    let f = files[k];
+    f = await reduzirFoto(f);
+    if (f.size > 50 * 1048576) { toast(f.name + ' passa de 50 MB. Grave um vídeo mais curto ou envie pelo Google Drive e cole o link nas observações.'); continue; }
+    aviso.textContent = `Enviando ${files.length > 1 ? (k + 1) + ' de ' + files.length + ': ' : ''}${f.name} (${tamanho(f.size)})… ${f.size > 8 * 1048576 ? 'vídeos podem levar um minuto.' : ''}`;
     const path = `${mod}/${id}/${Date.now()}-${nomeSeguro(f.name)}`;
-    toast('Enviando ' + f.name + '…');
     await store.enviarAnexo(path, f);
-    novos.push({ path, nome: f.name, tamanho: f.size, em: new Date().toISOString(), por: myName() });
+    novos.push({ path, nome: f.name, tamanho: f.size, tipo: f.type || '', em: new Date().toISOString(), por: myName() });
   }
+  aviso.remove();
   if (!novos.length) return;
   r = data[mod].find(x => x.id === id);
   const hist = (r.historico || []).concat(novos.map(n => ({ em: n.em, txt: 'Anexo incluído: ' + n.nome, por: n.por }))).slice(-100);
   const row = await store.saveRow(mod, id, { anexos: (r.anexos || []).concat(novos), historico: hist });
   upsertLocal(mod, row);
-  const box = $('#anx'); if (box && drawer.id === id) box.innerHTML = anexosHtml(row);
+  const box = $('#anx'); if (box && drawer.id === id) { box.innerHTML = anexosHtml(row); carregarMiniaturas(); }
   toast(novos.length === 1 ? 'Arquivo anexado' : novos.length + ' arquivos anexados');
 }
 async function removerAnexo(mod, id, i) {
@@ -753,7 +900,7 @@ async function removerAnexo(mod, id, i) {
   const hist = (r.historico || []).concat({ em: new Date().toISOString(), txt: 'Anexo removido: ' + x.nome, por: myName() }).slice(-100);
   const row = await store.saveRow(mod, id, { anexos: a, historico: hist });
   upsertLocal(mod, row);
-  const box = $('#anx'); if (box && drawer.id === id) box.innerHTML = anexosHtml(row);
+  const box = $('#anx'); if (box && drawer.id === id) { box.innerHTML = anexosHtml(row); carregarMiniaturas(); }
   toast('Anexo removido');
 }
 
@@ -819,6 +966,7 @@ function gruposMapa() {
   const { mod, so } = state.mapa; const por = {};
   for (const r of data[mod]) {
     if (so === 'abertos' && !isOpen(mod, r)) continue;
+    if (r.lat != null && r.lng != null) continue;
     if (!r.bairro) continue;
     const mun = r.municipio || cfg.cidade_gabinete || '';
     const k = r.bairro.trim().toLowerCase() + '|' + mun.toLowerCase();
@@ -831,10 +979,10 @@ function gruposMapa() {
 function renderMapa() {
   const { mod, so } = state.mapa; const M = MODS[mod];
   const base = data[mod].filter(r => so !== 'abertos' || isOpen(mod, r));
-  const semBairro = base.filter(r => !r.bairro).length;
+  const semBairro = base.filter(r => !r.bairro && r.lat == null).length;
   return `<div class="no-print"><a class="linkbtn" data-go="${mod}">← ${esc(M.label)}</a></div>
     <h2 class="sec" style="margin-top:6px">Mapa por bairro</h2>
-    <div class="m">Cada círculo é um bairro; quanto maior, mais pedidos. <span style="color:#b3261e">Vermelho</span>: tem atrasado · <span style="color:#c77700">laranja</span>: em aberto · <span style="color:#1c7a3d">verde</span>: tudo resolvido.</div>
+    <div class="m">Pontos pequenos são pedidos com local exato marcado. Círculos grandes juntam os pedidos de um bairro; quanto maior, mais pedidos. <span style="color:#b3261e">Vermelho</span>: tem atrasado · <span style="color:#c77700">laranja</span>: em aberto · <span style="color:#1c7a3d">verde</span>: tudo resolvido.</div>
     <div class="toolbar" style="margin-top:10px"><div class="chips">
       ${['demandas', 'servicos', 'pessoas'].map(k => chip('data-mapa-mod', k, MODS[k].label, mod === k)).join('')}
       ${mod !== 'pessoas' ? chip('data-mapa-so', 'abertos', 'Só em aberto', so === 'abertos') + chip('data-mapa-so', 'todos', 'Todos', so !== 'abertos') : ''}
@@ -855,6 +1003,8 @@ async function desenharMapa() {
       salvarCache: c => store.setConfig('geo', c),
       onProgresso: (i, n) => { const p = $('#mapa-prog'); if (!p) return; p.hidden = !n; p.textContent = n ? `Localizando bairros no mapa… ${i} de ${n} (só na primeira vez)` : ''; },
       onClique: g => { state.qNext = g.bairro; go(state.mapa.mod); },
+      pontosExatos: data[state.mapa.mod].filter(r => r.lat != null && r.lng != null && (state.mapa.so !== 'abertos' || isOpen(state.mapa.mod, r))).map(r => ({ id: r.id, lat: +r.lat, lng: +r.lng, titulo: MODS[state.mapa.mod].title(r) || '', status: r.status, sub: [r.bairro, r.solicitante].filter(Boolean).join(' · '), aberto: isOpen(state.mapa.mod, r), atrasado: isLate(state.mapa.mod, r) })),
+      onAbrir: p => openDrawer(state.mapa.mod, p.id),
     });
     const info = $('#mapa-info');
     if (info && semLocal.length) info.textContent += (info.textContent ? ' ' : '') + 'Não achei no mapa: ' + semLocal.map(g => g.bairro).join(', ') + '.';
@@ -927,13 +1077,21 @@ function renderFormPublico(msg = '', ok = false, vals = {}) {
     <div class="f"><label for="fp-bairro">Bairro</label><input id="fp-bairro" maxlength="80" value="${v('bairro')}"></div>
     <div class="f"><label for="fp-ass">Qual é o pedido? *</label><input id="fp-ass" maxlength="200" placeholder="Ex.: Troca de lâmpada na Rua das Flores" value="${v('assunto')}"></div>
     <div class="f"><label for="fp-desc">Detalhes (endereço, ponto de referência…)</label><textarea id="fp-desc" maxlength="3000">${v('descricao')}</textarea></div>
+    <div><button class="btn" type="button" id="fp-gps">📍 ${vals.lat != null ? 'Localização marcada ✓' : 'Estou no local: enviar minha localização'}</button></div>
     <div class="hp" aria-hidden="true"><label for="fp-site">Não preencha</label><input id="fp-site" tabindex="-1" autocomplete="off"></div>
     ${msg ? `<div class="err">${esc(msg)}</div>` : ''}
     <button class="btn primary" type="submit" style="justify-content:center">Enviar pedido</button>
     <div class="m" style="font-size:11.5px">Seus dados são usados só para o gabinete responder ao seu pedido.</div></form></div>`;
+  const lerCampos = () => ({ nome: $('#fp-nome').value.trim(), telefone: $('#fp-tel').value.trim(), municipio: $('#fp-mun').value.trim(), bairro: $('#fp-bairro').value.trim(), assunto: $('#fp-ass').value.trim(), descricao: $('#fp-desc').value.trim(), lat: vals.lat, lng: vals.lng });
+  $('#fp-gps').addEventListener('click', () => {
+    if (!navigator.geolocation) return renderFormPublico('Este aparelho não tem localização.', false, lerCampos());
+    const b = $('#fp-gps'); b.disabled = true; b.textContent = 'Localizando…';
+    navigator.geolocation.getCurrentPosition(pos => renderFormPublico('', false, { ...lerCampos(), lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      () => renderFormPublico('Não consegui pegar a localização. Permita o acesso no navegador ou escreva o endereço.', false, lerCampos()), { enableHighAccuracy: true, timeout: 15000 });
+  });
   $('#fpub').addEventListener('submit', async e => {
     e.preventDefault();
-    const c = { nome: $('#fp-nome').value.trim(), telefone: $('#fp-tel').value.trim(), municipio: $('#fp-mun').value.trim(), bairro: $('#fp-bairro').value.trim(), assunto: $('#fp-ass').value.trim(), descricao: $('#fp-desc').value.trim() };
+    const c = { lat: vals.lat, lng: vals.lng, nome: $('#fp-nome').value.trim(), telefone: $('#fp-tel').value.trim(), municipio: $('#fp-mun').value.trim(), bairro: $('#fp-bairro').value.trim(), assunto: $('#fp-ass').value.trim(), descricao: $('#fp-desc').value.trim() };
     if ($('#fp-site').value) return renderFormPublico('', true);
     if (!c.nome || !c.assunto || c.telefone.replace(/\D/g, '').length < 10) return renderFormPublico(!c.nome || !c.assunto ? 'Preencha seu nome e o pedido.' : 'Digite o telefone com DDD.', false, c);
     const b = e.target.querySelector('[type=submit]'); b.disabled = true; b.textContent = 'Enviando…';
@@ -952,6 +1110,10 @@ document.addEventListener('click', e => {
   const w = e.target.closest('[data-win]'); if (w) { state.agendaWin = w.dataset.win; render(); return; }
   const nf = e.target.closest('[data-new-for]'); if (nf) { const p = data.pessoas.find(x => x.id === drawer.id); closeDrawer(); go(nf.dataset.newFor); openDrawer(nf.dataset.newFor, null, { solicitante: p?.nome, telefone: p?.telefone, municipio: p?.municipio, bairro: p?.bairro }); return; }
   const sr = e.target.closest('[data-search]'); if (sr) { const q = sr.dataset.search; closeDrawer(); go('demandas'); state.q = q; state.filter = 'todos'; render(); return; }
+  if (e.target.closest('[data-oficio-de]')) { oficioDaDemanda(); return; }
+  if (e.target.closest('#geo-buscar')) { geoBuscar(); return; }
+  if (e.target.closest('#geo-gps')) { geoGps(); return; }
+  if (e.target.closest('#geo-limpar')) { drawer.geo = null; geoMini?.marcar(null); geoInfo(); return; }
   if (e.target.closest('[data-tarefa-de]')) { const { mod, id } = drawer; const r = data[mod].find(x => x.id === id); closeDrawer(); go('tarefas'); openDrawer('tarefas', null, { relacionado: MODS[mod].sing + ': ' + (MODS[mod].title(r) || ''), prazo: addDays(todayStr(), 3) }); return; }
   if (e.target.closest('#btn-new')) { openDrawer(state.view === 'painel' ? 'demandas' : state.view, null); return; }
   if (e.target.closest('#btn-export')) { exportCsv(); return; }
@@ -959,6 +1121,7 @@ document.addEventListener('click', e => {
   if (e.target.closest('#btn-avisos')) { abrirAvisos(); return; }
   if (e.target.closest('#av-notif')) { Notification.requestPermission().then(p => { toast(p === 'granted' ? 'Pronto: os avisos aparecem quando você abrir o sistema' : 'O navegador não liberou os avisos'); if (p === 'granted') { try { localStorage.removeItem('gabinete-aviso-dia'); } catch { /* ok */ } notificarNoComputador(); } abrirAvisos(); }); return; }
   const ab = e.target.closest('[data-anx-abrir]'); if (ab) { const r = data[drawer.mod].find(x => x.id === drawer.id); const x = r?.anexos?.[+ab.dataset.anxAbrir]; if (x) { const w = window.open('', '_blank'); store.linkAnexo(x.path).then(u => { if (w) w.location = u; else location.href = u; }).catch(err => { if (w) w.close(); toast(errMsg(err)); }); } return; }
+  const av = e.target.closest('[data-anx-ver]'); if (av) { verMidia(+av.dataset.anxVer); return; }
   const ad = e.target.closest('[data-anx-del]'); if (ad) { if (ad.dataset.ok) removerAnexo(drawer.mod, drawer.id, +ad.dataset.anxDel).catch(err => toast(errMsg(err))); else { ad.dataset.ok = '1'; ad.textContent = 'Confirmar'; ad.classList.add('danger'); } return; }
   if (e.target.closest('#rel-print')) { window.print(); return; }
   const bk = e.target.closest('[data-backup]'); if (bk) { baixarBackup(bk); return; }
@@ -1034,7 +1197,7 @@ document.addEventListener('input', e => {
   if (e.target.id === 'q') { state.q = e.target.value; render(); }
   if (e.target.dataset && e.target.dataset.et) { state.et[e.target.dataset.et] = e.target.value; const pos = e.target.id; render(); const el = document.getElementById(pos); if (el) el.focus(); }
 });
-document.addEventListener('keydown', e => { if (e.key === 'Escape' && drawer.open) closeDrawer(); if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && drawer.open && drawer.mod) saveDrawer(); });
+document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.id === 'geo-end') { e.preventDefault(); geoBuscar(); return; } if (e.key === 'Escape' && drawer.open) closeDrawer(); if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && drawer.open && drawer.mod) saveDrawer(); });
 
 /* ---------- inicialização ---------- */
 let unsub = null;
