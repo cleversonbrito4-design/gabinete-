@@ -1,0 +1,16 @@
+{
+  "name": "Gabinete do Vereador Fão do Bolsonaro",
+  "short_name": "Gabinete",
+  "description": "Demandas, ofícios, emendas, proposituras, agenda e pessoas do gabinete.",
+  "lang": "pt-BR",
+  "start_url": "/#painel",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f3f5f4",
+  "theme_color": "#0f5c4a",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icon-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

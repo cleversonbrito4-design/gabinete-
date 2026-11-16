@@ -116,6 +116,22 @@ export const MODS = {
     title: r => r.titulo,
     meta: r => [r.tipo, r.local, r.municipio].filter(Boolean).join(' · '),
   },
+  tarefas: {
+    label: 'Tarefas', sing: 'Tarefa', novo: 'Nova tarefa',
+    hint: 'O que cada pessoa da equipe precisa fazer, com prazo. Use o filtro "Comigo" para ver só as suas.',
+    statuses: [['A fazer','novo'],['Fazendo','and'],['Feita','ok'],['Cancelada','neg']],
+    fields: [
+      { k:'titulo', l:'O que fazer', req:1, wide:1 },
+      { k:'responsavel', l:'Responsável', team:1 },
+      { k:'prazo', l:'Prazo', type:'date' },
+      { k:'prioridade', l:'Prioridade', type:'select', opts:['Baixa','Média','Alta'] },
+      { k:'relacionado', l:'Relacionado a (demanda, ofício, pessoa…)', wide:1 },
+      { k:'descricao', l:'Detalhes', type:'textarea', wide:1 },
+    ],
+    title: r => r.titulo,
+    meta: r => [r.responsavel, r.relacionado].filter(Boolean).join(' · '),
+    deadline: 'prazo',
+  },
   pessoas: {
     label: 'Pessoas', sing: 'Pessoa', novo: 'Nova pessoa',
     hint: 'Cadastro de eleitores, apoiadores, lideranças e entidades atendidos pelo gabinete.',
@@ -143,6 +159,6 @@ export const MODS = {
   },
 };
 
-export const ORDER = ['demandas', 'servicos', 'emendas', 'proposituras', 'agenda', 'pessoas'];
+export const ORDER = ['demandas', 'servicos', 'emendas', 'proposituras', 'agenda', 'tarefas', 'pessoas'];
 
 export const SQL_TYPE = { date:'date', time:'time', money:'numeric(14,2)', number:'integer' };

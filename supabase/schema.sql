@@ -252,6 +252,35 @@ create policy "equipe acessa agenda" on public.agenda for all to authenticated u
 drop trigger if exists agenda_atualizado_em on public.agenda;
 create trigger agenda_atualizado_em before update on public.agenda for each row execute function public.tocar_atualizado_em();
 
+-- Tarefas
+create table if not exists public.tarefas (
+  id uuid primary key default gen_random_uuid(),
+  status text not null default 'A fazer',
+  titulo text,
+  responsavel text,
+  prazo date,
+  prioridade text,
+  relacionado text,
+  descricao text,
+  historico jsonb not null default '[]'::jsonb,
+  anexos jsonb not null default '[]'::jsonb,
+  criado_por uuid references auth.users(id) default auth.uid(),
+  criado_em timestamptz not null default now(),
+  atualizado_em timestamptz not null default now()
+);
+alter table public.tarefas add column if not exists titulo text;
+alter table public.tarefas add column if not exists responsavel text;
+alter table public.tarefas add column if not exists prazo date;
+alter table public.tarefas add column if not exists prioridade text;
+alter table public.tarefas add column if not exists relacionado text;
+alter table public.tarefas add column if not exists descricao text;
+alter table public.tarefas add column if not exists anexos jsonb not null default '[]'::jsonb;
+alter table public.tarefas enable row level security;
+drop policy if exists "equipe acessa tarefas" on public.tarefas;
+create policy "equipe acessa tarefas" on public.tarefas for all to authenticated using (public.is_equipe()) with check (public.is_equipe());
+drop trigger if exists tarefas_atualizado_em on public.tarefas;
+create trigger tarefas_atualizado_em before update on public.tarefas for each row execute function public.tocar_atualizado_em();
+
 -- Pessoas
 create table if not exists public.pessoas (
   id uuid primary key default gen_random_uuid(),
@@ -301,7 +330,7 @@ create trigger pessoas_atualizado_em before update on public.pessoas for each ro
 
 -- Atualização em tempo real entre os usuários
 do $$ declare t text; begin
-  foreach t in array array['demandas','servicos','emendas','proposituras','agenda','pessoas'] loop
+  foreach t in array array['demandas','servicos','emendas','proposituras','agenda','tarefas','pessoas'] loop
     if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = t) then
       execute format('alter publication supabase_realtime add table public.%I', t);
     end if;

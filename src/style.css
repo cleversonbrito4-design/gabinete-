@@ -187,3 +187,8 @@ a.btn{text-decoration:none}
   .rtab th,.rtab td{color:#000!important;border-color:#bbb!important}
   .kpi{border:1px solid #ccc!important;box-shadow:none!important}
 }
+.toast.acao{display:flex;gap:10px;align-items:center;max-width:calc(100% - 24px);flex-wrap:wrap;justify-content:center;font-weight:500}
+.toast.acao .btn.ghost{color:inherit}
+.mapa{position:relative;z-index:0;height:min(68vh,560px);border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--surface-2)}
+.mapa .leaflet-popup-content{font:13px/1.4 var(--body)}
+.mapa path.leaflet-interactive:focus{outline:none}

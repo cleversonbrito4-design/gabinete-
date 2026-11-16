@@ -5,6 +5,7 @@ import * as gcal from './google.js';
 import { MODELOS, folhas } from './etiquetas.js';
 import * as docs from './documentos.js';
 import * as imp from './importar.js';
+import * as mapaLib from './mapa.js';
 
 /* Dados do gabinete: editáveis em "Minha conta"; os do .env são só o ponto de partida. */
 const env = import.meta.env;
@@ -41,6 +42,13 @@ const kindOf = (mod, st) => { const f = MODS[mod].statuses.find(x => x[0] === st
 const STATUS_KIND = { novo: 'k-novo', and: 'k-and', ok: 'k-ok', neg: 'k-neg' };
 const isOpen = (mod, r) => mod === 'pessoas' ? r.status !== 'Inativo' : mod === 'agenda' ? (r.data >= todayStr() && r.status !== 'Cancelado') : ['novo', 'and'].includes(kindOf(mod, r.status));
 const isLate = (mod, r) => { const f = MODS[mod].deadline; return f && r[f] && isOpen(mod, r) && r[f] < todayStr(); };
+function toastAcao(msg, href, label) {
+  document.querySelectorAll('.toast.acao').forEach(t => t.remove());
+  const t = document.createElement('div'); t.className = 'toast acao';
+  t.innerHTML = `<span>${esc(msg)}</span><a class="btn wa mini" href="${esc(href)}" target="_blank" rel="noopener">${esc(label)}</a><button class="btn mini ghost" type="button" aria-label="Fechar">✕</button>`;
+  t.querySelector('button').addEventListener('click', () => t.remove()); t.querySelector('a').addEventListener('click', () => setTimeout(() => t.remove(), 300));
+  document.body.appendChild(t); setTimeout(() => t.remove(), 15000);
+}
 function toast(msg) { const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), 2600); }
 const errMsg = e => (e && (e.message || e.error_description)) || 'Erro desconhecido';
 
@@ -58,16 +66,23 @@ function waTexto(mod, r) {
   if (mod === 'servicos') return `Olá, ${primeiroNome(r.solicitante)}! Aqui é do gabinete do ${DEP()}. Sobre o pedido "${r.servico}"${r.orgao ? ' enviado para ' + r.orgao : ''}: a situação atual é "${r.status}".`;
   return '';
 }
+function waStatus(mod, r) {
+  const nome = primeiroNome(r.solicitante), assunto = mod === 'demandas' ? r.assunto : r.servico;
+  const k = kindOf(mod, r.status);
+  const fim = k === 'ok' ? ' Ficamos felizes em ajudar! Qualquer coisa, conte com a gente.' : k === 'neg' ? ' Se precisar de algo mais, estamos à disposição.' : ' Assim que houver novidade, avisamos você.';
+  return `Olá${nome ? ', ' + nome : ''}! Aqui é do gabinete do ${DEP()}. Atualização sobre o seu pedido "${assunto}": a situação agora é "${r.status}".${mod === 'servicos' && r.orgao && r.status === 'Ofício enviado' ? ' Enviamos ofício para ' + r.orgao + (r.protocolo ? ' (nº ' + r.protocolo + ')' : '') + '.' : ''}${fim}`;
+}
 const waAniversario = p => `Olá, ${primeiroNome(p.nome)}! O ${DEP()} e toda a equipe do gabinete desejam a você um feliz aniversário, com muita saúde e alegria!`;
 
 /* ---------- estado ---------- */
 const data = Object.fromEntries(ORDER.map(m => [m, []]));
-const state = { imp: { mod: 'pessoas' }, rel: { mod: 'demandas', de: '', ate: '', municipio: '', bairro: '', status: '' }, view: 'painel', q: '', filter: 'abertos', agendaWin: 'proximos', loaded: false, session: null, profiles: [], et: { tipo: '', grupo: '', municipio: '', mes: '', modelo: '6180', pular: 0 } };
+const state = { mapa: { mod: 'demandas', so: 'abertos' }, imp: { mod: 'pessoas' }, rel: { mod: 'demandas', de: '', ate: '', municipio: '', bairro: '', status: '' }, view: 'painel', q: '', filter: 'abertos', agendaWin: 'proximos', loaded: false, session: null, profiles: [], et: { tipo: '', grupo: '', municipio: '', mes: '', modelo: '6180', pular: 0 } };
 const drawer = { open: false, mod: null, id: null };
-const VIEWS = ['painel', 'etiquetas', 'conta', 'relatorios', 'importar', ...ORDER];
+let pedidoInstalar = null; // convite do navegador para instalar o app
+const VIEWS = ['painel', 'etiquetas', 'conta', 'relatorios', 'importar', 'mapa', ...ORDER];
 
 function readHash() { const h = location.hash.slice(1); if (VIEWS.includes(h)) state.view = h; }
-window.addEventListener('hashchange', () => { readHash(); state.q = ''; state.filter = 'abertos'; render(); });
+window.addEventListener('hashchange', () => { readHash(); state.q = state.qNext || ''; state.filter = state.qNext ? 'todos' : 'abertos'; state.qNext = ''; render(); });
 function go(v) { if (location.hash !== '#' + v) location.hash = v; else { state.view = v; render(); } window.scrollTo(0, 0); }
 
 /* ---------- login ---------- */
@@ -174,10 +189,10 @@ const myName = () => (state.profiles.find(p => p.id === state.session?.user?.id)
 
 function renderTabs() {
   const tabs = [['painel', 'Painel', null]].concat(ORDER.map(m => [m, MODS[m].label, data[m].filter(r => isOpen(m, r)).length]), [['relatorios', 'Relatórios', null]]);
-  const cur = state.view === 'etiquetas' ? 'pessoas' : state.view === 'importar' ? state.imp.mod : state.view;
+  const cur = state.view === 'etiquetas' ? 'pessoas' : state.view === 'importar' ? state.imp.mod : state.view === 'mapa' ? state.mapa.mod : state.view;
   $('#tabs').innerHTML = tabs.map(([k, l, n]) => `<button class="tab" role="tab" data-go="${k}" aria-selected="${cur === k}">${l}${n != null ? `<span class="n">${n}</span>` : ''}</button>`).join('');
   const nb = $('#btn-new');
-  nb.hidden = ['conta', 'etiquetas', 'relatorios', 'importar'].includes(state.view);
+  nb.hidden = ['conta', 'etiquetas', 'relatorios', 'importar', 'mapa'].includes(state.view);
   nb.textContent = '+ ' + (state.view === 'painel' ? MODS.demandas.novo : MODS[state.view]?.novo || 'Novo');
   $('#btn-export').hidden = !MODS[state.view];
   $('#btn-import').hidden = !MODS[state.view];
@@ -235,14 +250,22 @@ function renderPainel() {
     <div class="cols">
       <div style="display:flex;flex-direction:column;gap:18px;min-width:0">
         <section class="panel"><h3>Próximos 7 dias na agenda <a data-go="agenda">ver agenda</a></h3>${agHtml}</section>
+        <section class="panel"><h3>Minhas tarefas <a data-go="tarefas">ver tarefas</a></h3>${minhasTarefasHtml()}</section>
         <section class="panel"><h3>Aniversariantes da semana <a data-go="pessoas">ver pessoas</a></h3>${anivHtml}</section>
       </div>
       <div style="display:flex;flex-direction:column;gap:18px;min-width:0">
         <section class="panel"><h3>Prazos a cobrar</h3>${pendHtml}</section>
         <section class="panel"><h3>Emendas por situação <a data-go="emendas">ver emendas</a></h3>${emHtml}</section>
-        <section class="panel"><h3>Demandas abertas por município</h3>${munHtml}</section>
+        <section class="panel"><h3>Demandas abertas por município <a data-go="mapa">ver mapa</a></h3>${munHtml}</section>
       </div>
     </div>`;
+}
+
+function minhasTarefasHtml() {
+  const eu = myName(), t = todayStr();
+  const a = data.tarefas.filter(r => isOpen('tarefas', r) && (!r.responsavel || r.responsavel === eu)).sort((x, y) => String(x.prazo || '9999').localeCompare(String(y.prazo || '9999'))).slice(0, 8);
+  if (!a.length) return `<div class="empty"><b>Nenhuma tarefa pendente com você</b>Crie em Tarefas, ou dentro de uma demanda em “+ Tarefa”.</div>`;
+  return a.map(r => `<div class="ag-item" data-open="tarefas:${r.id}"><div class="ag-when"><b>${r.prazo ? (r.prazo === t ? 'Hoje' : fmtDate(r.prazo)) : '—'}</b>${r.responsavel ? '' : 'sem dono'}</div><div style="min-width:0"><div class="t">${esc(r.titulo)}</div><div class="m">${esc(r.relacionado || '')}</div></div><span class="pill ${isLate('tarefas', r) ? 'k-late' : STATUS_KIND[kindOf('tarefas', r.status)]}">${isLate('tarefas', r) ? 'Atrasada' : esc(r.status)}</span></div>`).join('');
 }
 
 /* ---------- listas ---------- */
@@ -275,6 +298,7 @@ function midText(m, r) {
   if (m === 'demandas') return r.prazo ? 'Prazo ' + fmtDate(r.prazo) : (r.responsavel || '');
   if (m === 'servicos') return r.prazo ? 'Resposta até ' + fmtDate(r.prazo) : (r.data_envio ? 'Enviado ' + fmtDate(r.data_envio) : '');
   if (m === 'emendas') { const v = r.valor_indicado || r.valor_pedido; return v ? brl(v) : ''; }
+  if (m === 'tarefas') return r.prazo ? 'Prazo ' + fmtDate(r.prazo) : '';
   if (m === 'proposituras') return r.data_protocolo ? 'Protocolo ' + fmtDate(r.data_protocolo) : '';
   if (m === 'pessoas') return r.nascimento ? 'Aniv. ' + r.nascimento.slice(8, 10) + '/' + r.nascimento.slice(5, 7) : (r.grupo || '');
   return '';
@@ -297,10 +321,11 @@ function renderList(m) {
     if (gcal.googleAvailable) extra = `<div class="no-print" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px"><button class="btn mini" id="g-sync">${gcal.isConnected() ? 'Sincronizar com Google Agenda' : 'Conectar Google Agenda'}</button><span class="gstat" id="g-stat">${gcal.isConnected() ? 'Conectado · calendário: ' + esc(gcal.calendarId()) : 'Compromissos salvos aqui vão para o Google Agenda do parlamentar.'}</span></div>`;
   } else if (m === 'pessoas') {
     chips = [['abertos', 'Ativos'], ['tipo:Liderança', 'Lideranças'], ['tipo:Entidade / associação', 'Entidades'], ['aniv', 'Aniversariantes do mês'], ['todos', 'Todos']].map(([k, l]) => chip('data-filter', k, l, state.filter === k)).join('');
-    extra = `<div class="no-print" style="margin-bottom:4px"><button class="btn mini" data-go="etiquetas">Imprimir etiquetas</button></div>`;
+    extra = `<div class="no-print" style="margin-bottom:4px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn mini" data-go="etiquetas">Imprimir etiquetas</button><button class="btn mini" data-mapa-de="pessoas">Ver no mapa</button></div>`;
   } else {
     const opts = [['abertos', 'Em aberto']].concat(M.deadline ? [['atrasados', 'Atrasados']] : []).concat(M.fields.some(f => f.k === 'responsavel') ? [['meus', 'Comigo']] : []).concat([['todos', 'Todos']], M.statuses.map(s => [s[0], s[0]]));
     chips = opts.map(([k, l]) => chip('data-filter', k, l, state.filter === k)).join('');
+    if (['demandas', 'servicos'].includes(m)) extra = `<div class="no-print" style="margin-bottom:4px"><button class="btn mini" data-mapa-de="${m}">Ver no mapa</button></div>`;
   }
   let body;
   if (!data[m].length) body = `<div class="empty"><b>Nenhum registro ainda</b>Clique em “+ ${esc(M.novo)}” para cadastrar o primeiro.</div>`;
@@ -372,6 +397,14 @@ function renderConta() {
     <section class="panel"><h3>Modelos de Word</h3><p class="m" style="margin-top:0">Baixe o modelo, mude o que quiser no Word (brasão, fonte, textos) e envie de volta. Os campos entre chaves são preenchidos pelo sistema.</p>
       <div id="modelos-box"><div class="m">Carregando…</div></div>
       <details style="margin-top:10px"><summary class="m" style="cursor:pointer">Campos que você pode usar no modelo</summary><div class="hist"><ol>${docs.CAMPOS.map(([k, l]) => `<li><time>{${k}}</time><span>${esc(l)}</span></li>`).join('')}</ol></div></details></section>
+    <section class="panel"><h3>Cópia de segurança</h3>
+      <p class="m" style="margin-top:0">Baixa uma planilha do Excel com tudo o que está no sistema, uma aba para cada assunto. Faça uma vez por semana e guarde no Google Drive ou mande para o seu e-mail. O 🔔 avisa quando passar de 7 dias.</p>
+      <p class="m">${state.backup?.em ? 'Última cópia: ' + fmtStamp(state.backup.em) + (state.backup.por ? ' por ' + esc(state.backup.por) : '') : 'Nenhuma cópia feita ainda.'}</p>
+      <button class="btn primary" type="button" data-backup>Baixar cópia completa (Excel)</button></section>
+    <section class="panel"><h3>Usar no celular</h3>
+      <p class="m" style="margin-top:0">Instale o sistema na tela inicial do celular ou do computador. Ele abre como um aplicativo, sem a barra do navegador.</p>
+      <button class="btn primary" id="btn-instalar" type="button" ${pedidoInstalar ? '' : 'hidden'}>Instalar o aplicativo</button>
+      <p class="m"><b>Android (Chrome):</b> menu ⋮ → <i>Instalar app</i> ou <i>Adicionar à tela inicial</i>.<br><b>iPhone (Safari):</b> botão Compartilhar ⬆ → <i>Adicionar à Tela de Início</i>.</p></section>
     ${store.configured ? `<section class="panel"><h3>Formulário para o cidadão</h3>
       <p class="m" style="margin-top:0">Divulgue este link no WhatsApp, Instagram e site. Quem preencher cai direto em <b>Demandas</b>, como "Nova", com origem "Site do gabinete". A pessoa não vê nada do sistema.</p>
       <div class="f"><label for="pub-link">Link do formulário</label><input id="pub-link" value="${esc(linkPublico())}" readonly></div>
@@ -394,7 +427,8 @@ function render() {
     const b = $('#modelos-box'); if (b) b.innerHTML = await modelosHtml();
     const q = $('#equipe-box'); if (q) { try { const l = await store.listEquipe(); const me = (state.session?.user?.email || '').toLowerCase(); q.innerHTML = l.length ? l.map(e => `<div class="ag-item" style="cursor:default;grid-template-columns:minmax(0,1fr) auto;align-items:center"><div class="t" style="font-weight:500">${esc(e)}${e === me ? ' <span class="m">(você)</span>' : ''}</div>${e === me ? '' : `<button class="btn mini ghost" data-eq-del="${esc(e)}">Remover</button>`}</div>`).join('') : '<div class="m">Nenhum e-mail na lista.</div>'; } catch (err) { q.innerHTML = '<div class="m">' + (store.configured ? esc(errMsg(err)) : 'Disponível quando o banco estiver ligado.') + '</div>'; } }
   }, 0);
-  main.innerHTML = state.view === 'painel' ? renderPainel() : state.view === 'etiquetas' ? renderEtiquetas() : state.view === 'conta' ? renderConta() : state.view === 'relatorios' ? renderRelatorios() : state.view === 'importar' ? renderImportar() : renderList(state.view);
+  main.innerHTML = state.view === 'painel' ? renderPainel() : state.view === 'etiquetas' ? renderEtiquetas() : state.view === 'conta' ? renderConta() : state.view === 'relatorios' ? renderRelatorios() : state.view === 'importar' ? renderImportar() : state.view === 'mapa' ? renderMapa() : renderList(state.view);
+  if (state.view === 'mapa') setTimeout(desenharMapa, 0); else mapaLib.destruir();
   if (hadFocus) { const q = $('#q'); if (q) { q.focus(); try { q.setSelectionRange(pos, pos); } catch { /* ok */ } } }
   if (drawer.open) refreshDatalists();
 }
@@ -435,6 +469,7 @@ function openDrawer(mod, id, preset = {}) {
     acts.push(`<button class="btn mini" type="button" data-new-for="demandas">+ Demanda desta pessoa</button>`);
     if (linked) acts.push(`<button class="btn mini" type="button" data-search="${esc(rec.nome)}">Ver ${linked} registro(s) ligado(s)</button>`);
   }
+  if (rec && mod !== 'tarefas') acts.push(`<button class="btn mini" type="button" data-tarefa-de>+ Tarefa</button>`);
   const dt = rec && docTipo(mod, rec);
   if (dt) acts.push(`<button class="btn mini" type="button" id="btn-doc">Gerar ${docs.TIPOS[dt]} (Word)</button>`);
   if (rec && mod === 'proposituras' && rec.link) acts.push(`<a class="btn mini" href="${esc(rec.link)}" target="_blank" rel="noopener">Abrir tramitação</a>`);
@@ -476,6 +511,10 @@ async function saveDrawer() {
     let row = await store.saveRow(mod, id, rec);
     upsertLocal(mod, row);
     closeDrawer(); toast(old ? 'Alterações salvas' : 'Registro criado');
+    if (old && old.status !== st && M.phone && row[M.phone] && ['demandas', 'servicos'].includes(mod)) {
+      const wa = waLink(row[M.phone], waStatus(mod, row));
+      if (wa) setTimeout(() => toastAcao('Avisar ' + (primeiroNome(row.solicitante) || 'o cidadão') + ' da nova situação?', wa, 'Avisar no WhatsApp'), 400);
+    }
     if (mod === 'agenda' && gcal.isConnected()) {
       try { const gid = await gcal.pushEvent(row); if (gid !== (row.google_event_id || null)) { row = await store.saveRow('agenda', row.id, { google_event_id: gid }); upsertLocal('agenda', row); } toast('Google Agenda atualizado'); }
       catch (e) { toast('Salvo aqui, mas não no Google: ' + errMsg(e)); }
@@ -614,6 +653,27 @@ function exportCsv() {
   a.download = m + '-' + todayStr() + '.csv'; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
 }
 
+/* ---------- cópia de segurança ---------- */
+const diasDesde = iso => iso ? Math.floor((Date.now() - new Date(iso).getTime()) / 864e5) : Infinity;
+const backupAtrasado = () => store.configured && state.loaded && ORDER.some(m => data[m].length) && diasDesde(state.backup?.em) >= 7;
+async function baixarBackup(btn) {
+  if (btn) { btn.disabled = true; btn.textContent = 'Gerando…'; }
+  try {
+    const { default: writeExcelFile } = await import('write-excel-file/browser');
+    const txt = v => v == null ? null : typeof v === 'number' ? v : String(v);
+    const abas = ORDER.map(m => {
+      const M = MODS[m];
+      const cab = ['Situação', ...M.fields.map(f => f.l), 'Cadastrado em', 'Atualizado em', 'Anexos', 'Histórico'].map(h => ({ value: h, fontWeight: 'bold' }));
+      const linhas = data[m].map(r => [txt(r.status), ...M.fields.map(f => txt(r[f.k])), fmtStamp(r.criado_em), fmtStamp(r.atualizado_em), (r.anexos || []).map(a => a.nome).join(', ') || null, (r.historico || []).map(h => fmtStamp(h.em) + ' ' + h.txt + (h.por ? ' (' + h.por + ')' : '')).join(' | ') || null]);
+      return { data: [cab, ...linhas], sheet: M.label.slice(0, 31), stickyRowsCount: 1 };
+    });
+    await writeExcelFile(abas).toFile(`copia-gabinete-${todayStr()}.xlsx`);
+    const reg = { em: new Date().toISOString(), por: myName() };
+    state.backup = reg; try { await store.setConfig('backup', reg); } catch { /* ok */ }
+    toast('Cópia de segurança baixada'); render();
+  } catch (e) { toast('Não foi possível gerar a cópia: ' + errMsg(e)); if (btn) { btn.disabled = false; btn.textContent = 'Baixar cópia completa (Excel)'; } }
+}
+
 /* ---------- avisos (lembretes) ---------- */
 function avisos() {
   const t = todayStr(), am = addDays(t, 1), md = t.slice(5);
@@ -623,12 +683,13 @@ function avisos() {
     if (r.prazo < t) itens.push({ m, r, nivel: 'late', txt: 'Prazo vencido em ' + fmtDate(r.prazo), urg: 1 });
     else if (r.prazo <= am) itens.push({ m, r, nivel: 'and', txt: r.prazo === t ? 'Prazo vence hoje' : 'Prazo vence amanhã', urg: 1 });
   }));
+  data.tarefas.forEach(r => { if (isOpen('tarefas', r) && r.prazo && r.prazo <= t && (!r.responsavel || r.responsavel === myName())) itens.push({ m: 'tarefas', r, nivel: r.prazo < t ? 'late' : 'and', txt: r.prazo < t ? 'Tarefa atrasada desde ' + fmtDate(r.prazo) : 'Tarefa para hoje', urg: 1 }); });
   data.demandas.forEach(r => { if (r.status === 'Nova' && r.origem === 'Site do gabinete') itens.push({ m: 'demandas', r, nivel: 'novo', txt: 'Pedido novo pelo site', urg: 1 }); });
   data.agenda.forEach(r => { if (r.data === t && r.status !== 'Cancelado') itens.push({ m: 'agenda', r, nivel: 'and', txt: 'Hoje ' + (hhmm(r.inicio) || ''), urg: 0 }); });
   data.pessoas.forEach(r => { if (r.nascimento && r.status !== 'Inativo' && r.nascimento.slice(5) === md) itens.push({ m: 'pessoas', r, nivel: 'ok', txt: 'Faz aniversário hoje', urg: 1, wa: waLink(r.telefone, waAniversario(r)) }); });
   const ordem = { late: 0, novo: 1, and: 2, ok: 3 };
   itens.sort((a, b) => ordem[a.nivel] - ordem[b.nivel]);
-  return { itens, urgentes: itens.filter(i => i.urg).length };
+  return { itens, urgentes: itens.filter(i => i.urg).length + (backupAtrasado() ? 1 : 0) };
 }
 function abrirAvisos() {
   const { itens } = avisos();
@@ -639,8 +700,9 @@ function abrirAvisos() {
     <div class="dr-head"><div><div class="eyebrow">Lembretes de hoje</div><h3 id="av-t">Avisos</h3></div><button class="btn ghost" data-close aria-label="Fechar">✕</button></div>
     <div class="dr-body" style="display:block">
       ${podeNotif ? '<div class="dr-actions" style="margin-bottom:12px"><button class="btn mini" id="av-notif" type="button">Receber estes avisos no computador</button></div>' : ''}
+      ${backupAtrasado() ? `<div class="ag-item" style="cursor:default"><div class="ag-when"><b>Cópia</b></div><div style="min-width:0"><div class="t">Fazer cópia de segurança</div><div class="m">${state.backup?.em ? 'A última foi há ' + diasDesde(state.backup.em) + ' dias' : 'Ainda não foi feita nenhuma'}. Guarde o arquivo no Google Drive ou no e-mail.</div></div><button class="btn mini primary" type="button" data-backup>Baixar</button></div>` : ''}
       ${itens.length ? itens.map(i => `<div class="ag-item" data-open="${i.m}:${i.r.id}"><div class="ag-when"><b>${esc(MODS[i.m].sing || MODS[i.m].label)}</b></div><div style="min-width:0"><div class="t">${esc(titulo(i))}</div><div class="m">${esc(i.txt)}</div></div>${i.wa ? `<a class="btn wa mini" href="${esc(i.wa)}" target="_blank" rel="noopener" data-stop>Parabenizar</a>` : `<span class="pill k-${i.nivel}">${i.nivel === 'late' ? 'Vencido' : i.nivel === 'novo' ? 'Novo' : 'Hoje'}</span>`}</div>`).join('')
-        : '<div class="empty"><b>Nenhum aviso hoje</b>Prazos vencendo, pedidos do site, compromissos e aniversários do dia aparecem aqui.</div>'}
+        : backupAtrasado() ? '' : '<div class="empty"><b>Nenhum aviso hoje</b>Prazos vencendo, pedidos do site, compromissos e aniversários do dia aparecem aqui.</div>'}
     </div></aside>`;
 }
 function notificarNoComputador() {
@@ -696,7 +758,7 @@ async function removerAnexo(mod, id, i) {
 }
 
 /* ---------- relatórios (para imprimir ou salvar em PDF) ---------- */
-const DATA_REL = { demandas: r => r.criado_em, servicos: r => r.data_envio || r.criado_em, emendas: r => r.criado_em, proposituras: r => r.data_protocolo || r.criado_em, agenda: r => r.data, pessoas: r => r.criado_em };
+const DATA_REL = { demandas: r => r.criado_em, servicos: r => r.data_envio || r.criado_em, emendas: r => r.criado_em, proposituras: r => r.data_protocolo || r.criado_em, agenda: r => r.data, tarefas: r => r.prazo || r.criado_em, pessoas: r => r.criado_em };
 function relFiltrados() {
   const f = state.rel, m = f.mod;
   return data[m].filter(r => {
@@ -714,9 +776,9 @@ function renderRelatorios() {
   const val = r => +(r.valor_indicado || r.valor_pedido) || 0;
   const periodo = f.de || f.ate ? `de ${f.de ? fmtDataBR(f.de) : 'início'} até ${f.ate ? fmtDataBR(f.ate) : 'hoje'}` : 'todo o período';
   const filtrosTxt = [f.municipio && 'Município: ' + f.municipio, f.bairro && 'Bairro: ' + f.bairro, f.status && 'Situação: ' + f.status].filter(Boolean).join(' · ');
-  const colsDet = { demandas: ['Data', 'Assunto', 'Solicitante', 'Local', 'Situação'], servicos: ['Data', 'Ofício / serviço', 'Órgão', 'Local', 'Situação'], emendas: ['Data', 'Objeto', 'Beneficiário', 'Valor', 'Situação'], proposituras: ['Data', 'Ementa', 'Tipo / nº', 'Tema', 'Situação'], agenda: ['Data', 'Compromisso', 'Local', 'Contato', 'Situação'], pessoas: ['Cadastro', 'Nome', 'Tipo', 'Local', 'Telefone'] }[m];
+  const colsDet = { demandas: ['Data', 'Assunto', 'Solicitante', 'Local', 'Situação'], servicos: ['Data', 'Ofício / serviço', 'Órgão', 'Local', 'Situação'], emendas: ['Data', 'Objeto', 'Beneficiário', 'Valor', 'Situação'], proposituras: ['Data', 'Ementa', 'Tipo / nº', 'Tema', 'Situação'], agenda: ['Data', 'Compromisso', 'Local', 'Contato', 'Situação'], tarefas: ['Prazo', 'Tarefa', 'Responsável', 'Relacionado a', 'Situação'], pessoas: ['Cadastro', 'Nome', 'Tipo', 'Local', 'Telefone'] }[m];
   const linha = r => { const d = fmtDataBR(String(DATA_REL[m](r) || '').slice(0, 10)); const loc = [r.bairro, r.municipio].filter(Boolean).join(', ');
-    const c = { demandas: [d, r.assunto, r.solicitante, loc, r.status], servicos: [d, r.servico, r.orgao, loc || r.local, r.status], emendas: [d, r.objeto, r.beneficiario, brl(val(r)), r.status], proposituras: [d, r.ementa, [r.tipo, r.numero && 'nº ' + r.numero].filter(Boolean).join(' '), r.tema, r.status], agenda: [d + (r.inicio ? ' ' + hhmm(r.inicio) : ''), r.titulo, r.local || r.municipio, r.contato, r.status], pessoas: [d, r.nome, r.tipo, loc, r.telefone] }[m];
+    const c = { demandas: [d, r.assunto, r.solicitante, loc, r.status], servicos: [d, r.servico, r.orgao, loc || r.local, r.status], emendas: [d, r.objeto, r.beneficiario, brl(val(r)), r.status], proposituras: [d, r.ementa, [r.tipo, r.numero && 'nº ' + r.numero].filter(Boolean).join(' '), r.tema, r.status], agenda: [d + (r.inicio ? ' ' + hhmm(r.inicio) : ''), r.titulo, r.local || r.municipio, r.contato, r.status], tarefas: [d, r.titulo, r.responsavel, r.relacionado, r.status], pessoas: [d, r.nome, r.tipo, loc, r.telefone] }[m];
     return `<tr data-open="${m}:${r.id}">${c.map(x => `<td>${esc(x || '')}</td>`).join('')}</tr>`; };
   return `<h2 class="sec">Relatórios</h2><div class="m no-print" style="margin-top:2px">Escolha o assunto e o período. Para salvar em PDF, toque em "Imprimir / salvar PDF" e escolha <b>Salvar como PDF</b> no destino da impressora.</div>
     <div class="filters">
@@ -749,6 +811,57 @@ function renderRelatorios() {
     </div>`;
 }
 function fmtDataBR(s) { if (!s) return ''; const [y, mm, d] = s.split('-'); return d + '/' + mm + '/' + y; }
+
+/* ---------- mapa por bairro ---------- */
+let geoCache = null, mapaOcupado = false, mapaDeNovo = false;
+const UF_GAB = () => (/[-–]\s*([A-Z]{2})\s*$/.exec(cfg.endereco_gabinete || '') || [])[1] || '';
+function gruposMapa() {
+  const { mod, so } = state.mapa; const por = {};
+  for (const r of data[mod]) {
+    if (so === 'abertos' && !isOpen(mod, r)) continue;
+    if (!r.bairro) continue;
+    const mun = r.municipio || cfg.cidade_gabinete || '';
+    const k = r.bairro.trim().toLowerCase() + '|' + mun.toLowerCase();
+    const g = por[k] || (por[k] = { bairro: r.bairro.trim(), municipio: mun, total: 0, abertos: 0, atrasados: 0, itens: [] });
+    g.total++; if (isOpen(mod, r)) g.abertos++; if (isLate(mod, r)) g.atrasados++;
+    g.itens.push({ titulo: MODS[mod].title(r) || '', status: r.status });
+  }
+  return Object.values(por).sort((a, b) => b.total - a.total);
+}
+function renderMapa() {
+  const { mod, so } = state.mapa; const M = MODS[mod];
+  const base = data[mod].filter(r => so !== 'abertos' || isOpen(mod, r));
+  const semBairro = base.filter(r => !r.bairro).length;
+  return `<div class="no-print"><a class="linkbtn" data-go="${mod}">← ${esc(M.label)}</a></div>
+    <h2 class="sec" style="margin-top:6px">Mapa por bairro</h2>
+    <div class="m">Cada círculo é um bairro; quanto maior, mais pedidos. <span style="color:#b3261e">Vermelho</span>: tem atrasado · <span style="color:#c77700">laranja</span>: em aberto · <span style="color:#1c7a3d">verde</span>: tudo resolvido.</div>
+    <div class="toolbar" style="margin-top:10px"><div class="chips">
+      ${['demandas', 'servicos', 'pessoas'].map(k => chip('data-mapa-mod', k, MODS[k].label, mod === k)).join('')}
+      ${mod !== 'pessoas' ? chip('data-mapa-so', 'abertos', 'Só em aberto', so === 'abertos') + chip('data-mapa-so', 'todos', 'Todos', so !== 'abertos') : ''}
+    </div></div>
+    <div class="m" id="mapa-prog" hidden></div>
+    <div id="mapa-el" class="mapa"></div>
+    <div class="m" id="mapa-info" style="margin-top:8px">${semBairro ? semBairro + ' registro(s) sem bairro preenchido não aparecem no mapa.' : ''}</div>`;
+}
+async function desenharMapa() {
+  const el = $('#mapa-el'); if (!el) return;
+  if (mapaOcupado) { mapaDeNovo = true; return; }
+  mapaOcupado = true;
+  try {
+    if (!geoCache) { try { geoCache = (await store.getConfig('geo')) || {}; } catch { geoCache = {}; } }
+    const grupos = gruposMapa();
+    const semLocal = await mapaLib.desenhar(el, grupos, {
+      cache: geoCache, uf: UF_GAB(), cidadePadrao: cfg.cidade_gabinete, esc,
+      salvarCache: c => store.setConfig('geo', c),
+      onProgresso: (i, n) => { const p = $('#mapa-prog'); if (!p) return; p.hidden = !n; p.textContent = n ? `Localizando bairros no mapa… ${i} de ${n} (só na primeira vez)` : ''; },
+      onClique: g => { state.qNext = g.bairro; go(state.mapa.mod); },
+    });
+    const info = $('#mapa-info');
+    if (info && semLocal.length) info.textContent += (info.textContent ? ' ' : '') + 'Não achei no mapa: ' + semLocal.map(g => g.bairro).join(', ') + '.';
+    if (!grupos.length && info) info.textContent = 'Nenhum registro com bairro preenchido nesse filtro.';
+  } catch (e) { const info = $('#mapa-info'); if (info) info.textContent = 'Não foi possível abrir o mapa: ' + errMsg(e); }
+  finally { mapaOcupado = false; if (mapaDeNovo) { mapaDeNovo = false; desenharMapa(); } }
+}
 
 /* ---------- importar planilha ---------- */
 function renderImportar() {
@@ -839,6 +952,7 @@ document.addEventListener('click', e => {
   const w = e.target.closest('[data-win]'); if (w) { state.agendaWin = w.dataset.win; render(); return; }
   const nf = e.target.closest('[data-new-for]'); if (nf) { const p = data.pessoas.find(x => x.id === drawer.id); closeDrawer(); go(nf.dataset.newFor); openDrawer(nf.dataset.newFor, null, { solicitante: p?.nome, telefone: p?.telefone, municipio: p?.municipio, bairro: p?.bairro }); return; }
   const sr = e.target.closest('[data-search]'); if (sr) { const q = sr.dataset.search; closeDrawer(); go('demandas'); state.q = q; state.filter = 'todos'; render(); return; }
+  if (e.target.closest('[data-tarefa-de]')) { const { mod, id } = drawer; const r = data[mod].find(x => x.id === id); closeDrawer(); go('tarefas'); openDrawer('tarefas', null, { relacionado: MODS[mod].sing + ': ' + (MODS[mod].title(r) || ''), prazo: addDays(todayStr(), 3) }); return; }
   if (e.target.closest('#btn-new')) { openDrawer(state.view === 'painel' ? 'demandas' : state.view, null); return; }
   if (e.target.closest('#btn-export')) { exportCsv(); return; }
   if (e.target.closest('#btn-import')) { state.imp = { mod: state.view }; go('importar'); return; }
@@ -847,8 +961,13 @@ document.addEventListener('click', e => {
   const ab = e.target.closest('[data-anx-abrir]'); if (ab) { const r = data[drawer.mod].find(x => x.id === drawer.id); const x = r?.anexos?.[+ab.dataset.anxAbrir]; if (x) { const w = window.open('', '_blank'); store.linkAnexo(x.path).then(u => { if (w) w.location = u; else location.href = u; }).catch(err => { if (w) w.close(); toast(errMsg(err)); }); } return; }
   const ad = e.target.closest('[data-anx-del]'); if (ad) { if (ad.dataset.ok) removerAnexo(drawer.mod, drawer.id, +ad.dataset.anxDel).catch(err => toast(errMsg(err))); else { ad.dataset.ok = '1'; ad.textContent = 'Confirmar'; ad.classList.add('danger'); } return; }
   if (e.target.closest('#rel-print')) { window.print(); return; }
+  const bk = e.target.closest('[data-backup]'); if (bk) { baixarBackup(bk); return; }
+  if (e.target.closest('#btn-instalar')) { if (pedidoInstalar) { pedidoInstalar.prompt(); pedidoInstalar.userChoice.finally(() => { pedidoInstalar = null; render(); }); } return; }
   const rr = e.target.closest('[data-rel-rapido]'); if (rr) { const t = todayStr(), k = rr.dataset.relRapido; state.rel.de = k === 'mes' ? t.slice(0, 8) + '01' : k === 'ano' ? t.slice(0, 5) + '01-01' : ''; state.rel.ate = k === 'tudo' ? '' : t; render(); return; }
   if (e.target.closest('#imp-go')) { importarAgora(); return; }
+  const mpd = e.target.closest('[data-mapa-de]'); if (mpd) { state.mapa.mod = mpd.dataset.mapaDe; go('mapa'); return; }
+  const mpm = e.target.closest('[data-mapa-mod]'); if (mpm) { state.mapa.mod = mpm.dataset.mapaMod; render(); return; }
+  const mps = e.target.closest('[data-mapa-so]'); if (mps) { state.mapa.so = mps.dataset.mapaSo; render(); return; }
   if (e.target.closest('#imp-reset')) { state.imp = { mod: state.imp.mod }; render(); return; }
   if (e.target.closest('#pub-copiar')) { const i = $('#pub-link'); try { navigator.clipboard.writeText(i.value).then(() => toast('Link copiado')); } catch { i.select(); document.execCommand('copy'); toast('Link copiado'); } return; }
   if (e.target.closest('#btn-save')) { saveDrawer(); return; }
@@ -928,6 +1047,7 @@ async function startApp() {
     if ((await store.isEquipe()) === false) return renderSemAcesso();
   } else state.session = await store.getSession();
   try { state.profiles = await store.loadProfiles(); } catch { state.profiles = []; }
+  try { state.backup = await store.getConfig('backup'); } catch { /* ok */ }
   try { const c = await store.getConfig('gabinete'); if (c) Object.entries(c).forEach(([k, v]) => { if (v) cfg[k] = v; }); } catch { /* usa os padrões */ }
   document.title = NOME_GAB();
   if (store.configured && !state.profiles.some(p => p.id === state.session.user.id)) return renderAskName();
@@ -935,7 +1055,9 @@ async function startApp() {
   if (!location.hash) history.replaceState(null, '', location.pathname + '#painel');
   shell(); render();
   try {
-    const all = await Promise.all(ORDER.map(m => store.loadAll(m)));
+    const faltam = [];
+    const all = await Promise.all(ORDER.map(m => store.loadAll(m).catch(err => { if (/does not exist|schema cache|relation/i.test(errMsg(err))) { faltam.push(MODS[m].label); return []; } throw err; })));
+    if (faltam.length) toast('Falta atualizar o banco para: ' + faltam.join(', '));
     ORDER.forEach((m, i) => { data[m] = all[i]; });
     state.loaded = true;
   } catch (e) { toast('Erro ao carregar dados: ' + errMsg(e)); }
@@ -955,3 +1077,5 @@ store.onAuth((ev) => {
   else if (ev === 'SIGNED_OUT') { if (unsub) unsub(); renderLogin(); }
 });
 startApp();
+if ('serviceWorker' in navigator && location.protocol === 'https:') window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); pedidoInstalar = e; const b = $('#btn-instalar'); if (b) b.hidden = false; });
