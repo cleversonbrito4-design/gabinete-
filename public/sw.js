@@ -1,6 +1,6 @@
 // Permite instalar o sistema no celular e abrir mais rápido.
 // Os dados vêm sempre do banco (nunca do cache); só as telas e arquivos do site ficam guardados.
-const CACHE = 'gabinete-v2';
+const CACHE = 'gabinete-v3';
 self.addEventListener('install', e => { self.skipWaiting(); });
 self.addEventListener('activate', e => {
   e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim()));

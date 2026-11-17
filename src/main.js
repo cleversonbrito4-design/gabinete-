@@ -120,12 +120,16 @@ let mustSetPassword = /type=(invite|recovery)/.test(authHash);
 
 let loginMode = 'entrar';
 /** Marca Fala Cascavel nas telas de entrada e páginas abertas ao cidadão. */
-const marcaPub = () => `<div class="marca-pub"><img src="/marca/fala-cascavel.svg" alt="Fala Cascavel" width="220" height="71"><div class="m">${esc(NOME_GAB())}</div></div>`;
+const marcaPub = () => `<div class="pt-badge"><span class="pt-dot" aria-hidden="true"></span>${esc(NOME_GAB())}</div>`;
+/** Topo das páginas abertas: logo sem fundo à esquerda e um botão em pílula à direita (estilo vidro, fundo escuro). */
+const ACOES_PORTAL = { pedido: ['?solicitar', 'Fazer um pedido'], consulta: ['?consulta', 'Acompanhar pedido'], equipe: ['/', 'Entrar'] };
+const topoPortal = (acao = '') => { const a = ACOES_PORTAL[acao]; return `<div class="pt-fundo" aria-hidden="true"><i></i><i></i><i></i></div><header class="pt-top"><a class="pt-logo" href="${a && acao !== 'equipe' ? '?solicitar' : '/'}"><img src="/marca/fala-cascavel-branca.svg" alt="Fala Cascavel" width="190" height="61"></a>${a ? `<a class="pt-acao" href="${a[0]}">${a[1]}</a>` : ''}</header>`; };
+const tituloPortal = (t, sub = '') => `<h1 class="pt-h1">${t}</h1>${sub ? `<p class="pt-sub">${sub}</p>` : ''}`;
 function renderLogin(msg = '', ok = '', email = '') {
   const criar = loginMode === 'criar';
-  document.body.innerHTML = `<div class="login"><form class="login-card" id="login" novalidate>
+  document.body.innerHTML = `<div class="login portal">${topoPortal('pedido')}<form class="login-card" id="login" novalidate>
     ${marcaPub()}
-    ${criar ? '<div class="m">Use o e-mail que a equipe liberou para você.</div>' : ''}
+    ${tituloPortal(criar ? 'Criar minha conta' : 'Entrar no sistema', criar ? 'Use o e-mail que a equipe liberou para você.' : 'Área da equipe do gabinete.')}
     <div class="f"><label for="l-email">E-mail</label><input id="l-email" type="email" autocomplete="username" value="${esc(email)}" required></div>
     <div class="f"><label for="l-pass">${criar ? 'Crie uma senha (mínimo 8 caracteres)' : 'Senha'}</label><input id="l-pass" type="password" autocomplete="${criar ? 'new-password' : 'current-password'}" required></div>
     ${msg ? `<div class="err">${esc(msg)}</div>` : ''}${ok ? `<div class="ok-msg">${esc(ok)}</div>` : ''}
@@ -155,7 +159,7 @@ function renderLogin(msg = '', ok = '', email = '') {
 }
 
 function renderSetPassword(msg = '') {
-  document.body.innerHTML = `<div class="login"><form class="login-card" id="setpw" novalidate>
+  document.body.innerHTML = `<div class="login portal">${topoPortal()}<form class="login-card" id="setpw" novalidate>
     <h1>Crie sua senha</h1><div class="m">Você vai usar esta senha para entrar no sistema do gabinete.</div>
     <div class="f"><label for="p1">Nova senha (mínimo 8 caracteres)</label><input id="p1" type="password" autocomplete="new-password"></div>
     <div class="f"><label for="p2">Repita a senha</label><input id="p2" type="password" autocomplete="new-password"></div>
@@ -173,7 +177,7 @@ function renderSetPassword(msg = '') {
 
 function renderSemAcesso() {
   const em = state.session?.user?.email || '';
-  document.body.innerHTML = `<div class="login"><div class="login-card">
+  document.body.innerHTML = `<div class="login portal">${topoPortal()}<div class="login-card">
     <h1>Acesso ainda não liberado</h1>
     <p class="m">O e-mail <b>${esc(em)}</b> entrou, mas ainda não está na lista da equipe do gabinete.</p>
     <p class="m">Peça para alguém da equipe abrir <b>☰ → Minha conta → Equipe</b> e incluir este e-mail. Depois toque em "Tentar de novo".</p>
@@ -184,7 +188,7 @@ function renderSemAcesso() {
 }
 
 function renderAskName(msg = '') {
-  document.body.innerHTML = `<div class="login"><form class="login-card" id="askname" novalidate>
+  document.body.innerHTML = `<div class="login portal">${topoPortal()}<form class="login-card" id="askname" novalidate>
     <h1>Como você se chama?</h1><div class="m">Seu nome aparece para a equipe como responsável pelos registros.</div>
     <div class="f"><label for="nm">Nome</label><input id="nm" autocomplete="name"></div>
     ${msg ? `<div class="err">${esc(msg)}</div>` : ''}
@@ -201,8 +205,9 @@ function shell() {
   document.body.innerHTML = `
 <header class="top"><div class="wrap">
   <div class="brand">
-    <div class="brand-l"><a href="#painel" class="logo-top" aria-label="Fala Cascavel – início"><img src="/marca/fala-cascavel.svg" alt="Fala Cascavel"></a><h1>${esc(NOME_GAB())}<small>Demandas, ofícios, emendas, proposituras, agenda e pessoas</small></h1></div>
+    <div class="brand-l"><a href="#painel" class="logo-top" aria-label="Fala Cascavel – início"><img class="lg-claro" src="/marca/fala-cascavel.svg" alt="Fala Cascavel"><img class="lg-escuro" src="/marca/fala-cascavel-branca.svg" alt="Fala Cascavel"></a><h1>${esc(NOME_GAB())}<small>Demandas, ofícios, emendas, proposituras, agenda e pessoas</small></h1></div>
     <div style="display:flex;gap:8px;align-items:center">
+      <button class="btn ghost" id="btn-tema" type="button" title="Mudar tema claro/escuro" aria-label="Mudar tema claro/escuro">${document.documentElement.dataset.theme === "light" ? "🌙" : "☀️"}</button>
       <button class="btn ghost bell" id="btn-avisos" title="Avisos" aria-label="Avisos">🔔<span class="n" id="avisos-n" hidden></span></button>
       <button class="btn" id="btn-import" hidden>Importar</button>
       <button class="btn" id="btn-export" hidden>Exportar</button>
@@ -1172,18 +1177,18 @@ const celularOk = v => { const d = digitosTel(v); return d.length === 11 && dddO
 const telefoneOk = v => { const d = digitosTel(v); return celularOk(d) || (d.length === 10 && dddOk(d) && /[2-5]/.test(d[2])); };
 
 function renderFormPublico(msg = '', ok = false, vals = {}) {
-  document.title = 'Fale com o gabinete · ' + NOME_GAB();
+  document.title = 'Fala Cascavel · Fale com o gabinete';
   if (ok) {
-    document.body.innerHTML = `<div class="login"><div class="login-card">${marcaPub()}
-      <h2 class="sec" style="margin:4px 0 0">Pedido recebido! ✅</h2><p class="m">Obrigado. A equipe do gabinete do ${esc(DEP())} vai analisar e entrar em contato pelo telefone informado.</p>${vals.protocolo ? `<div class="prot-box"><span class="m">Seu número de protocolo</span><b class="num">${esc(vals.protocolo)}</b><span class="m">Anote ou tire um print. Com ele e o seu celular você acompanha o pedido.</span><a class="btn primary" href="${esc(linkConsulta(vals.protocolo))}">Acompanhar meu pedido</a></div>` : ''}${vals.avisoFotos ? `<p class="m">${esc(vals.avisoFotos)}</p>` : ''}
+    document.body.innerHTML = `<div class="login portal">${topoPortal('consulta')}<div class="login-card pub">${marcaPub()}
+      ${tituloPortal('Pedido recebido!', 'Obrigado. A equipe do gabinete do ' + esc(DEP()) + ' vai analisar e entrar em contato pelo telefone informado.')}${vals.protocolo ? `<div class="prot-box"><span class="m">Seu número de protocolo</span><b class="num">${esc(vals.protocolo)}</b><span class="m">Anote ou tire um print. Com ele e o seu celular você acompanha o pedido.</span><a class="btn primary" href="${esc(linkConsulta(vals.protocolo))}">Acompanhar meu pedido</a></div>` : ''}${vals.avisoFotos ? `<p class="m">${esc(vals.avisoFotos)}</p>` : ''}
       <button class="btn" id="fp-outro" style="justify-content:center">Fazer outro pedido</button></div></div>`;
     $('#fp-outro').addEventListener('click', () => renderFormPublico());
     return;
   }
   const v = k => esc(vals[k] ?? (k === 'municipio' ? cfg.cidade_gabinete : '') ?? '');
-  document.body.innerHTML = `<div class="login"><form class="login-card pub" id="fpub" novalidate>
+  document.body.innerHTML = `<div class="login portal">${topoPortal('consulta')}<form class="login-card pub" id="fpub" novalidate>
     ${marcaPub()}
-    <div class="m">Conte para o gabinete do ${esc(DEP())} o que você precisa: um buraco na rua, iluminação, saúde, um pedido para o seu bairro. A equipe responde pelo WhatsApp ou telefone.</div>
+    ${tituloPortal('Fale com o gabinete', 'Conte o que você precisa: um buraco na rua, iluminação, saúde, um pedido para o seu bairro. A equipe responde pelo WhatsApp.')}
     <div class="f"><label for="fp-nome">Seu nome *</label><input id="fp-nome" autocomplete="name" maxlength="120" value="${v('nome')}"></div>
     <div class="f"><label for="fp-tel">WhatsApp / telefone *</label><input id="fp-tel" type="tel" inputmode="numeric" autocomplete="tel" maxlength="20" placeholder="(45) 99999-9999" value="${esc(mascaraTel(vals.telefone))}"></div>
     <div class="f"><label for="fp-mun">Cidade</label><input id="fp-mun" maxlength="80" value="${v('municipio')}"></div>
@@ -1570,12 +1575,12 @@ function renderDisparo() {
 
 /* ---------- consulta do protocolo (página aberta ao cidadão) ---------- */
 function renderConsulta(prot = '', msgErro = '', tel = '', res = null) {
-  document.title = 'Acompanhe seu pedido · ' + NOME_GAB();
+  document.title = 'Fala Cascavel · Acompanhe seu pedido';
   const sit = res ? (kindOf('demandas', res.status) || 'novo') : '';
   const frase = { novo: 'Recebemos o seu pedido e ele vai ser analisado pela equipe.', and: 'O gabinete está trabalhando no seu pedido.', ok: 'Seu pedido foi concluído!', neg: 'Este pedido foi arquivado. Fale com o gabinete se precisar.' }[sit] || '';
-  document.body.innerHTML = `<div class="login"><div class="login-card pub">
+  document.body.innerHTML = `<div class="login portal">${topoPortal('pedido')}<div class="login-card pub">
     ${marcaPub()}
-    <h2 class="sec" style="margin:0">Acompanhe seu pedido</h2>
+    ${tituloPortal('Acompanhe seu pedido')}
     ${res ? `<div class="consulta-res">
         <div class="m">Protocolo <b class="num">${esc(res.protocolo)}</b></div>
         <div class="t" style="font-weight:700;font-size:16px">${esc(res.assunto || '')}</div>
@@ -1584,7 +1589,7 @@ function renderConsulta(prot = '', msgErro = '', tel = '', res = null) {
         <div class="m">Aberto em ${esc(fmtDate(String(res.aberto_em).slice(0, 10)))}${res.atualizado_em ? ' · última atualização em ' + esc(fmtDate(String(res.atualizado_em).slice(0, 10))) : ''}</div>
         ${(res.linha || []).length ? `<ol class="consulta-linha">${res.linha.map(h => `<li><time>${esc(fmtDate(String(h.em).slice(0, 10)))}</time> ${esc(h.txt)}</li>`).join('')}</ol>` : ''}
       </div><button class="btn" id="cs-outra" type="button" style="justify-content:center">Consultar outro protocolo</button>`
-    : `<div class="m">Digite o número do protocolo que você recebeu e o celular informado no pedido.</div>
+    : `<p class="pt-sub">Digite o número do protocolo que você recebeu e o celular informado no pedido.</p>
       <form id="fcons" style="display:flex;flex-direction:column;gap:12px" novalidate>
         <div class="f"><label for="cs-prot">Número do protocolo</label><input id="cs-prot" autocomplete="off" placeholder="Ex.: 2026-000123" maxlength="20" value="${esc(prot)}" style="text-transform:uppercase"></div>
         <div class="f"><label for="cs-tel">Seu celular</label><input id="cs-tel" type="tel" inputmode="numeric" autocomplete="tel" maxlength="20" placeholder="(45) 99999-9999" value="${esc(mascaraTel(tel))}"></div>
@@ -1606,8 +1611,8 @@ function renderConsulta(prot = '', msgErro = '', tel = '', res = null) {
 
 /* ---------- pesquisa de satisfação (página aberta ao cidadão) ---------- */
 async function renderAvaliacao(token) {
-  document.title = 'Avaliação · ' + NOME_GAB();
-  const caixa = h => { document.body.innerHTML = `<div class="pub-page"><div class="pub-faixa"></div><div class="pub-wrap" style="max-width:520px;padding-top:28px"><div class="panel av">${h}</div></div></div>`; };
+  document.title = 'Fala Cascavel · Avaliação';
+  const caixa = h => { document.body.innerHTML = `<div class="login portal">${topoPortal()}<div class="login-card pub av">${h}</div></div>`; };
   caixa('<div class="m" style="text-align:center">Carregando…</div>');
   let info;
   try { info = /^[0-9a-f-]{36}$/i.test(token) || !store.configured ? await store.avaliacaoInfo(token) : null; }
@@ -1637,12 +1642,12 @@ async function renderAvaliacao(token) {
 }
 
 async function renderPrestacao() {
-  document.body.innerHTML = '<div class="pub-page"><div class="m" style="padding:40px;text-align:center">Carregando…</div></div>';
+  document.body.innerHTML = `<div class="pub-page portal">${topoPortal()}<div class="m" style="padding:40px;text-align:center">Carregando…</div></div>`;
   let d;
   try { d = await store.prestacaoPublica(); }
-  catch (e) { document.body.innerHTML = `<div class="pub-page"><div class="empty" style="margin:40px auto;max-width:480px"><b>Página indisponível no momento</b>${esc(errMsg(e))}</div></div>`; return; }
+  catch (e) { document.body.innerHTML = `<div class="pub-page portal">${topoPortal()}<div class="empty" style="margin:40px auto;max-width:480px"><b>Página indisponível no momento</b>${esc(errMsg(e))}</div></div>`; return; }
   const g = d.gabinete || {}; if (g.gabinete) cfg.gabinete = g.gabinete; if (g.deputado_nome) cfg.deputado_nome = g.deputado_nome; if (g.deputado_cargo) cfg.deputado_cargo = g.deputado_cargo;
-  document.title = 'Prestação de contas · ' + NOME_GAB();
+  document.title = 'Fala Cascavel · Prestação de contas';
   const pub = { f: { area: '', bairro: '' } };
   const desenha = () => {
     const f = pub.f;
@@ -1655,9 +1660,9 @@ async function renderPrestacao() {
     const ico = a => ({ Obras: '🏗️', Infraestrutura: '🛣️', 'Iluminação pública': '💡', Trânsito: '🚦', 'Meio ambiente': '🌳', Saúde: '🏥', Educação: '🏫', 'Assistência social': '🤝', Segurança: '🛡️', Esporte: '⚽', 'Esporte e cultura': '⚽', Cultura: '🎭', Agricultura: '🌾' }[a] || '✅');
     const card = (t, sub, a, extra = '') => `<article class="pub-card"><span class="pub-ico">${ico(a)}</span><div><b>${esc(t)}</b><div class="m">${esc(sub)}</div>${extra}</div></article>`;
     const texto = `Prestação de contas do ${DEP()}: ${d.demandas.length + d.servicos.length} pedidos atendidos${totEm ? ' e ' + brl(totEm) + ' em emendas' : ''}. Confira: ${linkPrestacao()}`;
-    document.body.innerHTML = `<div class="pub-page">
-      <header class="pub-hero"><div class="pub-faixa"></div><div class="pub-wrap">
-        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap"><span class="pub-logo"><img src="/marca/fala-cascavel.svg" alt="Fala Cascavel"></span><div class="eyebrow" style="color:#fff">${esc(NOME_GAB())}</div></div>
+    document.body.innerHTML = `<div class="pub-page portal">${topoPortal('pedido')}
+      <header class="pub-hero"><div class="pub-wrap">
+        ${marcaPub()}
         <h1>Trabalho que chega ao bairro</h1><p>Obras, serviços e emendas conquistados pelo mandato do ${esc(DEP())}.</p>
         <div class="pub-nums"><div><b>${d.demandas.length}</b><span>pedidos da população atendidos</span></div><div><b>${d.servicos.length}</b><span>ofícios atendidos</span></div><div><b>${bairros.size}</b><span>bairros e localidades</span></div><div><b>${brl(d.emendas.reduce((s, x) => s + (+x.valor || 0), 0))}</b><span>em emendas</span></div></div>
         <div class="pub-share no-print"><a class="btn wa" href="https://wa.me/?text=${encodeURIComponent(texto)}" target="_blank" rel="noopener">Compartilhar no WhatsApp</a><a class="btn" href="https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(linkPrestacao())}" target="_blank" rel="noopener">Facebook</a><button class="btn" id="pub-copiar-link" type="button">Copiar link</button></div>
@@ -1680,6 +1685,8 @@ async function renderPrestacao() {
 
 /* ---------- eventos ---------- */
 document.addEventListener('click', e => {
+  const bt = e.target.closest('#btn-tema');
+  if (bt) { const t = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light'; document.documentElement.dataset.theme = t; try { localStorage.setItem('fc-tema', t); } catch { /* ok */ } bt.textContent = t === 'light' ? '🌙' : '☀️'; return; }
   if (e.target.closest('[data-stop]')) { e.stopPropagation(); return; }
   const g = e.target.closest('[data-go]'); if (g) { e.preventDefault(); go(g.dataset.go); return; }
   const o = e.target.closest('[data-open]'); if (o) { const [m, id] = o.dataset.open.split(':'); openDrawer(m, id); return; }
@@ -1824,7 +1831,7 @@ async function startApp() {
   try { state.backup = await store.getConfig('backup'); } catch { /* ok */ }
   try { msgs = (await store.getConfig('mensagens')) || {}; } catch { msgs = {}; }
   try { const c = await store.getConfig('gabinete'); if (c) Object.entries(c).forEach(([k, v]) => { if (v) cfg[k] = v; }); } catch { /* usa os padrões */ }
-  document.title = NOME_GAB();
+  document.title = 'Fala Cascavel · ' + NOME_GAB();
   if (store.configured && !state.profiles.some(p => p.id === state.session.user.id)) return renderAskName();
   readHash();
   if (!location.hash) history.replaceState(null, '', location.pathname + '#painel');
