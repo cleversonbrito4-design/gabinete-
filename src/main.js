@@ -103,7 +103,7 @@ const state = { rota: [], cal: '', disp: null, rem: { ano: '', municipio: '' }, 
 const drawer = { open: false, mod: null, id: null, geo: null };
 let geoMini = null; // mapinha aberto dentro do registro
 let pedidoInstalar = null; // convite do navegador para instalar o app
-const VIEWS = ['admin', 'disparo', 'painel', 'etiquetas', 'conta', 'relatorios', 'importar', 'mapa', 'resumo-emendas', 'cidadao', ...ORDER];
+const VIEWS = ['graficos', 'admin', 'disparo', 'painel', 'etiquetas', 'conta', 'relatorios', 'importar', 'mapa', 'resumo-emendas', 'cidadao', ...ORDER];
 
 function readHash() { const h = location.hash.slice(1); if (VIEWS.includes(h)) state.view = h; }
 window.addEventListener('hashchange', () => { readHash(); state.q = state.qNext || ''; state.filter = state.qNext ? 'todos' : 'abertos'; state.qNext = ''; render(); });
@@ -213,7 +213,7 @@ const myName = () => (state.profiles.find(p => p.id === state.session?.user?.id)
 
 function renderTabs() {
   const tabs = [['painel', 'Painel', null]].concat(ORDER.map(m => [m, MODS[m].label, data[m].filter(r => isOpen(m, r)).length]), [['relatorios', 'Relatórios', null]]);
-  const cur = state.view === 'disparo' ? 'pessoas' : state.view === 'resumo-emendas' ? 'emendas' : state.view === 'cidadao' ? 'pessoas' : state.view === 'etiquetas' ? 'pessoas' : state.view === 'importar' ? state.imp.mod : state.view === 'mapa' ? state.mapa.mod : state.view;
+  const cur = state.view === 'graficos' ? 'relatorios' : state.view === 'disparo' ? 'pessoas' : state.view === 'resumo-emendas' ? 'emendas' : state.view === 'cidadao' ? 'pessoas' : state.view === 'etiquetas' ? 'pessoas' : state.view === 'importar' ? state.imp.mod : state.view === 'mapa' ? state.mapa.mod : state.view;
   $('#tabs').innerHTML = tabs.map(([k, l, n]) => `<button class="tab" role="tab" data-go="${k}" aria-selected="${cur === k}">${l}${n != null ? `<span class="n">${n}</span>` : ''}</button>`).join('');
   const nb = $('#btn-new');
   nb.hidden = ['conta', 'etiquetas', 'relatorios', 'importar', 'mapa', 'resumo-emendas', 'cidadao'].includes(state.view);
@@ -462,7 +462,7 @@ function render() {
   const hadFocus = document.activeElement && document.activeElement.id === 'q'; const pos = hadFocus ? document.activeElement.selectionStart : 0;
   if (state.view !== 'etiquetas') $('#page-css').textContent = '';
   if (state.view === 'admin') setTimeout(async () => { const b = $('#modelos-box'); if (b) b.innerHTML = await modelosHtml(); carregarAdmin(); }, 0);
-  main.innerHTML = state.view === 'painel' ? renderPainel() : state.view === 'etiquetas' ? renderEtiquetas() : state.view === 'conta' ? renderConta() : state.view === 'admin' ? renderAdmin() : state.view === 'relatorios' ? renderRelatorios() : state.view === 'importar' ? renderImportar() : state.view === 'mapa' ? renderMapa() : state.view === 'resumo-emendas' ? renderResumoEmendas() : state.view === 'cidadao' ? renderCidadao() : state.view === 'disparo' ? renderDisparo() : renderList(state.view);
+  main.innerHTML = state.view === 'painel' ? renderPainel() : state.view === 'etiquetas' ? renderEtiquetas() : state.view === 'conta' ? renderConta() : state.view === 'admin' ? renderAdmin() : state.view === 'graficos' ? renderGraficos() : state.view === 'relatorios' ? renderRelatorios() : state.view === 'importar' ? renderImportar() : state.view === 'mapa' ? renderMapa() : state.view === 'resumo-emendas' ? renderResumoEmendas() : state.view === 'cidadao' ? renderCidadao() : state.view === 'disparo' ? renderDisparo() : renderList(state.view);
   if (state.view === 'mapa') setTimeout(desenharMapa, 0); else mapaLib.destruir();
   if (hadFocus) { const q = $('#q'); if (q) { q.focus(); try { q.setSelectionRange(pos, pos); } catch { /* ok */ } } }
   if (drawer.open) refreshDatalists();
@@ -1004,7 +1004,7 @@ function renderRelatorios() {
   const linha = r => { const d = fmtDataBR(String(DATA_REL[m](r) || '').slice(0, 10)); const loc = [r.bairro, r.municipio].filter(Boolean).join(', ');
     const c = { demandas: [d, r.assunto, r.solicitante, loc, r.status], servicos: [d, r.servico, r.orgao, loc || r.local, r.status], emendas: [d, r.objeto, r.beneficiario, brl(val(r)), r.status], proposituras: [d, r.ementa, [r.tipo, r.numero && 'nº ' + r.numero].filter(Boolean).join(' '), r.tema, r.status], agenda: [d + (r.inicio ? ' ' + hhmm(r.inicio) : ''), r.titulo, r.local || r.municipio, r.contato, r.status], tarefas: [d, r.titulo, r.responsavel, r.relacionado, r.status], recepcao: [d + (r.hora_chegada ? ' ' + hhmm(r.hora_chegada) : ''), r.nome, r.motivo, r.atendente, r.status], pessoas: [d, r.nome, r.tipo, loc, r.telefone] }[m];
     return `<tr data-open="${m}:${r.id}">${c.map(x => `<td>${esc(x || '')}</td>`).join('')}</tr>`; };
-  return `<h2 class="sec">Relatórios</h2><div class="m no-print" style="margin-top:2px">Escolha o assunto e o período. Para salvar em PDF, toque em "Imprimir / salvar PDF" e escolha <b>Salvar como PDF</b> no destino da impressora.</div>
+  return `<div class="no-print" style="margin-bottom:8px"><button class="btn primary" data-go="graficos">📊 Ver relatórios em gráficos</button></div><h2 class="sec">Relatórios</h2><div class="m no-print" style="margin-top:2px">Escolha o assunto e o período. Para salvar em PDF, toque em "Imprimir / salvar PDF" e escolha <b>Salvar como PDF</b> no destino da impressora.</div>
     <div class="filters">
       ${sel('mod', 'Relatório de', ORDER.map(k => [k, MODS[k].label]), m, '')}
       <div class="f"><label for="rl-de">De</label><input id="rl-de" type="date" data-rel="de" value="${esc(f.de)}"></div>
@@ -1319,6 +1319,106 @@ function renderCidadao() {
 
 /* ---------- prestação de contas pública ---------- */
 const linkPrestacao = () => location.origin + location.pathname + '?prestacao';
+/* ---------- relatórios com gráficos ---------- */
+const PERIODOS = [['30', 'Últimos 30 dias'], ['90', 'Últimos 3 meses'], ['ano', 'Este ano'], ['12m', 'Últimos 12 meses'], ['tudo', 'Tudo']];
+function periodoGraf() {
+  const g = state.graf || (state.graf = { p: '12m', de: '', ate: '' });
+  const t = todayStr(); let de = '', ate = t;
+  if (g.p === '30') de = addDays(t, -29); else if (g.p === '90') de = addDays(t, -89);
+  else if (g.p === 'ano') de = t.slice(0, 4) + '-01-01'; else if (g.p === '12m') de = ymd(new Date(+t.slice(0, 4) - 1, +t.slice(5, 7), 1));
+  else if (g.p === 'livre') { de = g.de; ate = g.ate || t; }
+  return { de, ate };
+}
+const diaDe = v => String(v || '').slice(0, 10);
+const noPeriodo = (v, { de, ate }) => { const d = diaDe(v); return !!d && (!de || d >= de) && (!ate || d <= ate); };
+/** Barras horizontais (uma cor só, rótulo e número em texto). */
+function grafBarras(pares, { cor = 'var(--accent)', fmt = v => v, max = 10, total, vazio = 'Nada no período.' } = {}) {
+  if (!pares.length) return `<div class="m">${vazio}</div>`;
+  const resto = pares.slice(max); const lista = pares.slice(0, max);
+  if (resto.length) lista.push(['Outros (' + resto.length + ')', resto.reduce((a, x) => a + x[1], 0), null]);
+  const top = Math.max(...lista.map(x => x[1]), 1);
+  return `<div class="gb">${lista.map(([k, v, c]) => `<div class="gb-l" title="${esc(k)}: ${esc(fmt(v))}${total ? ' (' + Math.round(v / total * 100) + '%)' : ''}"><span class="gb-k">${esc(k)}</span><span class="gb-t"><i style="width:${Math.max(v / top * 100, v ? 1.5 : 0).toFixed(1)}%;background:${c || cor}"></i></span><span class="gb-v num">${esc(fmt(v))}${total ? `<small>${Math.round(v / total * 100)}%</small>` : ''}</span></div>`).join('')}</div>`;
+}
+/** Colunas por mês (uma série). */
+function grafMeses(meses, { cor = 'var(--accent)', fmt = v => v, alto = 150, mini = false } = {}) {
+  const top = Math.max(...meses.map(x => x[1]), 1);
+  const lim = mini ? 4 : 12; const passo = meses.length > lim ? Math.ceil(meses.length / lim) : 1;
+  return `<div class="gm" style="--alto:${alto}px">${meses.map(([k, v], i) => `<div class="gm-c" title="${esc(nomeMes(k))}: ${esc(fmt(v))}">${mini ? '' : `<span class="gm-v num">${v ? esc(fmt(v)) : ''}</span>`}<span class="gm-b"><i style="height:${(v / top * 100).toFixed(1)}%;background:${cor}"></i></span><span class="gm-k">${i % passo === 0 ? esc(nomeMesCurto(k)) : ''}</span></div>`).join('')}</div>`;
+}
+const nomeMes = k => MESES[+k.slice(5, 7) - 1] + ' de ' + k.slice(0, 4);
+const nomeMesCurto = k => MESES[+k.slice(5, 7) - 1].slice(0, 3).toLowerCase() + (k.slice(5, 7) === '01' ? '/' + k.slice(2, 4) : '');
+function mesesDoPeriodo({ de, ate }, linhas) {
+  const ini = de || linhas.map(diaDe).filter(Boolean).sort()[0] || todayStr();
+  const out = []; let [y, m] = ini.slice(0, 7).split('-').map(Number); const fim = (ate || todayStr()).slice(0, 7);
+  while (out.length < 36) { const k = y + '-' + pad(m); out.push(k); if (k >= fim) break; m++; if (m > 12) { m = 1; y++; } }
+  return out.slice(-24);
+}
+const contarPor = (rows, fn) => { const c = {}; rows.forEach(r => { const k = fn(r); if (k) c[k] = (c[k] || 0) + 1; }); return Object.entries(c).sort((a, b) => b[1] - a[1]); };
+/** Dias entre a abertura e a conclusão (pelo histórico; senão pela última atualização). */
+function diasParaResolver(r) {
+  const h = (r.historico || []).find(x => /→\s*Concluída/.test(x.txt || ''));
+  const fim = h ? h.em : r.atualizado_em; if (!fim || !r.criado_em) return null;
+  const d = (new Date(fim) - new Date(r.criado_em)) / 864e5; return d >= 0 ? d : null;
+}
+function renderGraficos() {
+  const g = state.graf || (state.graf = { p: '12m', de: '', ate: '' }); const per = periodoGraf();
+  const dem = data.demandas.filter(r => noPeriodo(r.criado_em, per));
+  const conc = dem.filter(r => r.status === 'Concluída');
+  const tempos = data.demandas.filter(r => r.status === 'Concluída').map(r => [r, diasParaResolver(r)]).filter(([r, d]) => d != null && noPeriodo(((r.historico || []).find(x => /→\s*Concluída/.test(x.txt || '')) || {}).em || r.atualizado_em, per)).map(x => x[1]);
+  const mediaDias = tempos.length ? tempos.reduce((a, b) => a + b, 0) / tempos.length : null;
+  const site = dem.filter(r => r.origem === 'Site do gabinete').length;
+  const notas = data.demandas.filter(r => r.nota != null && noPeriodo(r.nota_em || r.atualizado_em, per));
+  const media = notas.length ? (notas.reduce((a, r) => a + +r.nota, 0) / notas.length).toFixed(1).replace('.', ',') : '—';
+  const meses = mesesDoPeriodo(per, data.demandas.map(r => r.criado_em));
+  const porMes = (rows, dataFn, valFn = () => 1) => meses.map(k => [k, rows.filter(r => diaDe(dataFn(r)).startsWith(k)).reduce((a, r) => a + valFn(r), 0)]);
+  const corSit = { novo: 'var(--novo)', and: 'var(--and)', ok: 'var(--ok)', neg: 'var(--neg)' };
+  const sit = MODS.demandas.statuses.map(([s, k]) => [s, dem.filter(r => r.status === s).length, corSit[k]]).filter(x => x[1]);
+  // documentos
+  const docsRows = [
+    ...data.servicos.map(r => ({ tipo: r.tipo_doc === 'Indicação' ? 'Indicações' : r.tipo_doc === 'Requerimento' ? 'Requerimentos' : (!r.tipo_doc || r.tipo_doc === 'Ofício') ? 'Ofícios' : null, d: r.data_envio || r.criado_em })),
+    ...data.proposituras.map(r => ({ tipo: r.tipo === 'Indicação' ? 'Indicações' : r.tipo === 'Requerimento' ? 'Requerimentos' : 'Projetos, moções e outros', d: r.data_protocolo || r.criado_em })),
+  ].filter(x => x.tipo && noPeriodo(x.d, per));
+  const tiposDoc = ['Ofícios', 'Indicações', 'Requerimentos', 'Projetos, moções e outros'];
+  // equipe
+  const equipe = {}; const soma = (nome, k) => { if (!nome) return; (equipe[nome] = equipe[nome] || { dem: 0, conc: 0, of: 0 })[k]++; };
+  dem.forEach(r => { soma(r.responsavel, 'dem'); if (r.status === 'Concluída') soma(r.responsavel, 'conc'); });
+  data.servicos.filter(r => noPeriodo(r.data_envio || r.criado_em, per)).forEach(r => soma(r.responsavel, 'of'));
+  const eqLinhas = Object.entries(equipe).sort((a, b) => (b[1].dem + b[1].of) - (a[1].dem + a[1].of));
+  // emendas por ano (exercício)
+  const anos = [...new Set(data.emendas.map(r => r.exercicio).filter(Boolean))].sort();
+  const emAno = anos.map(a => { const rs = data.emendas.filter(r => String(r.exercicio) === String(a)); return { a, ind: rs.reduce((s, r) => s + (+r.valor_indicado || 0), 0), pago: rs.reduce((s, r) => s + (+r.valor_pago || 0), 0) }; });
+  const topEm = Math.max(1, ...emAno.map(x => x.ind));
+  const nomePer = g.p === 'livre' ? `de ${per.de ? fmtDataBR(per.de) : 'início'} até ${fmtDataBR(per.ate)}` : PERIODOS.find(x => x[0] === g.p)[1].toLowerCase();
+  const kpi = (n, l, sub = '') => `<div class="kpi"><span class="eyebrow">${l}</span><span class="big">${n}</span><span class="sub">${sub || '&nbsp;'}</span></div>`;
+  const pnl = (t, corpo, sub = '') => `<section class="panel graf"><h3>${t}${sub ? ` <span class="m" style="font-weight:400">${sub}</span>` : ''}</h3>${corpo}</section>`;
+  return `<div class="no-print"><a class="linkbtn" data-go="relatorios">← Relatórios em lista</a></div>
+    <h2 class="sec" style="margin-top:6px">Relatórios em gráficos</h2>
+    <div class="m">${esc(NOME_GAB())} · ${esc(nomePer)} · gerado em ${fmtStamp(new Date().toISOString())}</div>
+    <div class="toolbar no-print" style="margin-top:10px"><div class="chips">${PERIODOS.map(([k, l]) => chip('data-graf-p', k, l, g.p === k)).join('')}${chip('data-graf-p', 'livre', 'Escolher datas', g.p === 'livre')}</div></div>
+    ${g.p === 'livre' ? `<div class="filters no-print" style="grid-template-columns:repeat(auto-fit,minmax(150px,200px))"><div class="f"><label for="gf-de">De</label><input id="gf-de" type="date" value="${esc(g.de)}"></div><div class="f"><label for="gf-ate">Até</label><input id="gf-ate" type="date" value="${esc(g.ate)}"></div></div>` : ''}
+    <div class="no-print" style="margin:4px 0 12px"><button class="btn primary" id="rel-print">Imprimir / salvar PDF</button></div>
+    <div class="kpis">
+      ${kpi(dem.length, 'Demandas recebidas')}
+      ${kpi(conc.length, 'Concluídas', dem.length ? Math.round(conc.length / dem.length * 100) + '% das recebidas' : '')}
+      ${kpi(mediaDias == null ? '—' : (mediaDias < 1 ? '< 1' : Math.round(mediaDias)) + (mediaDias != null && mediaDias >= 1 && Math.round(mediaDias) === 1 ? ' dia' : ' dias'), 'Tempo médio para resolver', tempos.length ? tempos.length + ' demanda(s) concluída(s)' : '')}
+      ${kpi(site, 'Pedidos pelo site', dem.length ? Math.round(site / dem.length * 100) + '% das demandas' : '')}
+      ${kpi(docsRows.length, 'Documentos enviados', 'ofícios, indicações e outros')}
+      ${kpi(media, 'Nota do cidadão', notas.length ? notas.length + ' avaliação(ões)' : 'sem avaliações')}
+    </div>
+    ${pnl('Demandas recebidas por mês', grafMeses(porMes(data.demandas, r => r.criado_em)))}
+    <div class="cols graf-cols">
+      ${pnl('Demandas por situação', grafBarras(sit, { total: dem.length }))}
+      ${pnl('Demandas por área', grafBarras(contarPor(dem, r => r.area || 'Sem área'), { total: dem.length }))}
+      ${pnl('Bairros com mais demandas', grafBarras(contarPor(dem, r => r.bairro ? r.bairro + (r.municipio && r.municipio !== cfg.cidade_gabinete ? ' · ' + r.municipio : '') : ''), { total: dem.length, vazio: 'Nenhuma demanda com bairro no período.' }))}
+      ${pnl('Como as demandas chegaram', grafBarras(contarPor(dem, r => r.origem || 'Não informado'), { total: dem.length }))}
+    </div>
+    ${pnl('Documentos enviados por mês', `<div class="gsm">${tiposDoc.map(t => { const rs = docsRows.filter(x => x.tipo === t); return `<div><div class="gsm-t"><b>${t}</b> <span class="m">${rs.length}</span></div>${grafMeses(porMes(rs, x => x.d), { cor: 'var(--azul)', alto: 90, mini: true })}</div>`; }).join('')}</div>`)}
+    <div class="cols graf-cols">
+      ${pnl('Atendimentos por colaborador', eqLinhas.length ? `<table class="rtab"><thead><tr><th>Colaborador</th><th class="num">Demandas</th><th class="num">Concluídas</th><th class="num">Ofícios</th></tr></thead><tbody>${eqLinhas.map(([n, v]) => `<tr><td>${esc(n)}</td><td class="num">${v.dem}</td><td class="num">${v.conc}</td><td class="num">${v.of}</td></tr>`).join('')}</tbody></table>` : '<div class="m">Preencha o campo "Responsável no gabinete" nas demandas e ofícios para ver este gráfico.</div>', 'demandas + ofícios')}
+      ${pnl('Emendas por ano', emAno.length ? `<div class="gleg"><span><i style="background:var(--accent-soft);border:1px solid var(--accent)"></i>Indicado</span><span><i style="background:var(--accent)"></i>Pago</span></div><div class="gb">${emAno.map(x => `<div class="gb-l" title="${x.a}: indicado ${brl(x.ind)}, pago ${brl(x.pago)}"><span class="gb-k">${x.a}</span><span class="gb-t gb-dupla"><i class="ind" style="width:${(x.ind / topEm * 100).toFixed(1)}%"></i><i class="pago" style="width:${(x.pago / topEm * 100).toFixed(1)}%"></i></span><span class="gb-v num">${brl(x.ind)}<small>pago ${brl(x.pago)}</small></span></div>`).join('')}</div>` : '<div class="m">Preencha o exercício (ano) nas emendas.</div>', 'todos os anos')}
+    </div>`;
+}
+
 /* ---------- administração (só o administrador) ---------- */
 const dataHora = iso => iso ? new Date(iso).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
 function haQuanto(iso) {
@@ -1546,6 +1646,7 @@ document.addEventListener('click', e => {
   const nf = e.target.closest('[data-new-for]'); if (nf) { const p = data.pessoas.find(x => x.id === drawer.id); closeDrawer(); go(nf.dataset.newFor); openDrawer(nf.dataset.newFor, null, { solicitante: p?.nome, telefone: p?.telefone, municipio: p?.municipio, bairro: p?.bairro }); return; }
   const sr = e.target.closest('[data-search]'); if (sr) { const q = sr.dataset.search; closeDrawer(); go('demandas'); state.q = q; state.filter = 'todos'; render(); return; }
   if (e.target.closest('[data-oficio-de]')) { oficioDaDemanda(); return; }
+  const gp = e.target.closest('[data-graf-p]'); if (gp) { state.graf.p = gp.dataset.grafP; render(); return; }
   const cd = e.target.closest('[data-cal-dia]'); if (cd) { openDrawer('agenda', null, { data: cd.dataset.calDia }); return; }
   const cn = e.target.closest('[data-cal-nav]'); if (cn) { const [y, mo] = (state.cal || todayStr().slice(0, 7)).split('-').map(Number); const n = +cn.dataset.calNav; state.cal = n === 0 ? '' : ymd(new Date(y, mo - 1 + n, 1)).slice(0, 7); render(); return; }
   const rdel = e.target.closest('[data-rota-del]'); if (rdel) { state.rota.splice(+rdel.dataset.rotaDel, 1); atualizarRota(); return; }
@@ -1607,6 +1708,7 @@ document.addEventListener('click', e => {
 });
 document.addEventListener('change', async e => {
   if (e.target.id === 'adm-quem') { carregarHistorico(); return; }
+  if (e.target.id === 'gf-de' || e.target.id === 'gf-ate') { state.graf[e.target.id === 'gf-de' ? 'de' : 'ate'] = e.target.value; render(); return; }
   const el = e.target;
   if (el.dataset && 'anxAdd' in el.dataset) { const files = [...el.files]; el.value = ''; if (files.length) anexarArquivos(drawer.mod, drawer.id, files).catch(err => toast('Não foi possível anexar: ' + errMsg(err))); return; }
   if (el.dataset && el.dataset.rel) { state.rel[el.dataset.rel] = el.value; if (el.dataset.rel === 'mod') Object.assign(state.rel, { municipio: '', bairro: '', status: '' }); render(); return; }
