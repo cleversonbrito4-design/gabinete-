@@ -123,12 +123,12 @@ let loginMode = 'entrar';
 const marcaPub = () => `<div class="pt-badge"><span class="pt-dot" aria-hidden="true"></span>${esc(NOME_GAB())}</div>`;
 /** Topo das páginas abertas: logo sem fundo à esquerda e um botão em pílula à direita (estilo vidro, fundo escuro). */
 const ACOES_PORTAL = { pedido: ['?solicitar', 'Fazer um pedido'], consulta: ['?consulta', 'Acompanhar pedido'], equipe: ['/', 'Entrar'] };
-const topoPortal = (acao = '') => { const a = ACOES_PORTAL[acao]; return `<div class="pt-fundo" aria-hidden="true"><i></i><i></i><i></i></div><header class="pt-top"><a class="pt-logo" href="${a && acao !== 'equipe' ? '?solicitar' : '/'}"><img src="/marca/fala-cascavel-branca.svg" alt="Fala Cascavel" width="190" height="61"></a>${a ? `<a class="pt-acao" href="${a[0]}">${a[1]}</a>` : ''}</header>`; };
+const topoPortal = (acao = '', semLogo = false) => { const a = ACOES_PORTAL[acao]; return `<div class="pt-fundo" aria-hidden="true"><i></i><i></i><i></i></div><header class="pt-top${semLogo ? ' sem-logo' : ''}"><a class="pt-logo" href="${a && acao !== 'equipe' ? '?solicitar' : '/'}"><img src="/marca/fala-cascavel-branca.svg" alt="Fala Cascavel" width="190" height="61"></a>${a ? `<a class="pt-acao" href="${a[0]}">${a[1]}</a>` : ''}</header>`; };
 const tituloPortal = (t, sub = '') => `<h1 class="pt-h1">${t}</h1>${sub ? `<p class="pt-sub">${sub}</p>` : ''}`;
 function renderLogin(msg = '', ok = '', email = '') {
   const criar = loginMode === 'criar';
-  document.body.innerHTML = `<div class="login portal">${topoPortal('pedido')}<form class="login-card" id="login" novalidate>
-    ${marcaPub()}
+  document.body.innerHTML = `<div class="login portal">${topoPortal('pedido', true)}<form class="login-card" id="login" novalidate>
+    <img class="pt-logo-card" src="/marca/fala-cascavel-branca.svg" alt="Fala Cascavel" width="240" height="77">
     ${tituloPortal(criar ? 'Criar minha conta' : 'Entrar no sistema', criar ? 'Use o e-mail que a equipe liberou para você.' : 'Área da equipe do gabinete.')}
     <div class="f"><label for="l-email">E-mail</label><input id="l-email" type="email" autocomplete="username" value="${esc(email)}" required></div>
     <div class="f"><label for="l-pass">${criar ? 'Crie uma senha (mínimo 8 caracteres)' : 'Senha'}</label><input id="l-pass" type="password" autocomplete="${criar ? 'new-password' : 'current-password'}" required></div>

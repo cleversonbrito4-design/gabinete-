@@ -550,3 +550,6 @@ h2.sec{font-weight:800;font-size:26px;letter-spacing:-.02em}
   .portal .prot-box .btn.primary{padding-inline:20px 60px}
 }
 @media (max-width:380px){#btn-new{font-size:0;padding:8px 14px}#btn-new::before{content:"+ Novo";font-size:14px}}
+.pt-top.sem-logo{justify-content:flex-end}
+.pt-top.sem-logo .pt-logo{display:none}
+.pt-logo-card{display:block;align-self:center;width:min(240px,70%);height:auto;margin:4px 0 2px}
