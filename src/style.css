@@ -303,3 +303,10 @@ header.top::before,.login-card::before{content:"";display:block;height:4px;backg
 .av-est button.on{color:#f2b600}
 .av-est button:focus-visible{outline:2px solid var(--accent);border-radius:6px}
 .av-est button:active{transform:scale(.9)}
+
+/* fotos no formulário do cidadão */
+.fp-fotos{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.fp-foto{position:relative;width:76px;height:76px;border-radius:8px;overflow:hidden;border:1px solid var(--line)}
+.fp-foto img{width:100%;height:100%;object-fit:cover;display:block}
+.fp-foto button{all:unset;position:absolute;top:3px;right:3px;width:22px;height:22px;border-radius:50%;background:rgba(0,0,0,.65);color:#fff;font-size:12px;display:grid;place-items:center;cursor:pointer}
+.fp-add{cursor:pointer}

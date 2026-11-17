@@ -426,14 +426,19 @@ drop policy if exists "equipe envia anexos" on storage.objects;
 create policy "equipe envia anexos" on storage.objects for insert to authenticated with check (bucket_id = 'anexos' and public.is_equipe());
 drop policy if exists "equipe apaga anexos" on storage.objects;
 create policy "equipe apaga anexos" on storage.objects for delete to authenticated using (bucket_id = 'anexos' and public.is_equipe());
+-- o cidadão manda fotos pelo formulário do site: só pode CRIAR arquivos .jpg na pasta publico/<código>/ (não lê nem apaga nada)
+drop policy if exists "cidadao envia fotos" on storage.objects;
+create policy "cidadao envia fotos" on storage.objects for insert to anon, authenticated with check (bucket_id = 'anexos' and name ~ '^publico/[0-9a-f-]{36}/[0-9]+[.]jpg$');
 
 -- Formulário público: o cidadão abre uma demanda sem login.
 -- Só esta função é liberada para visitantes; eles não leem nada do banco.
 drop function if exists public.nova_demanda_publica(text, text, text, text, text, text);
+drop function if exists public.nova_demanda_publica(text, text, text, text, text, text, double precision, double precision);
 create or replace function public.nova_demanda_publica(
   p_nome text, p_telefone text, p_municipio text, p_bairro text, p_assunto text, p_descricao text,
-  p_lat double precision default null, p_lng double precision default null
+  p_lat double precision default null, p_lng double precision default null, p_fotos jsonb default null
 ) returns boolean language plpgsql security definer set search_path = public as $$
+declare v_anexos jsonb := '[]'::jsonb;
 begin
   if coalesce(trim(p_nome), '') = '' or coalesce(trim(p_assunto), '') = '' or coalesce(trim(p_telefone), '') = '' then
     raise exception 'Preencha nome, telefone e assunto.';
@@ -446,14 +451,23 @@ begin
     raise exception 'Já recebemos seus pedidos de hoje. Em breve entraremos em contato.';
   end if;
   if p_lat is not null and (p_lat not between -34 and 6 or p_lng not between -74 and -34) then p_lat := null; p_lng := null; end if;
-  insert into public.demandas (status, assunto, solicitante, telefone, municipio, bairro, origem, descricao, prioridade, historico, criado_por, lat, lng)
+  -- fotos já enviadas pelo cidadão (no máximo 5, só da pasta publico/)
+  if p_fotos is not null and jsonb_typeof(p_fotos) = 'array' then
+    select coalesce(jsonb_agg(jsonb_build_object('path', o.name, 'nome', 'Foto ' || x.n || ' do cidadão.jpg', 'tipo', 'image/jpeg',
+      'tamanho', coalesce((o.metadata->>'size')::bigint, 0), 'em', now(), 'por', 'Cidadão') order by x.n), '[]'::jsonb)
+    into v_anexos
+    from (select value #>> '{}' as path, ordinality as n from jsonb_array_elements(p_fotos) with ordinality limit 5) x
+    join storage.objects o on o.bucket_id = 'anexos' and o.name = x.path
+    where x.path ~ '^publico/[0-9a-f-]{36}/[0-9]+[.]jpg$';
+  end if;
+  insert into public.demandas (status, assunto, solicitante, telefone, municipio, bairro, origem, descricao, prioridade, historico, criado_por, lat, lng, anexos)
   values ('Nova', left(trim(p_assunto), 200), left(trim(p_nome), 120), left(trim(p_telefone), 30), nullif(left(trim(coalesce(p_municipio, '')), 80), ''),
     nullif(left(trim(coalesce(p_bairro, '')), 80), ''), 'Site do gabinete', nullif(left(trim(coalesce(p_descricao, '')), 3000), ''), 'Média',
-    jsonb_build_array(jsonb_build_object('em', now(), 'txt', 'Recebida pelo formulário do site', 'por', 'Site')), null, p_lat, p_lng);
+    jsonb_build_array(jsonb_build_object('em', now(), 'txt', 'Recebida pelo formulário do site' || case when jsonb_array_length(v_anexos) > 0 then ' com ' || jsonb_array_length(v_anexos) || ' foto(s)' else '' end, 'por', 'Site')), null, p_lat, p_lng, v_anexos);
   return true;
 end $$;
-revoke all on function public.nova_demanda_publica(text, text, text, text, text, text, double precision, double precision) from public;
-grant execute on function public.nova_demanda_publica(text, text, text, text, text, text, double precision, double precision) to anon, authenticated;
+revoke all on function public.nova_demanda_publica(text, text, text, text, text, text, double precision, double precision, jsonb) from public;
+grant execute on function public.nova_demanda_publica(text, text, text, text, text, text, double precision, double precision, jsonb) to anon, authenticated;
 
 -- Prestação de contas pública: só o que a equipe marcou como público e já foi resolvido.
 -- Nunca devolve nome, telefone ou endereço do cidadão.

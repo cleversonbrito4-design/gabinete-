@@ -194,7 +194,17 @@ export async function apagarAnexo(path) {
 /* ---------- formulário público (sem login) ---------- */
 export async function novaDemandaPublica(c) {
   if (!sb) throw new Error('O formulário só funciona com o banco ligado.');
-  const { error } = await sb.rpc('nova_demanda_publica', { p_nome: c.nome, p_telefone: c.telefone, p_municipio: c.municipio, p_bairro: c.bairro, p_assunto: c.assunto, p_descricao: c.descricao, ...(c.lat != null ? { p_lat: c.lat, p_lng: c.lng } : {}) });
+  const base = { p_nome: c.nome, p_telefone: c.telefone, p_municipio: c.municipio, p_bairro: c.bairro, p_assunto: c.assunto, p_descricao: c.descricao, ...(c.lat != null ? { p_lat: c.lat, p_lng: c.lng } : {}) };
+  let { error } = await sb.rpc('nova_demanda_publica', c.fotos && c.fotos.length ? { ...base, p_lat: c.lat ?? null, p_lng: c.lng ?? null, p_fotos: c.fotos } : base);
+  // banco ainda sem a versão com fotos: manda o pedido sem elas
+  if (error && c.fotos && c.fotos.length && /function|p_fotos|PGRST202/i.test(error.message + ' ' + error.code)) { ({ error } = await sb.rpc('nova_demanda_publica', base)); if (!error) return { semFotos: true }; }
+  if (error) throw error;
+  return {};
+}
+/** Foto mandada pelo cidadão no formulário (só cria, não lê). */
+export async function enviarFotoPublica(path, blob) {
+  if (!sb) throw new Error('Só funciona com o banco ligado.');
+  const { error } = await sb.storage.from('anexos').upload(path, blob, { contentType: 'image/jpeg', upsert: false });
   if (error) throw error;
 }
 /** Vários links temporários de uma vez (para as miniaturas). Devolve { path: url }. */

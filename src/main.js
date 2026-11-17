@@ -1155,11 +1155,22 @@ async function importarAgora() {
 
 /* ---------- formulário público ---------- */
 const linkPublico = () => location.origin + location.pathname + '?solicitar';
+/* fotos escolhidas no formulário do cidadão (sobrevivem ao redesenho da tela) */
+let fotosPub = [];
+async function fotoJpeg(f, max = 1600) {
+  const bmp = await createImageBitmap(f, { imageOrientation: 'from-image' });
+  const k = Math.min(1, max / Math.max(bmp.width, bmp.height));
+  const c = document.createElement('canvas'); c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+  const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(bmp, 0, 0, c.width, c.height);
+  const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.82));
+  if (!blob) throw new Error('falha');
+  return blob;
+}
 function renderFormPublico(msg = '', ok = false, vals = {}) {
   document.title = 'Fale com o gabinete · ' + NOME_GAB();
   if (ok) {
     document.body.innerHTML = `<div class="login"><div class="login-card"><div style="display:flex;gap:10px;align-items:center"><div class="mark">G</div><h1>${esc(NOME_GAB())}</h1></div>
-      <h2 class="sec" style="margin:4px 0 0">Pedido recebido! ✅</h2><p class="m">Obrigado. A equipe do gabinete do ${esc(DEP())} vai analisar e entrar em contato pelo telefone informado.</p>
+      <h2 class="sec" style="margin:4px 0 0">Pedido recebido! ✅</h2><p class="m">Obrigado. A equipe do gabinete do ${esc(DEP())} vai analisar e entrar em contato pelo telefone informado.</p>${vals.avisoFotos ? `<p class="m">${esc(vals.avisoFotos)}</p>` : ''}
       <button class="btn" id="fp-outro" style="justify-content:center">Fazer outro pedido</button></div></div>`;
     $('#fp-outro').addEventListener('click', () => renderFormPublico());
     return;
@@ -1174,12 +1185,23 @@ function renderFormPublico(msg = '', ok = false, vals = {}) {
     <div class="f"><label for="fp-bairro">Bairro</label><input id="fp-bairro" maxlength="80" value="${v('bairro')}"></div>
     <div class="f"><label for="fp-ass">Qual é o pedido? *</label><input id="fp-ass" maxlength="200" placeholder="Ex.: Troca de lâmpada na Rua das Flores" value="${v('assunto')}"></div>
     <div class="f"><label for="fp-desc">Detalhes (endereço, ponto de referência…)</label><textarea id="fp-desc" maxlength="3000">${v('descricao')}</textarea></div>
+    <div class="f"><label>Fotos do local <span class="m" style="font-weight:400">(opcional, até 5)</span></label>
+      <div class="fp-fotos">${fotosPub.map((x, i) => `<div class="fp-foto"><img src="${x.url}" alt="Foto ${i + 1}"><button type="button" data-fp-tirar="${i}" aria-label="Tirar foto ${i + 1}">✕</button></div>`).join('')}
+      ${fotosPub.length < 5 ? `<label class="btn fp-add">📷 ${fotosPub.length ? 'Mais fotos' : 'Tirar foto ou escolher da galeria'}<input id="fp-foto" type="file" accept="image/*" multiple hidden></label>` : ''}</div></div>
     <div><button class="btn" type="button" id="fp-gps">📍 ${vals.lat != null ? 'Localização marcada ✓' : 'Estou no local: enviar minha localização'}</button></div>
     <div class="hp" aria-hidden="true"><label for="fp-site">Não preencha</label><input id="fp-site" tabindex="-1" autocomplete="off"></div>
     ${msg ? `<div class="err">${esc(msg)}</div>` : ''}
     <button class="btn primary" type="submit" style="justify-content:center">Enviar pedido</button>
     <div class="m" style="font-size:11.5px">Seus dados são usados só para o gabinete responder ao seu pedido.</div></form></div>`;
   const lerCampos = () => ({ nome: $('#fp-nome').value.trim(), telefone: $('#fp-tel').value.trim(), municipio: $('#fp-mun').value.trim(), bairro: $('#fp-bairro').value.trim(), assunto: $('#fp-ass').value.trim(), descricao: $('#fp-desc').value.trim(), lat: vals.lat, lng: vals.lng });
+  const fi = $('#fp-foto');
+  if (fi) fi.addEventListener('change', async () => {
+    const arqs = [...fi.files].slice(0, 5 - fotosPub.length); const campos = lerCampos(); let falhou = 0;
+    const lb = fi.closest('label'); if (lb) lb.firstChild.textContent = 'Preparando fotos… ';
+    for (const f of arqs) { try { const blob = await fotoJpeg(f); fotosPub.push({ blob, url: globalThis.URL.createObjectURL(blob) }); } catch { falhou++; } }
+    renderFormPublico(falhou ? 'Não consegui abrir ' + falhou + ' foto(s). Tente tirar de novo ou escolher outra.' : '', false, campos);
+  });
+  document.querySelectorAll('[data-fp-tirar]').forEach(b => b.addEventListener('click', () => { const [x] = fotosPub.splice(+b.dataset.fpTirar, 1); if (x) globalThis.URL.revokeObjectURL(x.url); renderFormPublico('', false, lerCampos()); }));
   $('#fp-gps').addEventListener('click', () => {
     if (!navigator.geolocation) return renderFormPublico('Este aparelho não tem localização.', false, lerCampos());
     const b = $('#fp-gps'); b.disabled = true; b.textContent = 'Localizando…';
@@ -1192,7 +1214,21 @@ function renderFormPublico(msg = '', ok = false, vals = {}) {
     if ($('#fp-site').value) return renderFormPublico('', true);
     if (!c.nome || !c.assunto || c.telefone.replace(/\D/g, '').length < 10) return renderFormPublico(!c.nome || !c.assunto ? 'Preencha seu nome e o pedido.' : 'Digite o telefone com DDD.', false, c);
     const b = e.target.querySelector('[type=submit]'); b.disabled = true; b.textContent = 'Enviando…';
-    try { await store.novaDemandaPublica(c); renderFormPublico('', true); }
+    try {
+      // primeiro as fotos, depois o pedido já com elas
+      const pasta = 'publico/' + (crypto.randomUUID ? crypto.randomUUID() : ([1e7] + -1e3 + -4e3 + -8e3 + -1e11).replace(/[018]/g, x => (x ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> x / 4).toString(16)));
+      const fotos = []; let falhas = 0;
+      for (let i = 0; i < fotosPub.length; i++) {
+        b.textContent = `Enviando foto ${i + 1} de ${fotosPub.length}…`;
+        const path = `${pasta}/${i + 1}.jpg`;
+        try { await store.enviarFotoPublica(path, fotosPub[i].blob); fotos.push(path); } catch { falhas++; }
+      }
+      b.textContent = 'Enviando pedido…';
+      const r = await store.novaDemandaPublica({ ...c, fotos });
+      const avisoFotos = fotosPub.length && (falhas === fotosPub.length || r?.semFotos) ? 'Não foi possível enviar as fotos. Se quiser, mande pelo WhatsApp do gabinete.' : falhas ? `${falhas} foto(s) não foram enviadas.` : '';
+      fotosPub.forEach(x => globalThis.URL.revokeObjectURL(x.url)); fotosPub = [];
+      renderFormPublico('', true, { avisoFotos });
+    }
     catch (err) { renderFormPublico(errMsg(err), false, c); }
   });
 }
