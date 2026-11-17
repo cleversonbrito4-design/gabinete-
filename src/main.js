@@ -507,6 +507,7 @@ function fieldInput(f, v, ro) {
   if (f.type === 'textarea') return `<textarea id="${id}" ${dis}>${esc(v)}</textarea>`;
   if (f.type === 'money') return `<input id="${id}" inputmode="decimal" placeholder="0,00" value="${v !== '' && v != null ? esc(Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2 })) : ''}" ${dis}>`;
   const type = ['date', 'time', 'number', 'tel', 'email', 'url'].includes(f.type) ? f.type : 'text';
+  if (type === 'tel') return `<input id="${id}" type="tel" inputmode="numeric" maxlength="20" placeholder="(45) 99999-9999" value="${esc(v)}" autocomplete="off" ${dis}>`;
   const list = f.list ? 'list="dl-munis"' : f.people ? 'list="dl-pessoas"' : f.team ? 'list="dl-equipe"' : '';
   return `<input id="${id}" type="${type}" value="${esc(f.type === 'time' ? hhmm(v) : v)}" ${list} ${f.mono ? 'style="font-family:var(--mono)"' : ''} autocomplete="off" ${dis}>`;
 }
@@ -616,6 +617,10 @@ async function saveDrawer() {
   const rec = readForm(mod);
   const missing = M.fields.filter(f => f.req && (rec[f.k] == null || rec[f.k] === '')).map(f => f.l);
   if (missing.length) { const e = $('#frm-err'); e.hidden = false; e.textContent = 'Preencha: ' + missing.join(', ') + '.'; return; }
+  // trava de telefone: confere só o que foi digitado ou mudado (cadastros antigos continuam salvando)
+  const telRuim = M.fields.filter(f => f.type === 'tel' && rec[f.k] && digitosTel(rec[f.k]) !== digitosTel(old?.[f.k]) && !telefoneOk(rec[f.k]));
+  if (telRuim.length) { const e = $('#frm-err'); e.hidden = false; e.textContent = 'Telefone inválido. Digite com DDD: (45) 99999-9999 para celular ou (45) 3333-4444 para fixo.'; const i = $('#f-' + telRuim[0].k); if (i) i.focus(); return; }
+  M.fields.filter(f => f.type === 'tel' && rec[f.k] && telefoneOk(rec[f.k])).forEach(f => { rec[f.k] = mascaraTel(rec[f.k]); });
   const st = $('#f-status').value; const now = new Date().toISOString(); const por = myName();
   const hist = (old?.historico || []).slice();
   if (!old) hist.push({ em: now, txt: 'Cadastrado como “' + st + '”', por });
@@ -1166,6 +1171,22 @@ async function fotoJpeg(f, max = 1600) {
   if (!blob) throw new Error('falha');
   return blob;
 }
+/* ---------- trava de telefone ---------- */
+/** Só números, sem o +55; no máximo 11 dígitos (DDD + número). */
+const digitosTel = v => { let d = String(v || '').replace(/\D/g, ''); if (d.length > 11 && d.startsWith('55')) d = d.slice(2); if (d.length > 11 && d.startsWith('0')) d = d.replace(/^0+/, ''); return d.slice(0, 11); };
+/** (45) 99999-9999 ou (45) 3333-4444 enquanto digita. */
+function mascaraTel(v) {
+  const d = digitosTel(v);
+  if (!d) return '';
+  if (d.length <= 2) return '(' + d;
+  if (d.length <= 6) return `(${d.slice(0, 2)}) ${d.slice(2)}`;
+  if (d.length <= 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
+  return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
+}
+const dddOk = d => /^[1-9][1-9]/.test(d);
+const celularOk = v => { const d = digitosTel(v); return d.length === 11 && dddOk(d) && d[2] === '9'; };
+const telefoneOk = v => { const d = digitosTel(v); return celularOk(d) || (d.length === 10 && dddOk(d) && /[2-5]/.test(d[2])); };
+
 function renderFormPublico(msg = '', ok = false, vals = {}) {
   document.title = 'Fale com o gabinete · ' + NOME_GAB();
   if (ok) {
@@ -1180,7 +1201,7 @@ function renderFormPublico(msg = '', ok = false, vals = {}) {
     <div style="display:flex;gap:10px;align-items:center"><div class="mark">G</div><h1>${esc(NOME_GAB())}</h1></div>
     <div class="m">Conte para o gabinete do ${esc(DEP())} o que você precisa: um buraco na rua, iluminação, saúde, um pedido para o seu bairro. A equipe responde pelo WhatsApp ou telefone.</div>
     <div class="f"><label for="fp-nome">Seu nome *</label><input id="fp-nome" autocomplete="name" maxlength="120" value="${v('nome')}"></div>
-    <div class="f"><label for="fp-tel">WhatsApp / telefone *</label><input id="fp-tel" type="tel" autocomplete="tel" maxlength="30" placeholder="(45) 99999-9999" value="${v('telefone')}"></div>
+    <div class="f"><label for="fp-tel">WhatsApp / telefone *</label><input id="fp-tel" type="tel" inputmode="numeric" autocomplete="tel" maxlength="20" placeholder="(45) 99999-9999" value="${esc(mascaraTel(vals.telefone))}"></div>
     <div class="f"><label for="fp-mun">Cidade</label><input id="fp-mun" maxlength="80" value="${v('municipio')}"></div>
     <div class="f"><label for="fp-bairro">Bairro</label><input id="fp-bairro" maxlength="80" value="${v('bairro')}"></div>
     <div class="f"><label for="fp-ass">Qual é o pedido? *</label><input id="fp-ass" maxlength="200" placeholder="Ex.: Troca de lâmpada na Rua das Flores" value="${v('assunto')}"></div>
@@ -1212,7 +1233,9 @@ function renderFormPublico(msg = '', ok = false, vals = {}) {
     e.preventDefault();
     const c = { lat: vals.lat, lng: vals.lng, nome: $('#fp-nome').value.trim(), telefone: $('#fp-tel').value.trim(), municipio: $('#fp-mun').value.trim(), bairro: $('#fp-bairro').value.trim(), assunto: $('#fp-ass').value.trim(), descricao: $('#fp-desc').value.trim() };
     if ($('#fp-site').value) return renderFormPublico('', true);
-    if (!c.nome || !c.assunto || c.telefone.replace(/\D/g, '').length < 10) return renderFormPublico(!c.nome || !c.assunto ? 'Preencha seu nome e o pedido.' : 'Digite o telefone com DDD.', false, c);
+    if (!c.nome || !c.assunto) return renderFormPublico('Preencha seu nome e o pedido.', false, c);
+    if (!celularOk(c.telefone)) return renderFormPublico('Digite um número de celular válido, com DDD: (45) 99999-9999.', false, c);
+    c.telefone = mascaraTel(c.telefone);
     const b = e.target.querySelector('[type=submit]'); b.disabled = true; b.textContent = 'Enviando…';
     try {
       // primeiro as fotos, depois o pedido já com elas
@@ -1584,6 +1607,7 @@ document.addEventListener('submit', async e => {
   try { await store.saveProfile(state.session.user.id, n); state.profiles = await store.loadProfiles(); toast('Nome salvo'); render(); } catch (err) { toast(errMsg(err)); }
 });
 document.addEventListener('input', e => {
+  if (e.target.type === 'tel' && e.target.tagName === 'INPUT') { const m = mascaraTel(e.target.value); if (m !== e.target.value) e.target.value = m; }
   if (e.target.id === 'disp-texto' && state.disp) { state.disp.texto = e.target.value; const p = state.disp.lista[state.disp.i]; if (p) { const t = preencher(state.disp.texto, { nome: primeiroNome(p.nome), vereador: DEP() }); const pv = $('.disp-prev'); if (pv) pv.textContent = t; const b = $('[data-disp-enviar]'); if (b) b.href = waLink(p.telefone, t); } return; }
   if (e.target.id === 'q') { state.q = e.target.value; render(); }
   if (e.target.dataset && e.target.dataset.et) { state.et[e.target.dataset.et] = e.target.value; const pos = e.target.id; render(); const el = document.getElementById(pos); if (el) el.focus(); }

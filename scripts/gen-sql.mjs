@@ -133,6 +133,11 @@ begin
   if coalesce(trim(p_nome), '') = '' or coalesce(trim(p_assunto), '') = '' or coalesce(trim(p_telefone), '') = '' then
     raise exception 'Preencha nome, telefone e assunto.';
   end if;
+  -- trava do celular: só aceita celular brasileiro com DDD (11 dígitos, o 3º é 9); grava no formato (45) 99999-9999
+  p_telefone := regexp_replace(p_telefone, '\\D', '', 'g');
+  if length(p_telefone) > 11 and p_telefone like '55%' then p_telefone := substr(p_telefone, 3); end if;
+  if p_telefone !~ '^[1-9][1-9]9[0-9]{8}$' then raise exception 'Digite um número de celular válido, com DDD.'; end if;
+  p_telefone := '(' || substr(p_telefone, 1, 2) || ') ' || substr(p_telefone, 3, 5) || '-' || substr(p_telefone, 8);
   -- trava contra abuso: no máximo 60 pedidos pelo site por hora e 3 por telefone por dia
   if (select count(*) from public.demandas where origem = 'Site do gabinete' and criado_em > now() - interval '1 hour') >= 60 then
     raise exception 'Muitos pedidos agora. Tente de novo mais tarde.';
