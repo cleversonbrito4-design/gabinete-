@@ -11,7 +11,7 @@ import * as mapaLib from './mapa.js';
 const env = import.meta.env;
 const CFG_CAMPOS = [
   ['gabinete', 'Nome do gabinete', env.VITE_NOME_GABINETE || 'Gestão do Gabinete'],
-  ['deputado_nome', 'Nome do deputado (como assina)', env.VITE_DEPUTADO_NOME || ''],
+  ['deputado_nome', 'Nome do parlamentar (como assina)', env.VITE_DEPUTADO_NOME || ''],
   ['deputado_cargo', 'Cargo', env.VITE_DEPUTADO_CARGO || 'Deputado Estadual'],
   ['casa_legislativa', 'Casa legislativa', env.VITE_CASA || 'Assembleia Legislativa do Estado'],
   ['cidade_gabinete', 'Cidade do gabinete (para a data dos documentos)', env.VITE_CIDADE || ''],
@@ -103,7 +103,7 @@ const state = { rota: [], cal: '', disp: null, rem: { ano: '', municipio: '' }, 
 const drawer = { open: false, mod: null, id: null, geo: null };
 let geoMini = null; // mapinha aberto dentro do registro
 let pedidoInstalar = null; // convite do navegador para instalar o app
-const VIEWS = ['disparo', 'painel', 'etiquetas', 'conta', 'relatorios', 'importar', 'mapa', 'resumo-emendas', 'cidadao', ...ORDER];
+const VIEWS = ['admin', 'disparo', 'painel', 'etiquetas', 'conta', 'relatorios', 'importar', 'mapa', 'resumo-emendas', 'cidadao', ...ORDER];
 
 function readHash() { const h = location.hash.slice(1); if (VIEWS.includes(h)) state.view = h; }
 window.addEventListener('hashchange', () => { readHash(); state.q = state.qNext || ''; state.filter = state.qNext ? 'todos' : 'abertos'; state.qNext = ''; render(); });
@@ -430,21 +430,7 @@ function renderConta() {
         <div class="f"><label for="pf-nome">Nome</label><input id="pf-nome" value="${esc(myName())}"></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" type="submit">Salvar nome</button>${store.configured ? '<button class="btn" type="button" id="pf-senha">Trocar senha</button><button class="btn danger" type="button" id="pf-sair">Sair</button>' : ''}</div>
       </form></section>
-    <section class="panel"><h3>Equipe</h3>
-      <p class="m" style="margin-top:0">Só os e-mails desta lista conseguem ver os dados. O administrador adiciona o e-mail aqui e a pessoa abre o sistema e toca em <b>"Primeiro acesso? Criar minha conta"</b>.</p>
-      <div id="equipe-box"><div class="m">Carregando…</div></div>
-      ${store.configured ? `<form id="eq-add" hidden style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap" novalidate><input id="eq-email" type="email" placeholder="email@exemplo.com" style="flex:1 1 200px;min-width:0;border:1px solid var(--line);background:var(--bg);border-radius:7px;padding:8px 10px"><button class="btn primary" type="submit">Liberar e-mail</button></form>` : ''}
-      ${state.profiles.length ? `<div class="eyebrow" style="margin-top:14px">Nomes cadastrados</div><div class="m">${state.profiles.map(p => esc(p.nome)).join(', ')}</div>` : ''}</section>
-    <section class="panel"><h3>Dados do gabinete</h3><p class="m" style="margin-top:0">Aparecem no topo do sistema e nos ofícios e indicações.</p>
-      <form id="cfg" class="filters" style="grid-template-columns:1fr;margin:0" novalidate>${CFG_CAMPOS.map(([k, l]) => `<div class="f"><label for="cfg-${k}">${esc(l)}</label><input id="cfg-${k}" value="${esc(cfg[k])}"></div>`).join('')}
-      <div><button class="btn primary" type="submit">Salvar dados do gabinete</button></div></form></section>
-    <section class="panel"><h3>Modelos de Word</h3><p class="m" style="margin-top:0">Baixe o modelo, mude o que quiser no Word (brasão, fonte, textos) e envie de volta. Os campos entre chaves são preenchidos pelo sistema.</p>
-      <div id="modelos-box"><div class="m">Carregando…</div></div>
-      <details style="margin-top:10px"><summary class="m" style="cursor:pointer">Campos que você pode usar no modelo</summary><div class="hist"><ol>${docs.CAMPOS.map(([k, l]) => `<li><time>{${k}}</time><span>${esc(l)}</span></li>`).join('')}</ol></div></details></section>
-    <section class="panel"><h3>Mensagens prontas do WhatsApp</h3>
-      <p class="m" style="margin-top:0">Textos usados nos botões de WhatsApp. Mude o que quiser. Palavras entre chaves são trocadas sozinhas: <b>{nome}</b>, <b>{assunto}</b>, <b>{situacao}</b>, <b>{orgao}</b>, <b>{vereador}</b>, <b>{link_avaliacao}</b>, <b>{evento}</b>, <b>{data}</b>, <b>{hora}</b>, <b>{local}</b>.</p>
-      <form id="msgs" class="filters" style="grid-template-columns:1fr;margin:0" novalidate>${Object.entries(MSG_PADRAO).map(([k, [l]]) => `<div class="f"><label for="msg-${k}">${esc(l)}${msgs[k] ? ' <span class="m">(personalizada)</span>' : ''}</label><textarea id="msg-${k}" rows="3">${esc(msgTexto(k))}</textarea></div>`).join('')}
-      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" type="submit">Salvar mensagens</button><button class="btn ghost" type="button" id="msgs-padrao">Voltar ao texto original</button></div></form></section>
+    ${state.admin ? `<section class="panel adm-chamada"><h3>Administração</h3><p class="m" style="margin-top:0">Só você vê: último acesso de cada colaborador, liberar e remover e-mails, dados do gabinete, mensagens prontas e modelos de Word.</p><button class="btn primary" data-go="admin">Abrir Administração</button></section>` : ''}
     <section class="panel"><h3>Cópia de segurança</h3>
       <p class="m" style="margin-top:0">Baixa uma planilha do Excel com tudo o que está no sistema, uma aba para cada assunto. Faça uma vez por semana e guarde no Google Drive ou mande para o seu e-mail. O 🔔 avisa quando passar de 7 dias.</p>
       <p class="m">${state.backup?.em ? 'Última cópia: ' + fmtStamp(state.backup.em) + (state.backup.por ? ' por ' + esc(state.backup.por) : '') : 'Nenhuma cópia feita ainda.'}</p>
@@ -475,17 +461,8 @@ function render() {
   const main = $('#main');
   const hadFocus = document.activeElement && document.activeElement.id === 'q'; const pos = hadFocus ? document.activeElement.selectionStart : 0;
   if (state.view !== 'etiquetas') $('#page-css').textContent = '';
-  if (state.view === 'conta') setTimeout(async () => {
-    const b = $('#modelos-box'); if (b) b.innerHTML = await modelosHtml();
-    const q = $('#equipe-box'); if (q) { try {
-      const [l, adm] = await Promise.all([store.listEquipe(), store.isAdmin()]); state.admin = adm;
-      const me = (state.session?.user?.email || '').toLowerCase();
-      q.innerHTML = (l.length ? l.map(({ email: e, admin }) => `<div class="ag-item" style="cursor:default;grid-template-columns:minmax(0,1fr) auto;align-items:center"><div class="t" style="font-weight:500">${esc(e)}${e === me ? ' <span class="m">(você)</span>' : ''}${admin ? ' <span class="pill k-novo">Administrador</span>' : ''}</div>${e === me || admin || !adm ? '' : `<button class="btn mini ghost" data-eq-del="${esc(e)}">Remover</button>`}</div>`).join('') : '<div class="m">Nenhum e-mail na lista.</div>')
-        + (adm ? '' : '<p class="m" style="margin-bottom:0">Só o administrador do sistema pode liberar ou remover e-mails. Peça a ele.</p>');
-      const f = $('#eq-add'); if (f) f.hidden = !adm;
-    } catch (err) { q.innerHTML = '<div class="m">' + (store.configured ? esc(errMsg(err)) : 'Disponível quando o banco estiver ligado.') + '</div>'; } }
-  }, 0);
-  main.innerHTML = state.view === 'painel' ? renderPainel() : state.view === 'etiquetas' ? renderEtiquetas() : state.view === 'conta' ? renderConta() : state.view === 'relatorios' ? renderRelatorios() : state.view === 'importar' ? renderImportar() : state.view === 'mapa' ? renderMapa() : state.view === 'resumo-emendas' ? renderResumoEmendas() : state.view === 'cidadao' ? renderCidadao() : state.view === 'disparo' ? renderDisparo() : renderList(state.view);
+  if (state.view === 'admin') setTimeout(async () => { const b = $('#modelos-box'); if (b) b.innerHTML = await modelosHtml(); carregarAdmin(); }, 0);
+  main.innerHTML = state.view === 'painel' ? renderPainel() : state.view === 'etiquetas' ? renderEtiquetas() : state.view === 'conta' ? renderConta() : state.view === 'admin' ? renderAdmin() : state.view === 'relatorios' ? renderRelatorios() : state.view === 'importar' ? renderImportar() : state.view === 'mapa' ? renderMapa() : state.view === 'resumo-emendas' ? renderResumoEmendas() : state.view === 'cidadao' ? renderCidadao() : state.view === 'disparo' ? renderDisparo() : renderList(state.view);
   if (state.view === 'mapa') setTimeout(desenharMapa, 0); else mapaLib.destruir();
   if (hadFocus) { const q = $('#q'); if (q) { q.focus(); try { q.setSelectionRange(pos, pos); } catch { /* ok */ } } }
   if (drawer.open) refreshDatalists();
@@ -1342,6 +1319,74 @@ function renderCidadao() {
 
 /* ---------- prestação de contas pública ---------- */
 const linkPrestacao = () => location.origin + location.pathname + '?prestacao';
+/* ---------- administração (só o administrador) ---------- */
+const dataHora = iso => iso ? new Date(iso).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
+function haQuanto(iso) {
+  if (!iso) return 'nunca';
+  const min = Math.round((Date.now() - new Date(iso)) / 60000);
+  if (min < 2) return 'agora'; if (min < 60) return 'há ' + min + ' min';
+  const h = Math.round(min / 60); if (h < 24) return 'há ' + h + ' h';
+  const d = Math.round(h / 24); return d === 1 ? 'ontem' : 'há ' + d + ' dias';
+}
+function renderAdmin() {
+  if (!state.admin) return `<h2 class="sec">Administração</h2><div class="empty"><b>Só o administrador do sistema vê esta tela.</b></div>`;
+  return `<div class="no-print"><a class="linkbtn" data-go="conta">← Minha conta</a></div>
+  <h2 class="sec" style="margin-top:6px">Administração</h2>
+  <div class="m">Só você vê esta tela. Os horários estão no horário de Brasília.</div>
+  <section class="panel" style="margin-top:14px"><h3>Equipe e últimos acessos</h3>
+    <div id="adm-equipe"><div class="m">Carregando…</div></div>
+    ${store.configured ? `<form id="eq-add" style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap" novalidate><input id="eq-email" type="email" placeholder="email@exemplo.com" style="flex:1 1 200px;min-width:0;border:1px solid var(--line);background:var(--bg);border-radius:7px;padding:8px 10px"><button class="btn primary" type="submit">Liberar e-mail</button></form>` : ''}
+    <p class="m" style="margin-bottom:0">Para liberar alguém: digite o e-mail, toque em <b>Liberar e-mail</b> e peça para a pessoa abrir o sistema e tocar em <b>"Primeiro acesso? Criar minha conta"</b>.</p></section>
+  <section class="panel" style="margin-top:14px"><h3>Histórico de acessos</h3>
+    <div class="f" style="max-width:320px"><label for="adm-quem">Colaborador</label><select id="adm-quem"><option value="">Todos</option></select></div>
+    <div id="adm-hist" style="margin-top:8px"><div class="m">Carregando…</div></div></section>
+  <div class="cols" style="margin-top:14px">
+    <section class="panel"><h3>Dados do gabinete</h3><p class="m" style="margin-top:0">Aparecem no topo do sistema e nos ofícios e indicações.</p>
+      <form id="cfg" class="filters" style="grid-template-columns:1fr;margin:0" novalidate>${CFG_CAMPOS.map(([k, l]) => `<div class="f"><label for="cfg-${k}">${esc(l)}</label><input id="cfg-${k}" value="${esc(cfg[k])}"></div>`).join('')}
+      <div><button class="btn primary" type="submit">Salvar dados do gabinete</button></div></form></section>
+    <section class="panel"><h3>Modelos de Word</h3><p class="m" style="margin-top:0">Baixe o modelo, mude o que quiser no Word (brasão, fonte, textos) e envie de volta. Os campos entre chaves são preenchidos pelo sistema.</p>
+      <div id="modelos-box"><div class="m">Carregando…</div></div>
+      <details style="margin-top:10px"><summary class="m" style="cursor:pointer">Campos que você pode usar no modelo</summary><div class="hist"><ol>${docs.CAMPOS.map(([k, l]) => `<li><time>{${k}}</time><span>${esc(l)}</span></li>`).join('')}</ol></div></details></section>
+    <section class="panel"><h3>Mensagens prontas do WhatsApp</h3>
+      <p class="m" style="margin-top:0">Textos usados nos botões de WhatsApp. Mude o que quiser. Palavras entre chaves são trocadas sozinhas: <b>{nome}</b>, <b>{assunto}</b>, <b>{situacao}</b>, <b>{orgao}</b>, <b>{vereador}</b>, <b>{link_avaliacao}</b>, <b>{evento}</b>, <b>{data}</b>, <b>{hora}</b>, <b>{local}</b>.</p>
+      <form id="msgs" class="filters" style="grid-template-columns:1fr;margin:0" novalidate>${Object.entries(MSG_PADRAO).map(([k, [l]]) => `<div class="f"><label for="msg-${k}">${esc(l)}${msgs[k] ? ' <span class="m">(personalizada)</span>' : ''}</label><textarea id="msg-${k}" rows="3">${esc(msgTexto(k))}</textarea></div>`).join('')}
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" type="submit">Salvar mensagens</button><button class="btn ghost" type="button" id="msgs-padrao">Voltar ao texto original</button></div></form></section>
+  </div>`;
+}
+async function carregarAdmin() {
+  const box = $('#adm-equipe'); if (!box) return;
+  const me = (state.session?.user?.email || '').toLowerCase();
+  let us;
+  try { us = await store.adminUsuarios(); }
+  catch (err) { box.innerHTML = `<div class="err">${esc(/admin_usuarios|function/i.test(errMsg(err)) ? 'Falta rodar o atualizar-banco.sql no Supabase para ver os acessos.' : errMsg(err))}</div>`; us = (await store.listEquipe().catch(() => [])).map(x => ({ ...x })); }
+  state.admUsers = us;
+  if (us.length) box.innerHTML = `<div class="tab-wrap"><table class="rtab adm"><thead><tr><th>Colaborador</th><th>Último login</th><th>Último uso do sistema</th><th>Acessos (30 dias)</th><th></th></tr></thead><tbody>
+    ${us.map(u => `<tr><td><b>${esc(u.nome || u.email)}</b>${u.nome ? `<div class="m">${esc(u.email)}</div>` : ''}${u.admin ? ' <span class="pill k-novo">Administrador</span>' : ''}${u.email === me ? ' <span class="m">(você)</span>' : ''}${!u.conta_criada && 'conta_criada' in u ? '<div class="m" style="color:var(--and)">Ainda não criou a conta</div>' : ''}</td>
+      <td>${u.ultimo_login ? `${esc(dataHora(u.ultimo_login))}<div class="m">${esc(haQuanto(u.ultimo_login))}</div>` : '<span class="m">nunca</span>'}</td>
+      <td>${u.ultimo_acesso ? `${esc(dataHora(u.ultimo_acesso))}<div class="m">${esc(haQuanto(u.ultimo_acesso))}</div>` : '<span class="m">—</span>'}</td>
+      <td class="num">${u.acessos_30d ?? '—'}</td>
+      <td>${u.email === me || u.admin ? '' : `<button class="btn mini ghost" data-eq-del="${esc(u.email)}">Remover</button>`}</td></tr>`).join('')}</tbody></table></div>`;
+  else if (!box.querySelector('.err')) box.innerHTML = '<div class="m">Nenhum e-mail na lista.</div>';
+  const sel = $('#adm-quem'); if (sel && sel.options.length === 1) us.forEach(u => sel.insertAdjacentHTML('beforeend', `<option value="${esc(u.email)}">${esc(u.nome || u.email)}</option>`));
+  await carregarHistorico();
+}
+async function carregarHistorico() {
+  const box = $('#adm-hist'); if (!box) return;
+  const quem = $('#adm-quem')?.value || '';
+  try {
+    const l = await store.listarAcessos(quem, 200);
+    const nome = em => (state.admUsers || []).find(u => u.email === em)?.nome || em;
+    box.innerHTML = l.length ? `<div class="tab-wrap"><table class="rtab"><thead><tr><th>Quando</th><th>Quem</th><th>Aparelho</th></tr></thead><tbody>${l.map(a => `<tr><td>${esc(dataHora(a.em))}</td><td>${esc(nome(a.email))}</td><td>${esc(a.aparelho || '')}</td></tr>`).join('')}</tbody></table></div><p class="m" style="margin-bottom:0">Conta uma vez a cada 10 minutos de uso. Mostrando os últimos ${l.length}.</p>`
+      : '<div class="m">Nenhum acesso registrado ainda. Os acessos passam a ser registrados a partir de agora.</div>';
+  } catch (err) { box.innerHTML = `<div class="m">${esc(/acessos|relation|schema cache/i.test(errMsg(err)) ? 'Falta rodar o atualizar-banco.sql no Supabase.' : errMsg(err))}</div>`; }
+}
+function aparelho() {
+  const u = navigator.userAgent;
+  const tipo = /iPhone|Android.+Mobile|Mobile/i.test(u) ? 'Celular' : /iPad|Tablet|Android/i.test(u) ? 'Tablet' : 'Computador';
+  const so = /iPhone|iPad/.test(u) ? 'iPhone' : /Android/.test(u) ? 'Android' : /Windows/.test(u) ? 'Windows' : /Mac OS/.test(u) ? 'Mac' : /Linux/.test(u) ? 'Linux' : '';
+  return tipo + (so && so !== tipo ? ' · ' + so : '') + (matchMedia('(display-mode: standalone)').matches ? ' · app' : '');
+}
+
 /* ---------- calendário do mês (agenda) ---------- */
 function calendarioHtml() {
   const t = todayStr(); const ym = state.cal || t.slice(0, 7); const [y, mo] = ym.split('-').map(Number);
@@ -1561,6 +1606,7 @@ document.addEventListener('click', e => {
   if (e.target.closest('#pf-senha')) { renderSetPassword(); return; }
 });
 document.addEventListener('change', async e => {
+  if (e.target.id === 'adm-quem') { carregarHistorico(); return; }
   const el = e.target;
   if (el.dataset && 'anxAdd' in el.dataset) { const files = [...el.files]; el.value = ''; if (files.length) anexarArquivos(drawer.mod, drawer.id, files).catch(err => toast('Não foi possível anexar: ' + errMsg(err))); return; }
   if (el.dataset && el.dataset.rel) { state.rel[el.dataset.rel] = el.value; if (el.dataset.rel === 'mod') Object.assign(state.rel, { municipio: '', bairro: '', status: '' }); render(); return; }
@@ -1627,6 +1673,8 @@ async function startApp() {
     if ((await store.isEquipe()) === false) return renderSemAcesso();
   } else state.session = await store.getSession();
   try { state.profiles = await store.loadProfiles(); } catch { state.profiles = []; }
+  try { state.admin = await store.isAdmin(); } catch { state.admin = false; }
+  store.registrarAcesso(aparelho()).catch(() => {});
   try { state.backup = await store.getConfig('backup'); } catch { /* ok */ }
   try { msgs = (await store.getConfig('mensagens')) || {}; } catch { msgs = {}; }
   try { const c = await store.getConfig('gabinete'); if (c) Object.entries(c).forEach(([k, v]) => { if (v) cfg[k] = v; }); } catch { /* usa os padrões */ }

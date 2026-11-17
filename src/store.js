@@ -250,3 +250,23 @@ export async function avaliar(token, nota, comentario) {
   if (error) throw error;
   return data;
 }
+
+/* ---------- administração ---------- */
+export async function registrarAcesso(aparelho) {
+  if (!sb) return;
+  await sb.rpc('registrar_acesso', { p_aparelho: aparelho });
+}
+export async function adminUsuarios() {
+  if (!sb) { const agora = new Date().toISOString(); return [{ email: 'demonstracao', nome: 'Demonstração', admin: true, conta_criada: agora, ultimo_login: agora, ultimo_acesso: agora, acessos_30d: 1 }]; }
+  const { data, error } = await sb.rpc('admin_usuarios');
+  if (error) throw error;
+  return data || [];
+}
+export async function listarAcessos(email, limite = 200) {
+  if (!sb) return [{ email: 'demonstracao', em: new Date().toISOString(), aparelho: 'Computador' }];
+  let q = sb.from('acessos').select('email, em, aparelho').order('em', { ascending: false }).limit(limite);
+  if (email) q = q.eq('email', email);
+  const { data, error } = await q;
+  if (error) throw error;
+  return data;
+}

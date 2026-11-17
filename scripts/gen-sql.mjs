@@ -60,8 +60,59 @@ p(`create table if not exists public.config (
   atualizado_em timestamptz not null default now()
 );
 alter table public.config enable row level security;
+-- toda a equipe lê; as configurações do sistema (dados do gabinete, mensagens, modelos de Word…) só o administrador muda.
+-- "geo" (posições do mapa) e "backup" (data da última cópia) a equipe toda grava.
 drop policy if exists "equipe acessa config" on public.config;
-create policy "equipe acessa config" on public.config for all to authenticated using (public.is_equipe()) with check (public.is_equipe());
+drop policy if exists "equipe le config" on public.config;
+create policy "equipe le config" on public.config for select to authenticated using (public.is_equipe());
+drop policy if exists "grava config" on public.config;
+drop policy if exists "inclui config" on public.config;
+create policy "inclui config" on public.config for insert to authenticated with check (public.is_equipe() and (id in ('geo', 'backup') or public.is_admin()));
+drop policy if exists "altera config" on public.config;
+create policy "altera config" on public.config for update to authenticated using (public.is_equipe() and (id in ('geo', 'backup') or public.is_admin())) with check (public.is_equipe() and (id in ('geo', 'backup') or public.is_admin()));
+drop policy if exists "apaga config" on public.config;
+create policy "apaga config" on public.config for delete to authenticated using (public.is_admin());
+
+-- Registro de acessos: cada colaborador grava o próprio acesso; só o administrador consulta.
+create table if not exists public.acessos (
+  id bigint generated always as identity primary key,
+  email text not null,
+  em timestamptz not null default now(),
+  aparelho text
+);
+create index if not exists acessos_email_em on public.acessos (email, em desc);
+alter table public.acessos enable row level security;
+drop policy if exists "admin ve acessos" on public.acessos;
+create policy "admin ve acessos" on public.acessos for select to authenticated using (public.is_admin());
+create or replace function public.registrar_acesso(p_aparelho text) returns void
+language plpgsql security definer set search_path = public as $$
+declare v_email text := lower(coalesce(auth.jwt() ->> 'email', ''));
+begin
+  if not public.is_equipe() then return; end if;
+  -- no máximo um registro a cada 10 minutos por pessoa
+  if exists (select 1 from public.acessos where email = v_email and em > now() - interval '10 minutes') then return; end if;
+  insert into public.acessos (email, aparelho) values (v_email, left(coalesce(p_aparelho, ''), 80));
+  delete from public.acessos where email = v_email and em < now() - interval '1 year';
+end $$;
+revoke all on function public.registrar_acesso(text) from public, anon;
+grant execute on function public.registrar_acesso(text) to authenticated;
+
+-- Painel do administrador: último login de cada colaborador (dados do login do Supabase).
+create or replace function public.admin_usuarios() returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if not public.is_admin() then raise exception 'Só o administrador pode ver esta tela.'; end if;
+  return coalesce((select jsonb_agg(jsonb_build_object(
+      'email', e.email, 'admin', e.admin, 'liberado_em', e.criado_em,
+      'nome', (select p.nome from public.perfis p where p.id = u.id),
+      'conta_criada', u.created_at, 'ultimo_login', u.last_sign_in_at,
+      'ultimo_acesso', (select max(a.em) from public.acessos a where a.email = e.email),
+      'acessos_30d', (select count(*) from public.acessos a where a.email = e.email and a.em > now() - interval '30 days'))
+    order by e.admin desc, e.email)
+    from public.equipe e left join auth.users u on lower(u.email) = e.email), '[]'::jsonb);
+end $$;
+revoke all on function public.admin_usuarios() from public, anon;
+grant execute on function public.admin_usuarios() to authenticated;
 `);
 
 p(`create or replace function public.tocar_atualizado_em() returns trigger language plpgsql as $$
