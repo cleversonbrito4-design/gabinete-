@@ -37,7 +37,11 @@ export async function saveRow(mod, id, rec) {
     let row;
     const i = id ? a.findIndex(r => r.id === id) : -1;
     if (i >= 0) { row = { ...a[i], ...body, atualizado_em: now }; a[i] = row; }
-    else { row = { ...body, id: uuid(), criado_em: now, atualizado_em: now }; a.unshift(row); }
+    else {
+      row = { ...body, id: uuid(), criado_em: now, atualizado_em: now };
+      if (mod === 'demandas' && !row.protocolo) { const n = a.reduce((m, r) => Math.max(m, +String(r.protocolo || '').split('-')[1] || 0), 0) + 1; row.protocolo = now.slice(0, 4) + '-' + String(n).padStart(6, '0'); }
+      a.unshift(row);
+    }
     d[mod] = a; demoWrite(d); return row;
   }
   // se o banco ainda não tiver alguma coluna nova, grava o resto em vez de falhar
@@ -195,11 +199,12 @@ export async function apagarAnexo(path) {
 export async function novaDemandaPublica(c) {
   if (!sb) throw new Error('O formulário só funciona com o banco ligado.');
   const base = { p_nome: c.nome, p_telefone: c.telefone, p_municipio: c.municipio, p_bairro: c.bairro, p_assunto: c.assunto, p_descricao: c.descricao, ...(c.lat != null ? { p_lat: c.lat, p_lng: c.lng } : {}) };
-  let { error } = await sb.rpc('nova_demanda_publica', c.fotos && c.fotos.length ? { ...base, p_lat: c.lat ?? null, p_lng: c.lng ?? null, p_fotos: c.fotos } : base);
+  let { data, error } = await sb.rpc('nova_demanda_publica', c.fotos && c.fotos.length ? { ...base, p_lat: c.lat ?? null, p_lng: c.lng ?? null, p_fotos: c.fotos } : base);
+  const prot = d => typeof d === 'string' ? d : null;
   // banco ainda sem a versão com fotos: manda o pedido sem elas
-  if (error && c.fotos && c.fotos.length && /function|p_fotos|PGRST202/i.test(error.message + ' ' + error.code)) { ({ error } = await sb.rpc('nova_demanda_publica', base)); if (!error) return { semFotos: true }; }
+  if (error && c.fotos && c.fotos.length && /function|p_fotos|PGRST202/i.test(error.message + ' ' + error.code)) { ({ data, error } = await sb.rpc('nova_demanda_publica', base)); if (!error) return { semFotos: true, protocolo: prot(data) }; }
   if (error) throw error;
-  return {};
+  return { protocolo: prot(data) };
 }
 /** Foto mandada pelo cidadão no formulário (só cria, não lê). */
 export async function enviarFotoPublica(path, blob) {
@@ -267,6 +272,19 @@ export async function listarAcessos(email, limite = 200) {
   let q = sb.from('acessos').select('email, em, aparelho').order('em', { ascending: false }).limit(limite);
   if (email) q = q.eq('email', email);
   const { data, error } = await q;
+  if (error) throw error;
+  return data;
+}
+
+/** Consulta pública do andamento: precisa do protocolo e do celular juntos. */
+export async function consultarProtocolo(protocolo, telefone) {
+  if (!sb) {
+    const d = (demoRead().demandas || []).find(r => r.protocolo === protocolo.trim().toUpperCase() && String(r.telefone || '').replace(/\D/g, '').slice(-8) === String(telefone).replace(/\D/g, '').slice(-8));
+    if (!d) return null;
+    return { protocolo: d.protocolo, assunto: d.assunto, status: d.status, bairro: d.bairro, municipio: d.municipio, aberto_em: d.criado_em, atualizado_em: d.atualizado_em,
+      linha: (d.historico || []).filter(h => /^(Situação:|Cadastrado como|Recebida pelo formulário|Ofício de solicitação criado)/.test(h.txt || '')).map(h => ({ em: h.em, txt: /^Situação:/.test(h.txt) ? 'Situação: ' + h.txt.split('→')[1].trim() : /^Ofício/.test(h.txt) ? 'Ofício enviado ao órgão responsável' : 'Pedido registrado no gabinete' })) };
+  }
+  const { data, error } = await sb.rpc('consultar_protocolo', { p_protocolo: protocolo, p_telefone: telefone });
   if (error) throw error;
   return data;
 }

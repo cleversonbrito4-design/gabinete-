@@ -2,23 +2,23 @@
 /* Layout: barra de abas fixa no topo, painel de resumo + listas operacionais; edição em gaveta lateral */
 :root{
   --bg:#f3f6f4; --surface:#ffffff; --surface-2:#e9efeb; --line:#d3ddd7;
-  --fg:#10201a; --muted:#56665f; --accent:#007a3d; --accent-fg:#ffffff; --accent-soft:#d8efe1;
-  --verde:#009c3b; --amarelo:#ffdf00; --azul:#002776; --branco:#ffffff;
-  --novo:#002776; --novo-bg:#e0e7f6; --and:#9a5b00; --and-bg:#fbecd2; --ok:#1c7a3d; --ok-bg:#dcf1e2; --neg:#6b6f75; --neg-bg:#e7e8ea; --late:#b3261e; --late-bg:#fbe1de;
+  --fg:#10201a; --muted:#56665f; --accent:#1f6fae; --accent-fg:#ffffff; --accent-soft:#dcebf7;
+  --verde:#72a83b; --amarelo:#ffd200; --azul:#1a5f96; --branco:#ffffff; --marca-azul:#257ebf; --marca-verde:#72a83b;
+  --novo:#1a5f96; --novo-bg:#dfeaf6; --and:#9a5b00; --and-bg:#fbecd2; --ok:#1c7a3d; --ok-bg:#dcf1e2; --neg:#6b6f75; --neg-bg:#e7e8ea; --late:#b3261e; --late-bg:#fbe1de;
   --display:"Archivo","IBM Plex Sans",system-ui,sans-serif; --body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif; --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
   --shadow:0 10px 40px rgba(10,30,25,.18);
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
   --bg:#0f1513; --surface:#161e1b; --surface-2:#1e2824; --line:#2c3833;
-  --fg:#e5ece9; --muted:#9aa9a3; --accent:#3ccf7a; --accent-fg:#03200f; --accent-soft:#123a24;
-  --verde:#2fbf68; --amarelo:#ffdf00; --azul:#7d9cff; --branco:#ffffff;
-  --novo:#9db4ff; --novo-bg:#17234a; --and:#f0b25a; --and-bg:#3a2a12; --ok:#74d495; --ok-bg:#163522; --neg:#a3a8ae; --neg-bg:#272b2f; --late:#ff8a80; --late-bg:#3e1a17;
+  --fg:#e5ece9; --muted:#9aa9a3; --accent:#5aaef0; --accent-fg:#06192b; --accent-soft:#12304a;
+  --verde:#8cc456; --amarelo:#ffd200; --azul:#6fb3ec; --branco:#ffffff; --marca-azul:#5aaef0; --marca-verde:#8cc456;
+  --novo:#8cc0f0; --novo-bg:#152a40; --and:#f0b25a; --and-bg:#3a2a12; --ok:#74d495; --ok-bg:#163522; --neg:#a3a8ae; --neg-bg:#272b2f; --late:#ff8a80; --late-bg:#3e1a17;
   --shadow:0 10px 40px rgba(0,0,0,.5); color-scheme:dark}}
 :root[data-theme="dark"]{
   --bg:#0f1513; --surface:#161e1b; --surface-2:#1e2824; --line:#2c3833;
-  --fg:#e5ece9; --muted:#9aa9a3; --accent:#3ccf7a; --accent-fg:#03200f; --accent-soft:#123a24;
-  --verde:#2fbf68; --amarelo:#ffdf00; --azul:#7d9cff; --branco:#ffffff;
-  --novo:#9db4ff; --novo-bg:#17234a; --and:#f0b25a; --and-bg:#3a2a12; --ok:#74d495; --ok-bg:#163522; --neg:#a3a8ae; --neg-bg:#272b2f; --late:#ff8a80; --late-bg:#3e1a17;
+  --fg:#e5ece9; --muted:#9aa9a3; --accent:#5aaef0; --accent-fg:#06192b; --accent-soft:#12304a;
+  --verde:#8cc456; --amarelo:#ffd200; --azul:#6fb3ec; --branco:#ffffff; --marca-azul:#5aaef0; --marca-verde:#8cc456;
+  --novo:#8cc0f0; --novo-bg:#152a40; --and:#f0b25a; --and-bg:#3a2a12; --ok:#74d495; --ok-bg:#163522; --neg:#a3a8ae; --neg-bg:#272b2f; --late:#ff8a80; --late-bg:#3e1a17;
   --shadow:0 10px 40px rgba(0,0,0,.5); color-scheme:dark}
 *{box-sizing:border-box}
 body{background:var(--bg);color:var(--fg);font-family:var(--body);font-size:14px;line-height:1.45}
@@ -218,7 +218,7 @@ a.btn{text-decoration:none}
 .pin span{display:block;width:22px;height:22px;margin:0 2px;background:#b3261e;border:3px solid #fff;border-radius:50% 50% 50% 0;transform:rotate(-45deg);box-shadow:0 2px 6px rgba(0,0,0,.4)}
 
 /* faixa verde-amarelo-azul no topo (bandeira do Brasil) */
-header.top::before,.login-card::before{content:"";display:block;height:4px;background:linear-gradient(90deg,var(--verde) 0 50%,var(--amarelo) 50% 80%,var(--azul) 80% 100%)}
+header.top::before,.login-card::before{content:"";display:block;height:4px;background:linear-gradient(90deg,var(--marca-verde) 0 48%,var(--marca-azul) 48% 90%,var(--amarelo) 90% 100%)}
 .login-card{overflow:hidden;padding-top:0}
 .login-card::before{margin:0 -26px 8px}
 .tab[aria-selected="true"]{box-shadow:inset 0 -3px 0 var(--amarelo)}
@@ -242,9 +242,9 @@ header.top::before,.login-card::before{content:"";display:block;height:4px;backg
 /* página pública */
 .pub-page{min-height:100vh;background:var(--bg)}
 .pub-wrap{max-width:1040px;margin:0 auto;padding:0 16px}
-.pub-hero{background:linear-gradient(135deg,#00753a,#009c3b 60%,#0a8a3f);color:#fff;padding-bottom:26px;position:relative;overflow:hidden}
+.pub-hero{background:linear-gradient(135deg,#1a5f96,#257ebf 55%,#5c9a30);color:#fff;padding-bottom:26px;position:relative;overflow:hidden}
 .pub-hero::after{content:"";position:absolute;right:-80px;top:-60px;width:320px;height:320px;background:var(--amarelo);transform:rotate(45deg);opacity:.16}
-.pub-faixa{height:6px;background:linear-gradient(90deg,var(--verde) 0 50%,var(--amarelo) 50% 80%,var(--azul) 80% 100%)}
+.pub-faixa{height:6px;background:linear-gradient(90deg,var(--marca-verde) 0 48%,var(--marca-azul) 48% 90%,var(--amarelo) 90% 100%)}
 .pub-hero .pub-wrap{position:relative;z-index:1;padding-top:22px}
 .pub-hero h1{font-family:var(--display);font-size:clamp(26px,5vw,40px);margin:14px 0 6px;line-height:1.1}
 .pub-hero p{margin:0;opacity:.92;max-width:620px}
@@ -342,3 +342,20 @@ header.top::before,.login-card::before{content:"";display:block;height:4px;backg
 .gleg i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:5px;vertical-align:-2px}
 @media (max-width:640px){.gm-v{display:none}.gb-l{grid-template-columns:minmax(80px,40%) minmax(0,1fr) auto}}
 @media print{.graf-cols{display:grid;grid-template-columns:1fr 1fr;gap:12px}.kpis{grid-template-columns:repeat(3,1fr)!important}}
+
+/* marca Fala Cascavel */
+.logo-top{display:flex;flex:none}
+.logo-top img{height:40px;width:auto;display:block}
+.brand-l h1{border-left:1px solid var(--line);padding-left:12px}
+.marca-pub{display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center;margin-top:6px}
+.marca-pub img{width:min(220px,70%);height:auto}
+.pub-logo{background:#fff;border-radius:10px;padding:6px 10px;display:inline-flex}
+.pub-logo img{height:34px;width:auto}
+.prot-box{display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center;background:var(--accent-soft);border-radius:10px;padding:14px}
+.prot-box b{font-size:28px;letter-spacing:1px;color:var(--azul)}
+.consulta-res{display:flex;flex-direction:column;gap:8px;border:1px solid var(--line);border-radius:10px;padding:14px;background:var(--bg)}
+.consulta-linha{margin:4px 0 0;padding-left:18px;font-size:13px}
+.consulta-linha li{margin:3px 0}
+.consulta-linha time{color:var(--muted);margin-right:6px}
+@media (max-width:640px){.brand-l h1{display:none}.logo-top img{height:34px}}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .logo-top,:root:not([data-theme="light"]) .marca-pub img{background:#fff;border-radius:8px;padding:3px 6px}}

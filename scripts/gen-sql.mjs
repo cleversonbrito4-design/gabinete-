@@ -171,15 +171,75 @@ create policy "equipe apaga anexos" on storage.objects for delete to authenticat
 drop policy if exists "cidadao envia fotos" on storage.objects;
 create policy "cidadao envia fotos" on storage.objects for insert to anon, authenticated with check (bucket_id = 'anexos' and name ~ '^publico/[0-9a-f-]{36}/[0-9]+[.]jpg$');
 
+-- Protocolo da demanda (ex.: 2026-000123): o cidadão usa para acompanhar o pedido.
+alter table public.demandas add column if not exists protocolo text;
+create sequence if not exists public.demandas_protocolo_seq;
+create unique index if not exists demandas_protocolo_uk on public.demandas (protocolo);
+-- demandas antigas recebem protocolo pela ordem de cadastro
+with base as (select coalesce(max(substring(protocolo from '-([0-9]+)$')::int), 0) b from public.demandas),
+     x as (select id, row_number() over (order by criado_em, id) n from public.demandas where protocolo is null)
+update public.demandas d set protocolo = to_char(d.criado_em at time zone 'America/Sao_Paulo', 'YYYY') || '-' || lpad((base.b + x.n)::text, 6, '0')
+  from x, base where d.id = x.id;
+select setval('public.demandas_protocolo_seq', greatest(m, 1), m > 0)
+  from (select coalesce(max(substring(protocolo from '-([0-9]+)$')::int), 0) m from public.demandas) t;
+create or replace function public.demandas_protocolo() returns trigger language plpgsql set search_path = public as $$
+begin
+  if tg_op = 'UPDATE' and old.protocolo is not null then new.protocolo := old.protocolo; return new; end if;
+  if new.protocolo is null or new.protocolo = '' then
+    new.protocolo := to_char(now() at time zone 'America/Sao_Paulo', 'YYYY') || '-' || lpad(nextval('public.demandas_protocolo_seq')::text, 6, '0');
+  end if;
+  return new;
+end $$;
+drop trigger if exists demandas_protocolo on public.demandas;
+create trigger demandas_protocolo before insert or update on public.demandas for each row execute function public.demandas_protocolo();
+
+-- Consulta pública: precisa do protocolo E do celular juntos. Mostra só a situação e as datas.
+-- Trava contra adivinhação: 10 erros por protocolo por hora, 60 consultas por minuto no total.
+create table if not exists public.consulta_tentativas (protocolo text not null, em timestamptz not null default now());
+alter table public.consulta_tentativas enable row level security;
+create or replace function public.consultar_protocolo(p_protocolo text, p_telefone text) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  v_prot text := upper(regexp_replace(coalesce(p_protocolo, ''), '[^0-9A-Za-z-]', '', 'g'));
+  v_tel text := right(regexp_replace(coalesce(p_telefone, ''), '[^0-9]', '', 'g'), 8);
+  d public.demandas;
+begin
+  if v_prot = '' or length(v_tel) < 8 then raise exception 'Digite o número do protocolo e o celular com DDD.'; end if;
+  if (select count(*) from public.consulta_tentativas where protocolo = v_prot and em > now() - interval '1 hour') >= 10
+     or (select count(*) from public.consulta_tentativas where em > now() - interval '1 minute') >= 60 then
+    raise exception 'Muitas tentativas. Tente de novo mais tarde.';
+  end if;
+  select * into d from public.demandas
+    where protocolo = v_prot and length(regexp_replace(coalesce(telefone, ''), '[^0-9]', '', 'g')) >= 8
+      and right(regexp_replace(coalesce(telefone, ''), '[^0-9]', '', 'g'), 8) = v_tel;
+  if not found then
+    insert into public.consulta_tentativas (protocolo) values (v_prot);
+    delete from public.consulta_tentativas where em < now() - interval '1 day';
+    return null;
+  end if;
+  return jsonb_build_object('protocolo', d.protocolo, 'assunto', d.assunto, 'status', d.status, 'bairro', d.bairro, 'municipio', d.municipio,
+    'aberto_em', d.criado_em, 'atualizado_em', d.atualizado_em,
+    'linha', coalesce((select jsonb_agg(jsonb_build_object('em', h->>'em',
+        'txt', case when h->>'txt' like 'Situação:%' then 'Situação: ' || trim(split_part(h->>'txt', '→', 2))
+                    when h->>'txt' like 'Cadastrado como%' or h->>'txt' like 'Recebida%' then 'Pedido registrado no gabinete'
+                    else 'Ofício enviado ao órgão responsável' end) order by h->>'em')
+      from jsonb_array_elements(coalesce(d.historico, '[]'::jsonb)) h
+      where h->>'txt' like 'Situação:%' or h->>'txt' like 'Cadastrado como%' or h->>'txt' like 'Recebida pelo formulário%' or h->>'txt' like 'Ofício de solicitação criado%'), '[]'::jsonb),
+    'gabinete', (select jsonb_build_object('gabinete', valor->>'gabinete', 'deputado_nome', valor->>'deputado_nome', 'deputado_cargo', valor->>'deputado_cargo') from public.config where id = 'gabinete'));
+end $$;
+revoke all on function public.consultar_protocolo(text, text) from public;
+grant execute on function public.consultar_protocolo(text, text) to anon, authenticated;
+
 -- Formulário público: o cidadão abre uma demanda sem login.
 -- Só esta função é liberada para visitantes; eles não leem nada do banco.
 drop function if exists public.nova_demanda_publica(text, text, text, text, text, text);
 drop function if exists public.nova_demanda_publica(text, text, text, text, text, text, double precision, double precision);
+drop function if exists public.nova_demanda_publica(text, text, text, text, text, text, double precision, double precision, jsonb);
 create or replace function public.nova_demanda_publica(
   p_nome text, p_telefone text, p_municipio text, p_bairro text, p_assunto text, p_descricao text,
   p_lat double precision default null, p_lng double precision default null, p_fotos jsonb default null
-) returns boolean language plpgsql security definer set search_path = public as $$
-declare v_anexos jsonb := '[]'::jsonb;
+) returns text language plpgsql security definer set search_path = public as $$
+declare v_anexos jsonb := '[]'::jsonb; v_prot text;
 begin
   if coalesce(trim(p_nome), '') = '' or coalesce(trim(p_assunto), '') = '' or coalesce(trim(p_telefone), '') = '' then
     raise exception 'Preencha nome, telefone e assunto.';
@@ -209,8 +269,9 @@ begin
   insert into public.demandas (status, assunto, solicitante, telefone, municipio, bairro, origem, descricao, prioridade, historico, criado_por, lat, lng, anexos)
   values ('Nova', left(trim(p_assunto), 200), left(trim(p_nome), 120), left(trim(p_telefone), 30), nullif(left(trim(coalesce(p_municipio, '')), 80), ''),
     nullif(left(trim(coalesce(p_bairro, '')), 80), ''), 'Site do gabinete', nullif(left(trim(coalesce(p_descricao, '')), 3000), ''), 'Média',
-    jsonb_build_array(jsonb_build_object('em', now(), 'txt', 'Recebida pelo formulário do site' || case when jsonb_array_length(v_anexos) > 0 then ' com ' || jsonb_array_length(v_anexos) || ' foto(s)' else '' end, 'por', 'Site')), null, p_lat, p_lng, v_anexos);
-  return true;
+    jsonb_build_array(jsonb_build_object('em', now(), 'txt', 'Recebida pelo formulário do site' || case when jsonb_array_length(v_anexos) > 0 then ' com ' || jsonb_array_length(v_anexos) || ' foto(s)' else '' end, 'por', 'Site')), null, p_lat, p_lng, v_anexos)
+  returning protocolo into v_prot;
+  return v_prot;
 end $$;
 revoke all on function public.nova_demanda_publica(text, text, text, text, text, text, double precision, double precision, jsonb) from public;
 grant execute on function public.nova_demanda_publica(text, text, text, text, text, text, double precision, double precision, jsonb) to anon, authenticated;`);

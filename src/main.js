@@ -63,6 +63,7 @@ const primeiroNome = n => String(n || '').trim().split(/\s+/)[0] || '';
 /* Mensagens de WhatsApp: editáveis em Minha conta → Mensagens prontas. */
 const MSG_PADRAO = {
   contato: ['Contato geral', 'Olá, {nome}! Aqui é do gabinete do {vereador}.'],
+  registrado: ['Pedido registrado (protocolo)', 'Olá, {nome}! Aqui é do gabinete do {vereador}. Recebemos o seu pedido "{assunto}". Seu número de protocolo é {protocolo}. Para acompanhar a situação, acesse {link_consulta} e digite o protocolo e o seu celular.'],
   andamento: ['Pedido em andamento', 'Olá, {nome}! Aqui é do gabinete do {vereador}. Atualização sobre o seu pedido "{assunto}": a situação agora é "{situacao}". Assim que houver novidade, avisamos você.'],
   oficio: ['Ofício enviado', 'Olá, {nome}! Aqui é do gabinete do {vereador}. Sobre o seu pedido "{assunto}": enviamos ofício para {orgao}. Assim que tivermos resposta, avisamos você.'],
   concluida: ['Pedido concluído', 'Olá, {nome}! Aqui é do gabinete do {vereador}. Seu pedido "{assunto}" foi concluído! Ficamos felizes em ajudar. Pode nos dar uma nota de 1 a 5? Leva 10 segundos: {link_avaliacao}'],
@@ -77,8 +78,10 @@ function msg(tipo, vars) {
   const v = { vereador: DEP(), ...vars };
   // sem link de avaliação, tira a frase que pede a nota
   if (!v.link_avaliacao) t = t.replace(/[^.!?]*\{link_avaliacao\}[^.!?]*[.!?]?/g, '').replace(/\s+$/, '');
+  for (const k of ['protocolo', 'link_consulta']) if (!v[k]) t = t.replace(new RegExp('[^.!?]*\\{' + k + '\\}[^.!?]*[.!?]?', 'g'), '').replace(/\s+$/, '');
   return t.replace(/\{(\w+)\}/g, (_, k) => v[k] == null ? '' : String(v[k])).replace(/ {2,}/g, ' ').trim();
 }
+const linkConsulta = p => location.origin + location.pathname + '?consulta' + (p ? '=' + encodeURIComponent(p) : '');
 const linkAvaliacao = r => { const tk = r && (r.avaliacao_token || (!store.configured && r.id)); return tk ? location.origin + location.pathname + '?avaliar=' + tk : ''; };
 /** Troca {nome}, {evento}… num texto livre. Campos desconhecidos ficam como estão. */
 const preencher = (t, v) => String(t || '').replace(/\{(\w+)\}/g, (m, k) => k in v ? String(v[k] ?? '') : m);
@@ -89,7 +92,9 @@ function waTexto(mod, r) {
 }
 function waStatus(mod, r) {
   const k = kindOf(mod, r.status);
-  const vars = { nome: primeiroNome(r.solicitante), assunto: mod === 'demandas' ? r.assunto : r.servico, situacao: r.status, orgao: r.orgao || 'o órgão responsável', link_avaliacao: mod === 'demandas' ? linkAvaliacao(r) : '' };
+  const vars = { nome: primeiroNome(r.solicitante), assunto: mod === 'demandas' ? r.assunto : r.servico, situacao: r.status, orgao: r.orgao || 'o órgão responsável', link_avaliacao: mod === 'demandas' ? linkAvaliacao(r) : '',
+    protocolo: r.protocolo || '', link_consulta: r.protocolo ? linkConsulta(r.protocolo) : '' };
+  if (k === 'novo' && mod === 'demandas' && r.protocolo) return msg('registrado', vars);
   if (k === 'ok') return msg('concluida', vars);
   if (k === 'neg') return msg('negado', vars);
   if (mod === 'servicos' && r.status === 'Ofício enviado') return msg('oficio', vars);
@@ -114,10 +119,12 @@ const authHash = window.__authHash || '';
 let mustSetPassword = /type=(invite|recovery)/.test(authHash);
 
 let loginMode = 'entrar';
+/** Marca Fala Cascavel nas telas de entrada e páginas abertas ao cidadão. */
+const marcaPub = () => `<div class="marca-pub"><img src="/marca/fala-cascavel.svg" alt="Fala Cascavel" width="220" height="71"><div class="m">${esc(NOME_GAB())}</div></div>`;
 function renderLogin(msg = '', ok = '', email = '') {
   const criar = loginMode === 'criar';
   document.body.innerHTML = `<div class="login"><form class="login-card" id="login" novalidate>
-    <div style="display:flex;gap:10px;align-items:center"><div class="mark">G</div><h1>${esc(NOME_GAB())}</h1></div>
+    ${marcaPub()}
     ${criar ? '<div class="m">Use o e-mail que a equipe liberou para você.</div>' : ''}
     <div class="f"><label for="l-email">E-mail</label><input id="l-email" type="email" autocomplete="username" value="${esc(email)}" required></div>
     <div class="f"><label for="l-pass">${criar ? 'Crie uma senha (mínimo 8 caracteres)' : 'Senha'}</label><input id="l-pass" type="password" autocomplete="${criar ? 'new-password' : 'current-password'}" required></div>
@@ -194,7 +201,7 @@ function shell() {
   document.body.innerHTML = `
 <header class="top"><div class="wrap">
   <div class="brand">
-    <div class="brand-l"><div class="mark">G</div><h1>${esc(NOME_GAB())}<small>Demandas, ofícios, emendas, proposituras, agenda e pessoas</small></h1></div>
+    <div class="brand-l"><a href="#painel" class="logo-top" aria-label="Fala Cascavel – início"><img src="/marca/fala-cascavel.svg" alt="Fala Cascavel"></a><h1>${esc(NOME_GAB())}<small>Demandas, ofícios, emendas, proposituras, agenda e pessoas</small></h1></div>
     <div style="display:flex;gap:8px;align-items:center">
       <button class="btn ghost bell" id="btn-avisos" title="Avisos" aria-label="Avisos">🔔<span class="n" id="avisos-n" hidden></span></button>
       <button class="btn" id="btn-import" hidden>Importar</button>
@@ -520,7 +527,7 @@ function openDrawer(mod, id, preset = {}) {
   if (dt) acts.push(`<button class="btn mini" type="button" id="btn-doc">Gerar ${docs.TIPOS[dt]} (Word)</button>`);
   if (rec && mod === 'proposituras' && rec.link) acts.push(`<a class="btn mini" href="${esc(rec.link)}" target="_blank" rel="noopener">Abrir tramitação</a>`);
   $('#overlay').innerHTML = `<div class="scrim" data-close></div><aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="dr-t">
-    <div class="dr-head"><div style="min-width:0"><div class="eyebrow">${esc(M.label)}</div><h3 id="dr-t">${rec ? esc(M.title(rec)) : esc(M.novo)}</h3></div><button class="btn ghost" data-close aria-label="Fechar">✕</button></div>
+    <div class="dr-head"><div style="min-width:0"><div class="eyebrow">${esc(M.label)}${rec && rec.protocolo ? ' · Protocolo ' + esc(rec.protocolo) : ''}</div><h3 id="dr-t">${rec ? esc(M.title(rec)) : esc(M.novo)}</h3></div><button class="btn ghost" data-close aria-label="Fechar">✕</button></div>
     <form class="dr-body" id="frm" novalidate>${acts.length ? `<div class="dr-actions">${acts.join('')}</div>` : ''}${statusSel}<div class="f"></div>${fields}
       <datalist id="dl-munis"></datalist><datalist id="dl-pessoas"></datalist><datalist id="dl-equipe"></datalist><div class="err" id="frm-err" hidden></div>
       ${M.geo ? `<div class="geo" id="geo"><span class="eyebrow">Localização exata</span>
@@ -1167,15 +1174,15 @@ const telefoneOk = v => { const d = digitosTel(v); return celularOk(d) || (d.len
 function renderFormPublico(msg = '', ok = false, vals = {}) {
   document.title = 'Fale com o gabinete · ' + NOME_GAB();
   if (ok) {
-    document.body.innerHTML = `<div class="login"><div class="login-card"><div style="display:flex;gap:10px;align-items:center"><div class="mark">G</div><h1>${esc(NOME_GAB())}</h1></div>
-      <h2 class="sec" style="margin:4px 0 0">Pedido recebido! ✅</h2><p class="m">Obrigado. A equipe do gabinete do ${esc(DEP())} vai analisar e entrar em contato pelo telefone informado.</p>${vals.avisoFotos ? `<p class="m">${esc(vals.avisoFotos)}</p>` : ''}
+    document.body.innerHTML = `<div class="login"><div class="login-card">${marcaPub()}
+      <h2 class="sec" style="margin:4px 0 0">Pedido recebido! ✅</h2><p class="m">Obrigado. A equipe do gabinete do ${esc(DEP())} vai analisar e entrar em contato pelo telefone informado.</p>${vals.protocolo ? `<div class="prot-box"><span class="m">Seu número de protocolo</span><b class="num">${esc(vals.protocolo)}</b><span class="m">Anote ou tire um print. Com ele e o seu celular você acompanha o pedido.</span><a class="btn primary" href="${esc(linkConsulta(vals.protocolo))}">Acompanhar meu pedido</a></div>` : ''}${vals.avisoFotos ? `<p class="m">${esc(vals.avisoFotos)}</p>` : ''}
       <button class="btn" id="fp-outro" style="justify-content:center">Fazer outro pedido</button></div></div>`;
     $('#fp-outro').addEventListener('click', () => renderFormPublico());
     return;
   }
   const v = k => esc(vals[k] ?? (k === 'municipio' ? cfg.cidade_gabinete : '') ?? '');
   document.body.innerHTML = `<div class="login"><form class="login-card pub" id="fpub" novalidate>
-    <div style="display:flex;gap:10px;align-items:center"><div class="mark">G</div><h1>${esc(NOME_GAB())}</h1></div>
+    ${marcaPub()}
     <div class="m">Conte para o gabinete do ${esc(DEP())} o que você precisa: um buraco na rua, iluminação, saúde, um pedido para o seu bairro. A equipe responde pelo WhatsApp ou telefone.</div>
     <div class="f"><label for="fp-nome">Seu nome *</label><input id="fp-nome" autocomplete="name" maxlength="120" value="${v('nome')}"></div>
     <div class="f"><label for="fp-tel">WhatsApp / telefone *</label><input id="fp-tel" type="tel" inputmode="numeric" autocomplete="tel" maxlength="20" placeholder="(45) 99999-9999" value="${esc(mascaraTel(vals.telefone))}"></div>
@@ -1227,7 +1234,7 @@ function renderFormPublico(msg = '', ok = false, vals = {}) {
       const r = await store.novaDemandaPublica({ ...c, fotos });
       const avisoFotos = fotosPub.length && (falhas === fotosPub.length || r?.semFotos) ? 'Não foi possível enviar as fotos. Se quiser, mande pelo WhatsApp do gabinete.' : falhas ? `${falhas} foto(s) não foram enviadas.` : '';
       fotosPub.forEach(x => globalThis.URL.revokeObjectURL(x.url)); fotosPub = [];
-      renderFormPublico('', true, { avisoFotos });
+      renderFormPublico('', true, { avisoFotos, protocolo: r?.protocolo, telefone: c.telefone });
     }
     catch (err) { renderFormPublico(errMsg(err), false, c); }
   });
@@ -1448,7 +1455,7 @@ function renderAdmin() {
       <div id="modelos-box"><div class="m">Carregando…</div></div>
       <details style="margin-top:10px"><summary class="m" style="cursor:pointer">Campos que você pode usar no modelo</summary><div class="hist"><ol>${docs.CAMPOS.map(([k, l]) => `<li><time>{${k}}</time><span>${esc(l)}</span></li>`).join('')}</ol></div></details></section>
     <section class="panel"><h3>Mensagens prontas do WhatsApp</h3>
-      <p class="m" style="margin-top:0">Textos usados nos botões de WhatsApp. Mude o que quiser. Palavras entre chaves são trocadas sozinhas: <b>{nome}</b>, <b>{assunto}</b>, <b>{situacao}</b>, <b>{orgao}</b>, <b>{vereador}</b>, <b>{link_avaliacao}</b>, <b>{evento}</b>, <b>{data}</b>, <b>{hora}</b>, <b>{local}</b>.</p>
+      <p class="m" style="margin-top:0">Textos usados nos botões de WhatsApp. Mude o que quiser. Palavras entre chaves são trocadas sozinhas: <b>{nome}</b>, <b>{assunto}</b>, <b>{situacao}</b>, <b>{orgao}</b>, <b>{vereador}</b>, <b>{link_avaliacao}</b>, <b>{protocolo}</b>, <b>{link_consulta}</b>, <b>{evento}</b>, <b>{data}</b>, <b>{hora}</b>, <b>{local}</b>.</p>
       <form id="msgs" class="filters" style="grid-template-columns:1fr;margin:0" novalidate>${Object.entries(MSG_PADRAO).map(([k, [l]]) => `<div class="f"><label for="msg-${k}">${esc(l)}${msgs[k] ? ' <span class="m">(personalizada)</span>' : ''}</label><textarea id="msg-${k}" rows="3">${esc(msgTexto(k))}</textarea></div>`).join('')}
       <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" type="submit">Salvar mensagens</button><button class="btn ghost" type="button" id="msgs-padrao">Voltar ao texto original</button></div></form></section>
   </div>`;
@@ -1561,6 +1568,42 @@ function renderDisparo() {
     </div>`;
 }
 
+/* ---------- consulta do protocolo (página aberta ao cidadão) ---------- */
+function renderConsulta(prot = '', msgErro = '', tel = '', res = null) {
+  document.title = 'Acompanhe seu pedido · ' + NOME_GAB();
+  const sit = res ? (kindOf('demandas', res.status) || 'novo') : '';
+  const frase = { novo: 'Recebemos o seu pedido e ele vai ser analisado pela equipe.', and: 'O gabinete está trabalhando no seu pedido.', ok: 'Seu pedido foi concluído!', neg: 'Este pedido foi arquivado. Fale com o gabinete se precisar.' }[sit] || '';
+  document.body.innerHTML = `<div class="login"><div class="login-card pub">
+    ${marcaPub()}
+    <h2 class="sec" style="margin:0">Acompanhe seu pedido</h2>
+    ${res ? `<div class="consulta-res">
+        <div class="m">Protocolo <b class="num">${esc(res.protocolo)}</b></div>
+        <div class="t" style="font-weight:700;font-size:16px">${esc(res.assunto || '')}</div>
+        <div><span class="pill ${STATUS_KIND[sit] || ''}">${esc(res.status)}</span></div>
+        <p class="m" style="margin:0">${esc(frase)}</p>
+        <div class="m">Aberto em ${esc(fmtDate(String(res.aberto_em).slice(0, 10)))}${res.atualizado_em ? ' · última atualização em ' + esc(fmtDate(String(res.atualizado_em).slice(0, 10))) : ''}</div>
+        ${(res.linha || []).length ? `<ol class="consulta-linha">${res.linha.map(h => `<li><time>${esc(fmtDate(String(h.em).slice(0, 10)))}</time> ${esc(h.txt)}</li>`).join('')}</ol>` : ''}
+      </div><button class="btn" id="cs-outra" type="button" style="justify-content:center">Consultar outro protocolo</button>`
+    : `<div class="m">Digite o número do protocolo que você recebeu e o celular informado no pedido.</div>
+      <form id="fcons" style="display:flex;flex-direction:column;gap:12px" novalidate>
+        <div class="f"><label for="cs-prot">Número do protocolo</label><input id="cs-prot" autocomplete="off" placeholder="Ex.: 2026-000123" maxlength="20" value="${esc(prot)}" style="text-transform:uppercase"></div>
+        <div class="f"><label for="cs-tel">Seu celular</label><input id="cs-tel" type="tel" inputmode="numeric" autocomplete="tel" maxlength="20" placeholder="(45) 99999-9999" value="${esc(mascaraTel(tel))}"></div>
+        ${msgErro ? `<div class="err">${esc(msgErro)}</div>` : ''}
+        <button class="btn primary" type="submit" style="justify-content:center">Consultar</button>
+      </form>`}
+    <div class="m" style="font-size:11.5px">Ainda não fez seu pedido? <a href="${esc(linkPublico())}">Faça aqui</a>.</div></div></div>`;
+  const o = $('#cs-outra'); if (o) o.addEventListener('click', () => renderConsulta());
+  const f = $('#fcons'); if (!f) return;
+  f.addEventListener('submit', async e => {
+    e.preventDefault();
+    const p = $('#cs-prot').value.trim().toUpperCase(), t = $('#cs-tel').value;
+    if (!p || digitosTel(t).length < 10) return renderConsulta(p, 'Digite o protocolo e o celular com DDD.', t);
+    const b = f.querySelector('[type=submit]'); b.disabled = true; b.textContent = 'Consultando…';
+    try { const r = await store.consultarProtocolo(p, t); if (!r) return renderConsulta(p, 'Não encontramos um pedido com esse protocolo e esse celular. Confira os números.', t); renderConsulta(p, '', t, r); }
+    catch (err) { renderConsulta(p, errMsg(err), t); }
+  });
+}
+
 /* ---------- pesquisa de satisfação (página aberta ao cidadão) ---------- */
 async function renderAvaliacao(token) {
   document.title = 'Avaliação · ' + NOME_GAB();
@@ -1614,7 +1657,7 @@ async function renderPrestacao() {
     const texto = `Prestação de contas do ${DEP()}: ${d.demandas.length + d.servicos.length} pedidos atendidos${totEm ? ' e ' + brl(totEm) + ' em emendas' : ''}. Confira: ${linkPrestacao()}`;
     document.body.innerHTML = `<div class="pub-page">
       <header class="pub-hero"><div class="pub-faixa"></div><div class="pub-wrap">
-        <div style="display:flex;gap:10px;align-items:center"><div class="mark">G</div><div class="eyebrow" style="color:#fff">${esc(NOME_GAB())}</div></div>
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap"><span class="pub-logo"><img src="/marca/fala-cascavel.svg" alt="Fala Cascavel"></span><div class="eyebrow" style="color:#fff">${esc(NOME_GAB())}</div></div>
         <h1>Trabalho que chega ao bairro</h1><p>Obras, serviços e emendas conquistados pelo mandato do ${esc(DEP())}.</p>
         <div class="pub-nums"><div><b>${d.demandas.length}</b><span>pedidos da população atendidos</span></div><div><b>${d.servicos.length}</b><span>ofícios atendidos</span></div><div><b>${bairros.size}</b><span>bairros e localidades</span></div><div><b>${brl(d.emendas.reduce((s, x) => s + (+x.valor || 0), 0))}</b><span>em emendas</span></div></div>
         <div class="pub-share no-print"><a class="btn wa" href="https://wa.me/?text=${encodeURIComponent(texto)}" target="_blank" rel="noopener">Compartilhar no WhatsApp</a><a class="btn" href="https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(linkPrestacao())}" target="_blank" rel="noopener">Facebook</a><button class="btn" id="pub-copiar-link" type="button">Copiar link</button></div>
@@ -1767,6 +1810,7 @@ let unsub = null;
 async function startApp() {
   if (new URLSearchParams(location.search).has('solicitar')) return renderFormPublico();
   if (new URLSearchParams(location.search).has('prestacao')) return renderPrestacao();
+  if (new URLSearchParams(location.search).has('consulta')) return renderConsulta(new URLSearchParams(location.search).get('consulta') || '');
   if (new URLSearchParams(location.search).get('avaliar')) return renderAvaliacao(new URLSearchParams(location.search).get('avaliar'));
   if (store.configured) {
     state.session = await store.getSession();
