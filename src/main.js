@@ -211,6 +211,7 @@ function shell() {
       <button class="btn ghost bell" id="btn-avisos" title="Avisos" aria-label="Avisos">🔔<span class="n" id="avisos-n" hidden></span></button>
       <button class="btn" id="btn-import" hidden>Importar</button>
       <button class="btn" id="btn-export" hidden>Exportar</button>
+      <button class="btn btn-agenda" data-go="agenda" title="Abrir a agenda" aria-label="Agenda">📅<span class="ag-txt">Agenda</span></button>
       <button class="btn primary" id="btn-new">+ Novo</button>
       <button class="btn ghost" data-go="conta" title="Minha conta" aria-label="Minha conta">☰</button>
     </div>
@@ -290,11 +291,11 @@ function renderPainel() {
   const mun = Object.entries(porMun).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([s, n]) => ({ s, n, v: n, c: 'var(--accent)' }));
   const munHtml = mun.length ? bars(mun, Math.max(...mun.map(x => x.v)), v => v) : `<div class="empty"><b>Sem demandas em aberto</b></div>`;
 
-  return `${banner()}<div class="eyebrow">${fmtDay(t)}</div><h2 class="sec">Olá${myName() ? ', ' + esc(primeiroNome(myName())) : ''}</h2>
+  return `${banner()}<div class="eyebrow">${fmtDay(t)}</div><div class="ola"><h2 class="sec">Olá${myName() ? ', ' + esc(primeiroNome(myName())) : ''}</h2><button class="btn primary" type="button" data-novo="agenda">+ Compromisso</button></div>
     <div class="kpis">${kpis}</div>
     <div class="cols">
       <div style="display:flex;flex-direction:column;gap:18px;min-width:0">
-        <section class="panel"><h3>Próximos 7 dias na agenda <a data-go="agenda">ver agenda</a></h3>${agHtml}</section>
+        <section class="panel"><h3>Próximos 7 dias na agenda <a data-go="agenda">ver agenda</a></h3>${agHtml}<button class="btn primary mini-full" type="button" data-novo="agenda">+ Compromisso</button></section>
         <section class="panel"><h3>Minhas tarefas <a data-go="tarefas">ver tarefas</a></h3>${minhasTarefasHtml()}</section>
         <section class="panel"><h3>Aniversariantes da semana <a data-go="pessoas">ver pessoas</a></h3>${anivHtml}${anivBtn}</section>
       </div>
@@ -1806,6 +1807,7 @@ document.addEventListener('click', e => {
   if (e.target.closest('#geo-gps')) { geoGps(); return; }
   if (e.target.closest('#geo-limpar')) { drawer.geo = null; geoMini?.marcar(null); geoInfo(); return; }
   if (e.target.closest('[data-tarefa-de]')) { const { mod, id } = drawer; const r = data[mod].find(x => x.id === id); closeDrawer(); go('tarefas'); openDrawer('tarefas', null, { relacionado: MODS[mod].sing + ': ' + (MODS[mod].title(r) || ''), prazo: addDays(todayStr(), 3) }); return; }
+  const nv = e.target.closest('[data-novo]'); if (nv) { go(nv.dataset.novo); openDrawer(nv.dataset.novo, null); return; }
   if (e.target.closest('#btn-new')) { openDrawer(state.view === 'painel' ? 'demandas' : state.view, null); return; }
   if (e.target.closest('#btn-export')) { exportCsv(); return; }
   if (e.target.closest('[data-vcf]')) { exportVcf(); return; }
