@@ -261,6 +261,19 @@ export async function registrarAcesso(aparelho) {
   if (!sb) return;
   await sb.rpc('registrar_acesso', { p_aparelho: aparelho });
 }
+/** Conta uma visita a uma página pública (sem dados da pessoa; "novo" = primeira vez no dia neste aparelho). */
+export async function registrarVisita(pagina, novo) {
+  if (!sb) return;
+  await sb.rpc('registrar_visita', { p_pagina: pagina, p_novo: !!novo });
+}
+export async function listarVisitas(de) {
+  if (!sb) return [];
+  let q = sb.from('visitas').select('dia, pagina, visitas, visitantes').order('dia').limit(5000);
+  if (de) q = q.gte('dia', de);
+  const { data, error } = await q;
+  if (error) throw error;
+  return data;
+}
 export async function adminUsuarios() {
   if (!sb) { const agora = new Date().toISOString(); return [{ email: 'demonstracao', nome: 'Demonstração', admin: true, conta_criada: agora, ultimo_login: agora, ultimo_acesso: agora, acessos_30d: 1 }]; }
   const { data, error } = await sb.rpc('admin_usuarios');

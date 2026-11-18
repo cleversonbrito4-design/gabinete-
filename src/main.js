@@ -1417,6 +1417,7 @@ function renderGraficos() {
       ${kpi(docsRows.length, 'Documentos enviados', 'ofícios, indicações e outros')}
       ${kpi(media, 'Nota do cidadão', notas.length ? notas.length + ' avaliação(ões)' : 'sem avaliações')}
     </div>
+    ${painelVisitas(per, nomePer)}
     ${pnl('Demandas recebidas por mês', grafMeses(porMes(data.demandas, r => r.criado_em)))}
     <div class="cols graf-cols">
       ${pnl('Demandas por situação', grafBarras(sit, { total: dem.length }))}
@@ -1429,6 +1430,38 @@ function renderGraficos() {
       ${pnl('Atendimentos por colaborador', eqLinhas.length ? `<table class="rtab"><thead><tr><th>Colaborador</th><th class="num">Demandas</th><th class="num">Concluídas</th><th class="num">Ofícios</th></tr></thead><tbody>${eqLinhas.map(([n, v]) => `<tr><td>${esc(n)}</td><td class="num">${v.dem}</td><td class="num">${v.conc}</td><td class="num">${v.of}</td></tr>`).join('')}</tbody></table>` : '<div class="m">Preencha o campo "Responsável no gabinete" nas demandas e ofícios para ver este gráfico.</div>', 'demandas + ofícios')}
       ${pnl('Emendas por ano', emAno.length ? `<div class="gleg"><span><i style="background:var(--accent-soft);border:1px solid var(--accent)"></i>Indicado</span><span><i style="background:var(--accent)"></i>Pago</span></div><div class="gb">${emAno.map(x => `<div class="gb-l" title="${x.a}: indicado ${brl(x.ind)}, pago ${brl(x.pago)}"><span class="gb-k">${x.a}</span><span class="gb-t gb-dupla"><i class="ind" style="width:${(x.ind / topEm * 100).toFixed(1)}%"></i><i class="pago" style="width:${(x.pago / topEm * 100).toFixed(1)}%"></i></span><span class="gb-v num">${brl(x.ind)}<small>pago ${brl(x.pago)}</small></span></div>`).join('')}</div>` : '<div class="m">Preencha o exercício (ano) nas emendas.</div>', 'todos os anos')}
     </div>`;
+}
+
+/** Visitas ao site público: carrega uma vez e redesenha. */
+function painelVisitas(per, nomePer) {
+  const v = state.visitas;
+  if (!v || (v.em && Date.now() - v.em > 120000)) { if (!v) state.visitas = { carregando: true }; else v.em = Date.now(); store.listarVisitas().then(rows => { state.visitas = { rows, em: Date.now() }; }).catch(err => { state.visitas = { erro: /visitas|relation|schema cache/i.test(errMsg(err)) ? 'Falta rodar o atualizar-banco.sql no Supabase para contar as visitas.' : errMsg(err) }; }).finally(() => { if (state.view === 'graficos') render(); }); }
+  const cab = '<h3>Visitas ao site público <span class="m" style="font-weight:400">' + esc(nomePer) + '</span></h3>';
+  if (!v || v.carregando) return `<section class="panel graf">${cab}<div class="m">Carregando…</div></section>`;
+  if (v.erro) return `<section class="panel graf">${cab}<div class="m">${esc(v.erro)}</div></section>`;
+  const rows = v.rows.filter(r => noPeriodo(r.dia, per));
+  const soma = (rs, k) => rs.reduce((a, r) => a + (+r[k] || 0), 0);
+  const hoje = v.rows.filter(r => r.dia === todayStr());
+  const meses = mesesDoPeriodo(per, v.rows.map(r => r.dia));
+  const porMes = meses.map(k => [k, soma(rows.filter(r => r.dia.startsWith(k)), 'visitas')]);
+  const dias = []; for (let i = 29; i >= 0; i--) { const d = addDays(todayStr(), -i); dias.push([d, soma(v.rows.filter(r => r.dia === d), 'visitas')]); }
+  const topDia = Math.max(1, ...dias.map(x => x[1]));
+  const porPag = Object.keys(PAGINAS_VISITA).map(k => [PAGINAS_VISITA[k], soma(rows.filter(r => r.pagina === k), 'visitas')]).filter(x => x[1]).sort((a, b) => b[1] - a[1]);
+  const total = soma(rows, 'visitas');
+  const kpi = (n, l, sub = '') => `<div class="kpi"><span class="eyebrow">${l}</span><span class="big">${n}</span><span class="sub">${sub || '&nbsp;'}</span></div>`;
+  return `<section class="panel graf">${cab}
+    <div class="kpis" style="margin-bottom:14px">
+      ${kpi(total.toLocaleString('pt-BR'), 'Visitas', 'páginas abertas')}
+      ${kpi(soma(rows, 'visitantes').toLocaleString('pt-BR'), 'Pessoas', 'cada uma contada 1 vez por dia')}
+      ${kpi(soma(hoje, 'visitas').toLocaleString('pt-BR'), 'Hoje', soma(hoje, 'visitantes') + ' pessoa(s)')}
+    </div>
+    ${total ? `<div class="cols graf-cols">
+      <div><div class="gsm-t"><b>Por mês</b></div>${grafMeses(porMes, { cor: 'var(--azul)', alto: 120 })}</div>
+      <div><div class="gsm-t"><b>Últimos 30 dias</b></div><div class="gm" style="--alto:120px">${dias.map(([d, n], i) => `<div class="gm-c" title="${esc(fmtDataBR(d))}: ${n} visita(s)"><span class="gm-b"><i style="height:${(n / topDia * 100).toFixed(1)}%;background:var(--azul)"></i></span><span class="gm-k">${(29 - i) % 7 === 0 ? esc(d.slice(8, 10) + '/' + d.slice(5, 7)) : ''}</span></div>`).join('')}</div></div>
+    </div>
+    <div style="margin-top:14px"><div class="gsm-t"><b>Páginas mais vistas</b></div>${grafBarras(porPag, { total })}</div>` : '<div class="m">Nenhuma visita registrada no período. A contagem começa a partir de agora.</div>'}
+    <div class="m" style="margin-top:8px">Só contamos quantas vezes as páginas abertas ao cidadão foram vistas. Nenhum dado pessoal é guardado.</div>
+  </section>`;
 }
 
 /* ---------- administração (só o administrador) ---------- */
@@ -1814,14 +1847,27 @@ document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.id
 
 /* ---------- inicialização ---------- */
 let unsub = null;
+/* ---------- contador de visitas do site público (sem dados pessoais) ---------- */
+let visitaContada = false;
+function contarVisita(pagina) {
+  if (visitaContada) return; visitaContada = true;
+  let novo = true; const hoje = todayStr();
+  try { const k = 'fc-visita-' + pagina; novo = localStorage.getItem(k) !== hoje; localStorage.setItem(k, hoje); } catch { /* sem armazenamento: conta como pessoa nova */ }
+  store.registrarVisita(pagina, novo).catch(() => {});
+}
+const PAGINAS_VISITA = { inicio: 'Página inicial', solicitar: 'Fazer um pedido', consulta: 'Acompanhar pedido', prestacao: 'Prestação de contas', avaliar: 'Avaliar atendimento' };
+
 async function startApp() {
+  const qs = new URLSearchParams(location.search);
+  const pub = ['solicitar', 'prestacao', 'consulta'].find(k => qs.has(k)) || (qs.get('avaliar') ? 'avaliar' : '');
+  if (pub) contarVisita(pub);
   if (new URLSearchParams(location.search).has('solicitar')) return renderFormPublico();
   if (new URLSearchParams(location.search).has('prestacao')) return renderPrestacao();
   if (new URLSearchParams(location.search).has('consulta')) return renderConsulta(new URLSearchParams(location.search).get('consulta') || '');
   if (new URLSearchParams(location.search).get('avaliar')) return renderAvaliacao(new URLSearchParams(location.search).get('avaliar'));
   if (store.configured) {
     state.session = await store.getSession();
-    if (!state.session) return renderLogin();
+    if (!state.session) { if (!mustSetPassword) contarVisita('inicio'); return renderLogin(); }
     if (mustSetPassword) return renderSetPassword();
     if ((await store.isEquipe()) === false) return renderSemAcesso();
   } else state.session = await store.getSession();
