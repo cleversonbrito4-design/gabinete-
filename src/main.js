@@ -326,6 +326,7 @@ function filtered(m) {
   } else if (m === 'pessoas') {
     if (state.filter === 'abertos') a = a.filter(r => r.status !== 'Inativo');
     else if (state.filter.startsWith('tipo:')) a = a.filter(r => r.tipo === state.filter.slice(5));
+    else if (state.filter === 'pedidos') { const c = contagemPedidos(); a = a.filter(r => c.get(r.id)); }
     else if (state.filter === 'aniv') { const mm = t.slice(5, 7); a = a.filter(r => r.nascimento && r.nascimento.slice(5, 7) === mm).sort((x, y) => x.nascimento.slice(8).localeCompare(y.nascimento.slice(8))); }
     if (state.filter !== 'aniv') a.sort((x, y) => String(x.nome || '').localeCompare(String(y.nome || ''), 'pt-BR'));
   } else {
@@ -353,6 +354,7 @@ function midText(m, r) {
   if (m === 'tarefas') return r.prazo ? 'Prazo ' + fmtDate(r.prazo) : '';
   if (m === 'recepcao') { const dia = String(r.criado_em || '').slice(0, 10); return (dia && dia !== todayStr() ? fmtDate(dia) + ' ' : 'Chegou ') + (hhmm(r.hora_chegada) || ''); }
   if (m === 'proposituras') return r.data_protocolo ? 'Protocolo ' + fmtDate(r.data_protocolo) : '';
+  if (m === 'pessoas' && state.filter === 'pedidos') { const n = contagemPedidos().get(r.id) || 0; return n + (n > 1 ? ' pedidos' : ' pedido'); }
   if (m === 'pessoas') return r.nascimento ? 'Aniv. ' + r.nascimento.slice(8, 10) + '/' + r.nascimento.slice(5, 7) : (r.grupo || '');
   return '';
 }
@@ -373,8 +375,10 @@ function renderList(m) {
     chips = [['proximos', 'Próximos'], ['mes', 'Calendário do mês'], ['passados', 'Passados'], ['todos', 'Todos']].map(([k, l]) => chip('data-win', k, l, state.agendaWin === k)).join('');
     if (gcal.googleAvailable) extra = `<div class="no-print" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px"><button class="btn mini" id="g-sync">${gcal.isConnected() ? 'Sincronizar com Google Agenda' : 'Conectar Google Agenda'}</button><span class="gstat" id="g-stat">${gcal.isConnected() ? 'Conectado · calendário: ' + esc(gcal.calendarId()) : 'Compromissos salvos aqui vão para o Google Agenda do parlamentar.'}</span></div>`;
   } else if (m === 'pessoas') {
-    chips = [['abertos', 'Ativos'], ['tipo:Liderança', 'Lideranças'], ['tipo:Entidade / associação', 'Entidades'], ['aniv', 'Aniversariantes do mês'], ['todos', 'Todos']].map(([k, l]) => chip('data-filter', k, l, state.filter === k)).join('');
-    extra = `<div class="no-print" style="margin-bottom:4px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn mini" data-go="etiquetas">Imprimir etiquetas</button><button class="btn mini" data-mapa-de="pessoas">Ver no mapa</button><button class="btn mini wa" data-disp-lista>Mensagem para esta lista</button></div>`;
+    chips = [['abertos', 'Ativos'], ['pedidos', 'Fizeram pedidos'], ['tipo:Liderança', 'Lideranças'], ['tipo:Entidade / associação', 'Entidades'], ['aniv', 'Aniversariantes do mês'], ['todos', 'Todos']].map(([k, l]) => chip('data-filter', k, l, state.filter === k)).join('');
+    extra = `<div class="no-print" style="margin-bottom:4px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn mini" data-go="etiquetas">Imprimir etiquetas</button><button class="btn mini" data-mapa-de="pessoas">Ver no mapa</button><button class="btn mini wa" data-disp-lista>Mensagem para esta lista</button><button class="btn mini" data-vcf>Salvar no celular (contatos)</button></div>`;
+    const novos = quemPediuSemCadastro();
+    if (novos.length) extra += `<div class="no-print aviso-contatos" style="margin:6px 0;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span class="m"><b>${novos.length}</b> pessoa(s) que fizeram pedidos ainda não estão na lista.</span><button class="btn mini primary" data-trazer-pedidos>Colocar na lista</button></div>`;
   } else {
     const opts = [['abertos', 'Em aberto']].concat(M.deadline ? [['atrasados', 'Atrasados']] : []).concat(M.fields.some(f => f.k === 'responsavel') ? [['meus', 'Comigo']] : []).concat([['todos', 'Todos']], M.statuses.map(s => [s[0], s[0]]));
     chips = opts.map(([k, l]) => chip('data-filter', k, l, state.filter === k)).join('');
@@ -620,6 +624,7 @@ async function saveDrawer() {
     let row = await store.saveRow(mod, id, rec);
     upsertLocal(mod, row);
     closeDrawer(); toast(old ? 'Alterações salvas' : 'Registro criado');
+    if (!old && mod === 'demandas') cadastrarQuemPediu([row]).catch(() => {});
     if (old && old.status !== st && M.phone && row[M.phone] && ['demandas', 'servicos'].includes(mod)) {
       const wa = waLink(row[M.phone], waStatus(mod, row));
       if (wa) setTimeout(() => toastAcao('Avisar ' + (primeiroNome(row.solicitante) || 'o cidadão') + ' da nova situação?', wa, 'Avisar no WhatsApp'), 400);
@@ -830,6 +835,57 @@ function exportCsv() {
   const csv = '﻿' + cols.map(c => cell(c[1])).join(';') + '\n' + rows.join('\n');
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
   a.download = m + '-' + todayStr() + '.csv'; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+}
+
+/* ---------- lista de contatos: quem fez pedidos ---------- */
+// mesma pessoa = mesmo celular (8 últimos dígitos) ou mesmo nome
+function chavesPessoa(nome, tel) { const k = []; const d = dig8(tel); if (d.length === 8) k.push('t' + d); const n = normNome(nome); if (n) k.push('n' + n); return k; }
+function contagemPedidos() {
+  const idx = new Map(); data.pessoas.forEach(p => chavesPessoa(p.nome, p.telefone).forEach(k => { if (!idx.has(k)) idx.set(k, p.id); }));
+  const c = new Map();
+  data.demandas.forEach(r => { const id = chavesPessoa(r.solicitante, r.telefone).map(k => idx.get(k)).find(Boolean); if (id) c.set(id, (c.get(id) || 0) + 1); });
+  return c;
+}
+function quemPediuSemCadastro(fonte) {
+  const ja = new Set(); data.pessoas.forEach(p => chavesPessoa(p.nome, p.telefone).forEach(k => ja.add(k)));
+  const out = []; const visto = new Map();
+  const add = (nome, tel, bairro, municipio, quando, origem) => {
+    nome = String(nome || '').trim(); if (!nome && !tel) return;
+    const ks = chavesPessoa(nome, tel); if (!ks.length || ks.some(k => ja.has(k))) return;
+    const prev = ks.map(k => visto.get(k)).find(Boolean);
+    if (prev) { prev.n++; if (!prev.telefone && tel) prev.telefone = tel; if (!prev.bairro && bairro) prev.bairro = bairro; if (!prev.municipio && municipio) prev.municipio = municipio; if (quando > prev.ultimo) prev.ultimo = quando; ks.forEach(k => visto.set(k, prev)); return; }
+    const o = { nome: nome || 'Sem nome', telefone: tel || '', bairro: bairro || '', municipio: municipio || '', n: 1, ultimo: quando || '', origem };
+    out.push(o); ks.forEach(k => visto.set(k, o));
+  };
+  const lista = fonte || data.demandas;
+  lista.slice().sort((a, b) => String(b.criado_em || '').localeCompare(String(a.criado_em || ''))).forEach(r => add(r.solicitante, r.telefone, r.bairro, r.municipio, r.criado_em, 'demanda'));
+  if (!fonte) data.recepcao.forEach(r => add(r.nome, r.telefone, r.bairro, '', r.criado_em, 'recepção'));
+  return out;
+}
+async function cadastrarQuemPediu(fonte) {
+  const novos = quemPediuSemCadastro(fonte); if (!novos.length) return 0;
+  const now = new Date().toISOString(); const por = myName();
+  const regs = novos.map(o => ({ nome: o.nome, telefone: o.telefone || null, bairro: o.bairro || null, municipio: o.municipio || null, tipo: 'Eleitor(a)', grupo: 'Fez pedido', status: 'Ativo',
+    obs: 'Colocado na lista automaticamente (' + (o.origem === 'recepção' ? 'visitou o gabinete' : o.n + (o.n > 1 ? ' pedidos' : ' pedido')) + ').',
+    historico: [{ em: now, txt: 'Cadastrado a partir dos pedidos', por }] }));
+  const rows = await store.insertMany('pessoas', regs);
+  rows.forEach(r => { if (!data.pessoas.some(x => x.id === r.id)) data.pessoas.unshift(r); });
+  return rows.length;
+}
+// arquivo .vcf: abre no celular (Android/iPhone) ou importa no Google Contatos
+function exportVcf() {
+  const lista = filtered('pessoas').filter(p => p.telefone);
+  if (!lista.length) { toast('Nenhuma pessoa com telefone nesta lista'); return; }
+  const e = v => String(v || '').replace(/\\/g, '\\\\').replace(/\n/g, '\\n').replace(/[,;]/g, m => '\\' + m);
+  const fone = t => { let d = String(t).replace(/\D/g, ''); if (d.length === 10 || d.length === 11) d = '55' + d; return '+' + d; };
+  const txt = lista.map(p => ['BEGIN:VCARD', 'VERSION:3.0', 'FN:' + e(p.nome), 'N:' + e(p.nome) + ';;;;', 'TEL;TYPE=CELL:' + fone(p.telefone)]
+    .concat(p.email ? ['EMAIL:' + e(p.email)] : [])
+    .concat(p.endereco || p.bairro || p.municipio ? ['ADR;TYPE=HOME:;;' + e(p.endereco) + ';' + e([p.bairro, p.municipio].filter(Boolean).join(' - ')) + ';' + e(p.uf) + ';' + e(p.cep) + ';Brasil'] : [])
+    .concat(p.nascimento ? ['BDAY:' + p.nascimento] : [])
+    .concat(p.tipo || p.grupo ? ['NOTE:' + e([p.tipo, p.grupo].filter(Boolean).join(' · '))] : []).concat(['ORG:' + e(NOME_GAB()), 'END:VCARD']).join('\r\n')).join('\r\n') + '\r\n';
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([txt], { type: 'text/vcard;charset=utf-8' }));
+  a.download = 'contatos-' + todayStr() + '.vcf'; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+  toast(lista.length + ' contato(s) salvos no arquivo');
 }
 
 /* ---------- cópia de segurança ---------- */
@@ -1752,6 +1808,8 @@ document.addEventListener('click', e => {
   if (e.target.closest('[data-tarefa-de]')) { const { mod, id } = drawer; const r = data[mod].find(x => x.id === id); closeDrawer(); go('tarefas'); openDrawer('tarefas', null, { relacionado: MODS[mod].sing + ': ' + (MODS[mod].title(r) || ''), prazo: addDays(todayStr(), 3) }); return; }
   if (e.target.closest('#btn-new')) { openDrawer(state.view === 'painel' ? 'demandas' : state.view, null); return; }
   if (e.target.closest('#btn-export')) { exportCsv(); return; }
+  if (e.target.closest('[data-vcf]')) { exportVcf(); return; }
+  if (e.target.closest('[data-trazer-pedidos]')) { const b = e.target.closest('[data-trazer-pedidos]'); b.disabled = true; b.textContent = 'Colocando…'; cadastrarQuemPediu().then(n => { toast(n + ' pessoa(s) colocada(s) na lista de contatos'); state.filter = 'pedidos'; render(); }).catch(err => { toast('Não foi possível: ' + errMsg(err)); render(); }); return; }
   if (e.target.closest('#btn-import')) { state.imp = { mod: state.view }; go('importar'); return; }
   if (e.target.closest('#btn-avisos')) { abrirAvisos(); return; }
   if (e.target.closest('#av-notif')) { Notification.requestPermission().then(p => { toast(p === 'granted' ? 'Pronto: os avisos aparecem quando você abrir o sistema' : 'O navegador não liberou os avisos'); if (p === 'granted') { try { localStorage.removeItem('gabinete-aviso-dia'); } catch { /* ok */ } notificarNoComputador(); } abrirAvisos(); }); return; }
