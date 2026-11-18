@@ -1095,7 +1095,7 @@ function renderRelatorios() {
         ${tabela('Por situação', conta('status', '—'))}
         ${M.fields.some(x => x.k === 'municipio') && !f.municipio ? tabela('Por município', conta('municipio', 'Sem município')) : ''}
         ${M.fields.some(x => x.k === 'bairro') ? tabela('Por bairro', conta('bairro', 'Sem bairro')) : ''}
-        ${M.fields.some(x => x.k === 'area') ? tabela('Por área', conta('area', 'Sem área')) : ''}
+        ${M.fields.some(x => x.k === 'area') ? (m === 'demandas' ? tabela('Por órgão destinatário', conta('area', 'Sem órgão')) : tabela('Por área', conta('area', 'Sem área'))) : ''}
         ${M.fields.some(x => x.k === 'tipo') ? tabela('Por tipo', conta('tipo', 'Sem tipo')) : ''}
         ${M.fields.some(x => x.k === 'responsavel') ? tabela('Por responsável', conta('responsavel', 'Sem responsável')) : ''}
       </div>
@@ -1478,7 +1478,7 @@ function renderGraficos() {
     ${pnl('Demandas recebidas por mês', grafMeses(porMes(data.demandas, r => r.criado_em)))}
     <div class="cols graf-cols">
       ${pnl('Demandas por situação', grafBarras(sit, { total: dem.length }))}
-      ${pnl('Demandas por área', grafBarras(contarPor(dem, r => r.area || 'Sem área'), { total: dem.length }))}
+      ${pnl('Demandas por órgão destinatário', grafBarras(contarPor(dem, r => r.area || 'Sem órgão'), { total: dem.length }))}
       ${pnl('Bairros com mais demandas', grafBarras(contarPor(dem, r => r.bairro ? r.bairro + (r.municipio && r.municipio !== cfg.cidade_gabinete ? ' · ' + r.municipio : '') : ''), { total: dem.length, vazio: 'Nenhuma demanda com bairro no período.' }))}
       ${pnl('Como as demandas chegaram', grafBarras(contarPor(dem, r => r.origem || 'Não informado'), { total: dem.length }))}
     </div>

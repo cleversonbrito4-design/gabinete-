@@ -2,7 +2,7 @@
 // e também o SQL do banco (scripts/gen-sql.mjs). Para incluir um campo novo:
 // adicione aqui, rode `npm run sql` e aplique a alteração no Supabase.
 
-// Secretarias e órgãos da Prefeitura de Cascavel (campo Área das demandas).
+// Secretarias e órgãos da Prefeitura de Cascavel (campo Órgão destinatário das demandas; vai para o ofício).
 // Demandas antigas com outra área continuam mostrando o valor que tinham.
 export const AREAS_DEMANDA = [
         'Secretaria Municipal da Casa Civil',
@@ -49,7 +49,7 @@ export const MODS = {
       { k:'telefone', l:'Telefone / WhatsApp', type:'tel' },
       { k:'municipio', l:'Município', list:1 },
       { k:'bairro', l:'Bairro / Localidade' },
-      { k:'area', l:'Área (secretaria / órgão)', type:'select', opts:AREAS_DEMANDA },
+      { k:'area', l:'Órgão destinatário', type:'select', opts:AREAS_DEMANDA },
       { k:'prioridade', l:'Prioridade', type:'select', opts:['Baixa','Média','Alta'] },
       { k:'responsavel', l:'Responsável no gabinete', team:1 },
       { k:'prazo', l:'Prazo de retorno', type:'date' },
