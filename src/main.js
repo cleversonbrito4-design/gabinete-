@@ -1,5 +1,5 @@
 import './style.css';
-import { MODS, ORDER } from './schema.js';
+import { MODS, ORDER, AREAS_DEMANDA } from './schema.js';
 import * as store from './store.js';
 import * as gcal from './google.js';
 import { MODELOS, folhas } from './etiquetas.js';
@@ -645,9 +645,9 @@ function upsertLocal(mod, row) { if (!row) return; const a = data[mod]; const i 
 /* ---------- ofício a partir da demanda ---------- */
 const ORGAO_POR_AREA = {
   'Obras': 'Secretaria Municipal de Obras Públicas', 'Infraestrutura': 'Secretaria Municipal de Obras Públicas', 'Iluminação pública': 'Secretaria Municipal de Obras Públicas',
-  'Trânsito': 'Órgão municipal de trânsito', 'Meio ambiente': 'Secretaria Municipal de Meio Ambiente',
+  'Trânsito': 'Autarquia Municipal de Mobilidade, Trânsito e Cidadania - TRANSITAR', 'Meio ambiente': 'Secretaria Municipal de Meio-Ambiente',
   'Saúde': 'Secretaria Municipal de Saúde', 'Educação': 'Secretaria Municipal de Educação', 'Assistência social': 'Secretaria Municipal de Assistência Social',
-  'Segurança': 'Secretaria Municipal de Segurança Pública', 'Emprego e renda': 'Secretaria Municipal de Desenvolvimento Econômico', 'Esporte e cultura': 'Secretaria Municipal de Esporte e Lazer',
+  'Segurança': 'Secretaria Municipal de Segurança Pública e Proteção à Comunidade', 'Emprego e renda': 'Secretaria Municipal de Desenvolvimento Econômico', 'Esporte e cultura': 'Secretaria Municipal de Esporte e Lazer',
 };
 async function oficioDaDemanda() {
   const { id } = drawer; let d = data.demandas.find(x => x.id === id); if (!d) return;
@@ -664,7 +664,7 @@ async function oficioDaDemanda() {
     linhas.push('Solicito, ainda, retorno a este gabinete sobre as providências adotadas e a previsão de atendimento.');
     const of = {
       servico: d.assunto, solicitante: d.solicitante, telefone: d.telefone, municipio: d.municipio, local: d.bairro,
-      orgao: ORGAO_POR_AREA[d.area] || null, tipo_doc: 'Ofício', prazo: addDays(todayStr(), 15), responsavel: por || d.responsavel,
+      orgao: (AREAS_DEMANDA.includes(d.area) ? d.area : ORGAO_POR_AREA[d.area]) || null, tipo_doc: 'Ofício', prazo: addDays(todayStr(), 15), responsavel: por || d.responsavel,
       corpo: linhas.join('\n'), status: 'Recebida', demanda_id: d.id,
       ...(d.lat != null ? { lat: d.lat, lng: d.lng } : {}),
       historico: [{ em: agora, txt: 'Criado a partir da demanda “' + d.assunto + '”', por }],
