@@ -317,4 +317,27 @@ revoke all on function public.avaliar_demanda(uuid, integer, text) from public;
 grant execute on function public.avaliacao_info(uuid) to anon, authenticated;
 grant execute on function public.avaliar_demanda(uuid, integer, text) to anon, authenticated;`);
 
+p(`
+-- Visitas ao site público: só contagem por dia e por página, sem guardar nada da pessoa.
+create table if not exists public.visitas (
+  dia date not null,
+  pagina text not null,
+  visitas integer not null default 0,
+  visitantes integer not null default 0,
+  primary key (dia, pagina)
+);
+alter table public.visitas enable row level security;
+drop policy if exists "equipe ve visitas" on public.visitas;
+create policy "equipe ve visitas" on public.visitas for select to authenticated using (public.is_equipe());
+create or replace function public.registrar_visita(p_pagina text, p_novo boolean) returns void
+language plpgsql security definer set search_path = public as $$
+declare v_dia date := (now() at time zone 'America/Sao_Paulo')::date;
+begin
+  if p_pagina not in ('inicio', 'solicitar', 'consulta', 'prestacao', 'avaliar') then return; end if;
+  insert into public.visitas as v (dia, pagina, visitas, visitantes) values (v_dia, p_pagina, 1, case when p_novo then 1 else 0 end)
+  on conflict (dia, pagina) do update set visitas = v.visitas + 1, visitantes = v.visitantes + case when p_novo then 1 else 0 end;
+end $$;
+revoke all on function public.registrar_visita(text, boolean) from public;
+grant execute on function public.registrar_visita(text, boolean) to anon, authenticated;`);
+
 console.log(out.join('\n'));
