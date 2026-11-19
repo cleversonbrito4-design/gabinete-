@@ -6,6 +6,7 @@ import { MODELOS, folhas } from './etiquetas.js';
 import * as docs from './documentos.js';
 import * as imp from './importar.js';
 import * as mapaLib from './mapa.js';
+import * as ags from './agendas.js';
 
 /* Dados do gabinete: editáveis em "Minha conta"; os do .env são só o ponto de partida. */
 const env = import.meta.env;
@@ -108,7 +109,7 @@ const state = { rota: [], cal: '', disp: null, rem: { ano: '', municipio: '' }, 
 const drawer = { open: false, mod: null, id: null, geo: null };
 let geoMini = null; // mapinha aberto dentro do registro
 let pedidoInstalar = null; // convite do navegador para instalar o app
-const VIEWS = ['graficos', 'admin', 'disparo', 'painel', 'etiquetas', 'conta', 'relatorios', 'importar', 'mapa', 'resumo-emendas', 'cidadao', ...ORDER];
+const VIEWS = ['agendas', 'graficos', 'admin', 'disparo', 'painel', 'etiquetas', 'conta', 'relatorios', 'importar', 'mapa', 'resumo-emendas', 'cidadao', ...ORDER];
 
 function readHash() { const h = location.hash.slice(1); if (VIEWS.includes(h)) state.view = h; }
 window.addEventListener('hashchange', () => { readHash(); state.q = state.qNext || ''; state.filter = state.qNext ? 'todos' : 'abertos'; state.qNext = ''; render(); });
@@ -226,10 +227,10 @@ const myName = () => (state.profiles.find(p => p.id === state.session?.user?.id)
 
 function renderTabs() {
   const tabs = [['painel', 'Painel', null]].concat(ORDER.map(m => [m, MODS[m].label, data[m].filter(r => isOpen(m, r)).length]), [['relatorios', 'Relatórios', null]]);
-  const cur = state.view === 'graficos' ? 'relatorios' : state.view === 'disparo' ? 'pessoas' : state.view === 'resumo-emendas' ? 'emendas' : state.view === 'cidadao' ? 'pessoas' : state.view === 'etiquetas' ? 'pessoas' : state.view === 'importar' ? state.imp.mod : state.view === 'mapa' ? state.mapa.mod : state.view;
+  const cur = state.view === 'graficos' ? 'relatorios' : state.view === 'disparo' ? 'pessoas' : state.view === 'resumo-emendas' ? 'emendas' : state.view === 'cidadao' ? 'pessoas' : state.view === 'etiquetas' ? 'pessoas' : state.view === 'agendas' ? 'agenda' : state.view === 'importar' ? state.imp.mod : state.view === 'mapa' ? state.mapa.mod : state.view;
   $('#tabs').innerHTML = tabs.map(([k, l, n]) => `<button class="tab" role="tab" data-go="${k}" aria-selected="${cur === k}">${l}${n != null ? `<span class="n">${n}</span>` : ''}</button>`).join('');
   const nb = $('#btn-new');
-  nb.hidden = ['conta', 'etiquetas', 'relatorios', 'importar', 'mapa', 'resumo-emendas', 'cidadao'].includes(state.view);
+  nb.hidden = ['agendas', 'conta', 'etiquetas', 'relatorios', 'importar', 'mapa', 'resumo-emendas', 'cidadao'].includes(state.view);
   nb.textContent = '+ ' + (state.view === 'painel' ? MODS.demandas.novo : MODS[state.view]?.novo || 'Novo');
   $('#btn-export').hidden = !MODS[state.view];
   $('#btn-import').hidden = !MODS[state.view];
@@ -258,7 +259,10 @@ function renderPainel() {
   ].join('');
 
   const prox = data.agenda.filter(r => r.data >= t && r.data <= w && r.status !== 'Cancelado').sort((a, b) => (a.data + hhmm(a.inicio)).localeCompare(b.data + hhmm(b.inicio))).slice(0, 8);
-  const agHtml = prox.length ? prox.map(r => `<div class="ag-item" data-open="agenda:${r.id}"><div class="ag-when"><b>${r.data === t ? 'Hoje' : fmtDate(r.data)}</b>${esc(hhmm(r.inicio))}</div><div style="min-width:0"><div class="t">${esc(r.titulo)}</div><div class="m">${esc(MODS.agenda.meta(r))}</div></div><span class="pill ${STATUS_KIND[kindOf('agenda', r.status)]}">${esc(r.status)}</span></div>`).join('')
+  carregarExternas();
+  const proxExt = extEventos().filter(e => e.data >= t && e.data <= w);
+  const proxTudo = prox.concat(proxExt).sort((a, b) => (a.data + hhmm(a.inicio)).localeCompare(b.data + hhmm(b.inicio))).slice(0, 10);
+  const agHtml = proxTudo.length ? proxTudo.map(r => r.ext ? `<div class="ag-item ext-item" style="--cor:${esc(r.cor)}" data-ext="${esc(extTitulo(r))}"><div class="ag-when"><b>${r.data === t ? 'Hoje' : fmtDate(r.data)}</b>${esc(hhmm(r.inicio))}</div><div style="min-width:0"><div class="t">${esc(r.titulo)}</div><div class="m">${esc(r.local || '')}</div></div><span class="pill ext-pill">${esc(r.agenda)}</span></div>` : `<div class="ag-item" data-open="agenda:${r.id}"><div class="ag-when"><b>${r.data === t ? 'Hoje' : fmtDate(r.data)}</b>${esc(hhmm(r.inicio))}</div><div style="min-width:0"><div class="t">${esc(r.titulo)}</div><div class="m">${esc(MODS.agenda.meta(r))}</div></div><span class="pill ${STATUS_KIND[kindOf('agenda', r.status)]}">${esc(r.status)}</span></div>`).join('')
     : `<div class="empty"><b>Nada marcado para os próximos 7 dias</b>Use “Novo compromisso” na aba Agenda.</div>`;
 
   const md = s => s.slice(5); const days = [...Array(8)].map((_, i) => md(addDays(t, i)));
@@ -370,11 +374,13 @@ function rowHtml(m, r) {
 function chip(attr, k, l, on) { return `<button class="chip" ${attr}="${esc(k)}" aria-pressed="${on}">${esc(l)}</button>`; }
 
 function renderList(m) {
-  const M = MODS[m]; const a = filtered(m);
+  const M = MODS[m]; let a = filtered(m);
   let chips, extra = '';
   if (m === 'agenda') {
     chips = [['proximos', 'Próximos'], ['mes', 'Calendário do mês'], ['passados', 'Passados'], ['todos', 'Todos']].map(([k, l]) => chip('data-win', k, l, state.agendaWin === k)).join('');
-    if (gcal.googleAvailable) extra = `<div class="no-print" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px"><button class="btn mini" id="g-sync">${gcal.isConnected() ? 'Sincronizar com Google Agenda' : 'Conectar Google Agenda'}</button><span class="gstat" id="g-stat">${gcal.isConnected() ? 'Conectado · calendário: ' + esc(gcal.calendarId()) : 'Compromissos salvos aqui vão para o Google Agenda do parlamentar.'}</span></div>`;
+    carregarExternas();
+    if (store.configured) extra = `<div class="no-print" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px"><button class="btn mini primary" data-go="agendas">🔗 Ligar com Gmail e outras agendas</button><span class="gstat">${extResumo()}</span></div>`;
+    if (gcal.googleAvailable) extra += `<div class="no-print" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px"><button class="btn mini" id="g-sync">${gcal.isConnected() ? 'Sincronizar com Google Agenda' : 'Conectar Google Agenda'}</button><span class="gstat" id="g-stat">${gcal.isConnected() ? 'Conectado · calendário: ' + esc(gcal.calendarId()) : 'Compromissos salvos aqui vão para o Google Agenda do parlamentar.'}</span></div>`;
   } else if (m === 'pessoas') {
     chips = [['abertos', 'Ativos'], ['pedidos', 'Fizeram pedidos'], ['tipo:Liderança', 'Lideranças'], ['tipo:Entidade / associação', 'Entidades'], ['aniv', 'Aniversariantes do mês'], ['todos', 'Todos']].map(([k, l]) => chip('data-filter', k, l, state.filter === k)).join('');
     extra = `<div class="no-print" style="margin-bottom:4px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn mini" data-go="etiquetas">Imprimir etiquetas</button><button class="btn mini" data-mapa-de="pessoas">Ver no mapa</button><button class="btn mini wa" data-disp-lista>Mensagem para esta lista</button><button class="btn mini" data-vcf>Salvar no celular (contatos)</button></div>`;
@@ -388,13 +394,15 @@ function renderList(m) {
     if (m === 'emendas') extra = `<div class="no-print" style="margin-bottom:4px"><button class="btn mini primary" data-go="resumo-emendas">Painel de emendas (indicado, empenhado, pago)</button></div>`;
   }
   let body;
-  if (!data[m].length && !(m === 'agenda' && state.agendaWin === 'mes')) body = `<div class="empty"><b>Nenhum registro ainda</b>Clique em “+ ${esc(M.novo)}” para cadastrar o primeiro.</div>`;
+  if (m === 'agenda' && state.agendaWin !== 'mes') a = a.concat(extFiltrados()).sort((x, y) => (x.data + hhmm(x.inicio)).localeCompare(y.data + hhmm(y.inicio)) * (state.agendaWin === 'passados' ? -1 : 1));
+  if (!data[m].length && !(m === 'agenda' && (state.agendaWin === 'mes' || a.length))) body = `<div class="empty"><b>Nenhum registro ainda</b>Clique em “+ ${esc(M.novo)}” para cadastrar o primeiro.</div>`;
   else if (!a.length && !(m === 'agenda' && state.agendaWin === 'mes')) body = `<div class="empty"><b>Nada encontrado</b>Mude o filtro ou a busca.</div>`;
   else if (m === 'agenda' && state.agendaWin === 'mes') body = calendarioHtml(a);
   else if (m === 'agenda') {
     const t = todayStr(); let out = '', cur = '';
     a.forEach(r => {
       if (r.data !== cur) { cur = r.data; const n = a.filter(x => x.data === cur).length; out += `<div class="day-h ${cur === t ? 'today' : ''}"><span>${cur === t ? 'Hoje · ' : ''}${fmtDay(cur)}</span><span class="m">${n} compromisso${n > 1 ? 's' : ''}</span></div>`; }
+      if (r.ext) { out += `<div class="row ext-row" style="--cor:${esc(r.cor)}" data-ext="${esc(extTitulo(r))}"><div style="min-width:0"><div class="t"><span class="num" style="margin-right:8px;color:var(--muted)">${esc(hhmm(r.inicio) || 'Dia todo')}${r.fim ? '–' + esc(hhmm(r.fim)) : ''}</span>${esc(r.titulo)}</div><div class="m">${esc(r.local || '')}</div></div><div class="mid m"></div><div class="right"><span class="pill ext-pill">${esc(r.agenda)}</span></div></div>`; return; }
       out += `<button class="row" data-open="agenda:${r.id}"><div style="min-width:0"><div class="t"><span class="num" style="margin-right:8px;color:var(--muted)">${esc(hhmm(r.inicio) || 'Dia todo')}${r.fim ? '–' + esc(hhmm(r.fim)) : ''}</span>${esc(r.titulo)}</div><div class="m">${esc(M.meta(r))}${r.google_event_id ? ' · no Google' : ''}</div></div><div class="mid m">${esc(r.contato || '')}</div><div class="right"><span class="pill ${STATUS_KIND[kindOf('agenda', r.status)]}">${esc(r.status)}</span></div></button>`;
     });
     body = out;
@@ -479,7 +487,7 @@ function render() {
   const hadFocus = document.activeElement && document.activeElement.id === 'q'; const pos = hadFocus ? document.activeElement.selectionStart : 0;
   if (state.view !== 'etiquetas') $('#page-css').textContent = '';
   if (state.view === 'admin') setTimeout(async () => { const b = $('#modelos-box'); if (b) b.innerHTML = await modelosHtml(); carregarAdmin(); }, 0);
-  main.innerHTML = state.view === 'painel' ? renderPainel() : state.view === 'etiquetas' ? renderEtiquetas() : state.view === 'conta' ? renderConta() : state.view === 'admin' ? renderAdmin() : state.view === 'graficos' ? renderGraficos() : state.view === 'relatorios' ? renderRelatorios() : state.view === 'importar' ? renderImportar() : state.view === 'mapa' ? renderMapa() : state.view === 'resumo-emendas' ? renderResumoEmendas() : state.view === 'cidadao' ? renderCidadao() : state.view === 'disparo' ? renderDisparo() : renderList(state.view);
+  main.innerHTML = state.view === 'painel' ? renderPainel() : state.view === 'agendas' ? renderAgendas() : state.view === 'etiquetas' ? renderEtiquetas() : state.view === 'conta' ? renderConta() : state.view === 'admin' ? renderAdmin() : state.view === 'graficos' ? renderGraficos() : state.view === 'relatorios' ? renderRelatorios() : state.view === 'importar' ? renderImportar() : state.view === 'mapa' ? renderMapa() : state.view === 'resumo-emendas' ? renderResumoEmendas() : state.view === 'cidadao' ? renderCidadao() : state.view === 'disparo' ? renderDisparo() : renderList(state.view);
   if (state.view === 'mapa') setTimeout(desenharMapa, 0); else mapaLib.destruir();
   if (hadFocus) { const q = $('#q'); if (q) { q.focus(); try { q.setSelectionRange(pos, pos); } catch { /* ok */ } } }
   if (drawer.open) refreshDatalists();
@@ -527,6 +535,7 @@ function openDrawer(mod, id, preset = {}) {
     if (linked) acts.push(`<button class="btn mini" type="button" data-search="${esc(rec.nome)}">Ver ${linked} registro(s) ligado(s)</button>`);
   }
   if (rec && mod === 'agenda') acts.push(`<button class="btn mini wa" type="button" data-disp-convite>Convidar pessoas pelo WhatsApp</button>`);
+  if (rec && mod === 'agenda' && rec.data) acts.push(`<a class="btn mini" href="${esc(ags.linkGoogleEvento(rec))}" target="_blank" rel="noopener">📅 Pôr no Google Agenda</a>`);
   if (rec && mod === 'recepcao') acts.push(`<button class="btn mini primary" type="button" data-recep-demanda>Transformar em demanda</button>`, `<button class="btn mini" type="button" data-cid="${esc(rec.nome)}" data-cid-tel="${esc(rec.telefone || '')}">Histórico de ${esc(primeiroNome(rec.nome))}</button>`);
   if (rec && mod === 'demandas') acts.push(`<button class="btn mini primary" type="button" data-oficio-de>Gerar ofício de solicitação</button>`);
   if (rec && ['demandas', 'servicos'].includes(mod) && rec.solicitante) acts.push(`<button class="btn mini" type="button" data-cid="${esc(rec.solicitante)}" data-cid-tel="${esc(rec.telefone || '')}">Histórico de ${esc(primeiroNome(rec.solicitante))}</button>`);
@@ -1628,19 +1637,143 @@ function aparelho() {
   return tipo + (so && so !== tipo ? ' · ' + so : '') + (matchMedia('(display-mode: standalone)').matches ? ' · app' : '');
 }
 
+/* ---------- agenda ligada ao Gmail e outras agendas ---------- */
+state.ext = { lista: [], em: 0, carregando: false, erro: '' };
+state.agLink = null;
+state.agForm = { cor: ags.CORES[0] };
+function carregarExternas(force) {
+  const x = state.ext;
+  if (!store.configured || x.carregando || (!force && x.em && Date.now() - x.em < 600000) || (!force && x.erro && Date.now() - x.em < 120000)) return;
+  x.carregando = true;
+  store.agendaFn('eventos').then(r => { x.lista = r.agendas || []; x.erro = ''; })
+    .catch(err => { x.erro = errMsg(err); })
+    .finally(() => { x.carregando = false; x.em = Date.now(); if (['agenda', 'painel', 'agendas'].includes(state.view) && !drawer.open) render(); });
+}
+function extEventos() {
+  const out = [];
+  for (const g of state.ext.lista) for (const e of g.eventos || []) out.push({ ...e, id: e.uid, ext: true, agenda: g.nome, cor: g.cor });
+  return out;
+}
+function extFiltrados() {
+  const t = todayStr(); const q = state.q.trim().toLowerCase();
+  return extEventos().filter(r => (state.agendaWin === 'proximos' ? r.data >= t : state.agendaWin === 'passados' ? r.data < t : true) && (!q || (r.titulo + ' ' + (r.local || '') + ' ' + r.agenda).toLowerCase().includes(q)));
+}
+const extTitulo = r => `${r.titulo} · ${fmtDate(r.data)}${r.inicio ? ' às ' + hhmm(r.inicio) : ''}${r.local ? ' · ' + r.local : ''} — da agenda "${r.agenda}". Para mudar, mude lá.`;
+function extResumo() {
+  const x = state.ext; const l = x.lista; const comErro = l.filter(g => g.erro).length;
+  if (!l.length && x.carregando) return 'Carregando outras agendas…';
+  if (!l.length) return 'Veja aqui os compromissos do Gmail e veja os daqui no Gmail e no celular.';
+  return `${l.length} outra(s) agenda(s) aparecendo aqui: ${l.map(g => `<span class="ext-dot" style="--cor:${esc(g.cor)}"></span>${esc(g.nome)}`).join(', ')}${comErro ? ` · <b class="ext-erro">⚠ ${comErro} com problema</b>` : ''}`;
+}
+function carregarLinkAgenda(force) {
+  if (!store.configured || (state.agLink && !force && !state.agLink.erro)) return;
+  state.agLink = { carregando: true };
+  store.agendaFn('link').then(r => { state.agLink = { url: r.url }; }).catch(err => { state.agLink = { erro: errMsg(err) }; }).finally(() => { if (state.view === 'agendas') render(); });
+}
+function renderAgendas() {
+  if (!store.configured) return `${banner()}<h2 class="sec">Ligar com Gmail e outras agendas</h2><div class="empty"><b>Precisa do banco de dados ligado</b>Esta função usa o servidor do sistema.</div>`;
+  carregarLinkAgenda(); carregarExternas();
+  const L = state.agLink || { carregando: true }; const x = state.ext;
+  const sec1 = L.url ? `
+      <div class="ag-botoes">
+        <a class="btn primary" href="${esc(ags.linkAssinarGoogle(L.url))}" target="_blank" rel="noopener">Adicionar no Google Agenda (Gmail)</a>
+        <a class="btn" href="${esc(ags.linkWebcal(L.url))}">iPhone / Mac</a>
+        <a class="btn" href="${esc(ags.linkAssinarOutlook(L.url))}" target="_blank" rel="noopener">Outlook</a>
+      </div>
+      <ol class="ag-passos">
+        <li>Entre com o <b>Gmail do gabinete</b> (ou o seu) e clique no botão <b>Adicionar no Google Agenda</b> acima.</li>
+        <li>O Google pergunta <i>"Adicionar agenda?"</i>: clique em <b>Adicionar</b>.</li>
+        <li>Pronto. A "Agenda do gabinete (Fala Cascavel)" aparece no Google Agenda e no celular. O Google atualiza sozinho, de algumas em algumas horas.</li>
+      </ol>
+      <div class="f"><label for="ag-link">Link da agenda (para outros aplicativos)</label><input id="ag-link" value="${esc(L.url)}" readonly></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><button class="btn mini" type="button" data-ag-copiar>Copiar link</button>${state.admin ? '<button class="btn mini ghost" type="button" data-ag-trocar>Trocar link</button>' : ''}</div>
+      <p class="m">Quem tiver este link vê os compromissos. Mande só para a equipe.${state.admin ? ' Se vazar, use "Trocar link": o antigo para de funcionar.' : ''}</p>`
+    : L.erro ? `<div class="aviso-contatos"><span class="m">Não foi possível pegar o link: ${esc(L.erro)}</span> <button class="btn mini" type="button" data-ag-retentar>Tentar de novo</button></div>`
+    : '<p class="m">Preparando o link…</p>';
+  const lista = x.lista.length ? x.lista.map(g => `<div class="ag-ext"><span class="ext-dot" style="--cor:${esc(g.cor)}"></span><div style="min-width:0;flex:1"><b>${esc(g.nome)}</b><div class="m">${g.erro ? `<span class="ext-erro">⚠ ${esc(g.erro)}</span>` : `${(g.eventos || []).length} compromisso(s) lidos`}</div></div><button class="btn mini ghost" type="button" data-ag-rem="${esc(g.id)}">Remover</button></div>`).join('')
+    : x.carregando ? '<p class="m">Carregando…</p>' : x.erro ? `<p class="m ext-erro">⚠ ${esc(x.erro)}</p>` : '<p class="m">Nenhuma agenda ligada ainda.</p>';
+  return `${banner()}<div class="no-print"><a class="linkbtn" data-go="agenda">← Agenda</a></div>
+    <h2 class="sec" style="margin-top:6px">Ligar com Gmail e outras agendas</h2>
+    <div class="m">Duas mãos: os compromissos daqui aparecem no Gmail/celular, e os do Gmail (ou Outlook, iPhone) aparecem aqui.</div>
+    <div class="cols" style="margin-top:14px">
+      <section class="panel"><h3>1. Ver a agenda do sistema no Gmail e no celular</h3>${sec1}</section>
+      <section class="panel"><h3>2. Mostrar aqui outras agendas</h3>
+        <p class="m" style="margin-top:0">Os compromissos do Gmail, Outlook ou iPhone aparecem na Agenda do sistema, com a cor escolhida. Ficam só para ver: para mudar, mude na agenda de origem.</p>
+        <div class="ag-lista">${lista}</div>
+        <form id="ag-form" class="filters" style="grid-template-columns:1fr;margin:12px 0 0" novalidate>
+          <div class="f"><label for="ag-nome">Nome</label><input id="ag-nome" placeholder="Ex.: Gmail do vereador" maxlength="60" autocomplete="off"></div>
+          <div class="f"><label for="ag-url">Link da agenda (endereço iCal)</label><input id="ag-url" placeholder="https://calendar.google.com/calendar/ical/…/basic.ics" autocomplete="off" inputmode="url"></div>
+          <div class="f"><label>Cor</label><div class="ag-cores">${ags.CORES.map(c => `<button type="button" class="ag-cor" style="--cor:${c}" data-ag-cor="${c}" aria-pressed="${state.agForm.cor === c}" aria-label="Cor ${c}"></button>`).join('')}</div></div>
+          <div><button class="btn primary" type="submit" id="ag-add">Ligar esta agenda</button></div>
+        </form>
+        <details class="ag-ajuda" open><summary>Onde pego o link do Gmail (Google Agenda)?</summary><ol>
+          <li>No computador, abra <a href="https://calendar.google.com/calendar/r/settings" target="_blank" rel="noopener">as configurações do Google Agenda</a> com o Gmail da agenda.</li>
+          <li>Na coluna da esquerda, em <i>Configurações das minhas agendas</i>, clique no nome da agenda.</li>
+          <li>Desça até <i>Integrar agenda</i> e copie o <b>Endereço secreto no formato iCal</b> (termina em <code>basic.ics</code>).</li>
+          <li>Cole no campo <b>Link</b> acima, dê um nome e clique em <b>Ligar esta agenda</b>.</li></ol></details>
+        <details class="ag-ajuda"><summary>E do Outlook / Hotmail?</summary><ol>
+          <li>Em outlook.com, vá em ⚙ Configurações → Calendário → <i>Calendários compartilhados</i>.</li>
+          <li>Em <i>Publicar um calendário</i>, escolha o calendário e <i>Pode exibir todos os detalhes</i> → Publicar.</li>
+          <li>Copie o link <b>ICS</b> e cole aqui.</li></ol></details>
+        <details class="ag-ajuda"><summary>E do iPhone (iCloud)?</summary><ol>
+          <li>No iPhone, abra o app Calendário → <i>Calendários</i> → toque no ⓘ ao lado da agenda.</li>
+          <li>Ligue <i>Calendário Público</i> e toque em <i>Compartilhar Link</i> → Copiar.</li>
+          <li>Cole aqui (o link começa com webcal://, pode colar assim mesmo).</li></ol></details>
+      </section>
+    </div>`;
+}
+async function salvarAgendasExternas(mudar) {
+  const cfg = await store.getConfig('agendas_externas');
+  const lista = mudar((cfg?.lista || []).slice());
+  await store.agendaFn('salvar', { agendas: lista });
+  carregarExternas(true);
+}
+async function ligarAgenda() {
+  const nome = ($('#ag-nome')?.value || '').trim(); const url = ($('#ag-url')?.value || '').trim();
+  if (!url) { toast('Cole o link da agenda'); $('#ag-url')?.focus(); return; }
+  if (!/^(https|webcals?):\/\//i.test(url)) { toast('O link precisa começar com https:// ou webcal://'); return; }
+  const btn = $('#ag-add'); if (btn) { btn.disabled = true; btn.textContent = 'Conferindo o link…'; }
+  try {
+    const t = await store.agendaFn('testar', { url });
+    await salvarAgendasExternas(l => l.concat({ id: Date.now().toString(36), nome: nome || t.nome || 'Outra agenda', url, cor: state.agForm.cor }));
+    toast(`Agenda ligada: ${t.total} compromisso(s) encontrados`);
+    state.agForm.cor = ags.CORES[(ags.CORES.indexOf(state.agForm.cor) + 1) % ags.CORES.length];
+    render();
+  } catch (err) { toast(errMsg(err)); if (btn) { btn.disabled = false; btn.textContent = 'Ligar esta agenda'; } }
+}
+function agendasClique(e) {
+  if (e.target.closest('[data-ag-copiar]')) { const i = $('#ag-link'); try { navigator.clipboard.writeText(i.value).then(() => toast('Link copiado')); } catch { i.select(); document.execCommand('copy'); toast('Link copiado'); } return true; }
+  if (e.target.closest('[data-ag-retentar]')) { carregarLinkAgenda(true); render(); return true; }
+  if (e.target.closest('[data-ag-trocar]')) {
+    if (!confirm('Trocar o link? Quem já adicionou a agenda no Google ou no celular vai precisar adicionar de novo.')) return true;
+    store.agendaFn('novo-link').then(r => { state.agLink = { url: r.url }; render(); toast('Link novo criado. Adicione de novo no Google Agenda.'); }).catch(err => toast(errMsg(err)));
+    return true;
+  }
+  const c = e.target.closest('[data-ag-cor]'); if (c) { state.agForm.cor = c.dataset.agCor; document.querySelectorAll('[data-ag-cor]').forEach(b => b.setAttribute('aria-pressed', b === c)); return true; }
+  const rm = e.target.closest('[data-ag-rem]'); if (rm) {
+    const id = rm.dataset.agRem; const g = state.ext.lista.find(x => x.id === id);
+    if (!confirm(`Tirar a agenda "${g?.nome || ''}" do sistema? (Nada é apagado no Gmail.)`)) return true;
+    rm.disabled = true;
+    salvarAgendasExternas(l => l.filter(x => x.id !== id)).then(() => { state.ext.lista = state.ext.lista.filter(x => x.id !== id); render(); toast('Agenda removida'); }).catch(err => { toast(errMsg(err)); rm.disabled = false; });
+    return true;
+  }
+  return false;
+}
+
 /* ---------- calendário do mês (agenda) ---------- */
 function calendarioHtml() {
   const t = todayStr(); const ym = state.cal || t.slice(0, 7); const [y, mo] = ym.split('-').map(Number);
   const ini = new Date(y, mo - 1, 1); const vazio = ini.getDay(); const dias = new Date(y, mo, 0).getDate();
   const q = state.q.trim().toLowerCase();
   const ev = data.agenda.filter(r => r.data && r.data.startsWith(ym) && (!q || Object.values(r).some(v => typeof v === 'string' && v.toLowerCase().includes(q)))).sort((a, b) => (a.data + hhmm(a.inicio)).localeCompare(b.data + hhmm(b.inicio)));
+  const evx = extEventos().filter(r => r.data.startsWith(ym) && (!q || (r.titulo + ' ' + (r.local || '') + ' ' + r.agenda).toLowerCase().includes(q)));
   let cel = '';
   for (let i = 0; i < vazio; i++) cel += '<div class="cal-d fora"></div>';
   for (let d = 1; d <= dias; d++) {
-    const dia = ym + '-' + pad(d); const es = ev.filter(r => r.data === dia);
-    cel += `<div class="cal-d ${dia === t ? 'hoje' : ''}" data-cal-dia="${dia}" title="Novo compromisso em ${fmtDate(dia)}"><span class="cal-n">${d}</span>${es.slice(0, 3).map(r => `<button class="cal-ev ${r.status === 'Cancelado' ? 'cancel' : ''}" data-open="agenda:${r.id}" title="${esc(r.titulo)}">${r.inicio ? `<b>${esc(hhmm(r.inicio))}</b> ` : ''}${esc(r.titulo)}</button>`).join('')}${es.length > 3 ? `<span class="cal-mais">+${es.length - 3}</span>` : ''}</div>`;
+    const dia = ym + '-' + pad(d); const es = ev.filter(r => r.data === dia).concat(evx.filter(r => r.data === dia)).sort((a, b) => hhmm(a.inicio).localeCompare(hhmm(b.inicio)));
+    cel += `<div class="cal-d ${dia === t ? 'hoje' : ''}" data-cal-dia="${dia}" title="Novo compromisso em ${fmtDate(dia)}"><span class="cal-n">${d}</span>${es.slice(0, 3).map(r => r.ext ? `<span class="cal-ev ext" style="--cor:${esc(r.cor)}" data-ext="${esc(extTitulo(r))}" title="${esc(extTitulo(r))}">${r.inicio ? `<b>${esc(hhmm(r.inicio))}</b> ` : ''}${esc(r.titulo)}</span>` : `<button class="cal-ev ${r.status === 'Cancelado' ? 'cancel' : ''}" data-open="agenda:${r.id}" title="${esc(r.titulo)}">${r.inicio ? `<b>${esc(hhmm(r.inicio))}</b> ` : ''}${esc(r.titulo)}</button>`).join('')}${es.length > 3 ? `<span class="cal-mais">+${es.length - 3}</span>` : ''}</div>`;
   }
-  return `<div class="cal"><div class="cal-top"><button class="btn mini" data-cal-nav="-1" aria-label="Mês anterior">‹</button><b>${MESES[mo - 1].replace(/^./, c => c.toUpperCase())} de ${y}</b><button class="btn mini" data-cal-nav="1" aria-label="Próximo mês">›</button>${ym !== t.slice(0, 7) ? '<button class="btn mini ghost" data-cal-nav="0">Hoje</button>' : ''}<span class="m" style="margin-left:auto">${ev.length} compromisso(s) · toque num dia para marcar</span></div>
+  return `<div class="cal"><div class="cal-top"><button class="btn mini" data-cal-nav="-1" aria-label="Mês anterior">‹</button><b>${MESES[mo - 1].replace(/^./, c => c.toUpperCase())} de ${y}</b><button class="btn mini" data-cal-nav="1" aria-label="Próximo mês">›</button>${ym !== t.slice(0, 7) ? '<button class="btn mini ghost" data-cal-nav="0">Hoje</button>' : ''}<span class="m" style="margin-left:auto">${ev.length} compromisso(s)${evx.length ? ' + ' + evx.length + ' de outras agendas' : ''} · toque num dia para marcar</span></div>
     <div class="cal-g">${['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map(d => `<div class="cal-h">${d}</div>`).join('')}${cel}</div></div>`;
 }
 
@@ -1826,6 +1959,8 @@ document.addEventListener('click', e => {
   const sr = e.target.closest('[data-search]'); if (sr) { const q = sr.dataset.search; closeDrawer(); go('demandas'); state.q = q; state.filter = 'todos'; render(); return; }
   if (e.target.closest('[data-oficio-de]')) { oficioDaDemanda(); return; }
   const gp = e.target.closest('[data-graf-p]'); if (gp) { state.graf.p = gp.dataset.grafP; render(); return; }
+  const xe = e.target.closest('[data-ext]'); if (xe) { toast(xe.dataset.ext); return; }
+  if (agendasClique(e)) return;
   const cd = e.target.closest('[data-cal-dia]'); if (cd) { openDrawer('agenda', null, { data: cd.dataset.calDia }); return; }
   const cn = e.target.closest('[data-cal-nav]'); if (cn) { const [y, mo] = (state.cal || todayStr().slice(0, 7)).split('-').map(Number); const n = +cn.dataset.calNav; state.cal = n === 0 ? '' : ymd(new Date(y, mo - 1 + n, 1)).slice(0, 7); render(); return; }
   const rdel = e.target.closest('[data-rota-del]'); if (rdel) { state.rota.splice(+rdel.dataset.rotaDel, 1); atualizarRota(); return; }
@@ -1916,6 +2051,7 @@ document.addEventListener('change', async e => {
   } catch (err) { toast(errMsg(err)); }
 });
 document.addEventListener('submit', async e => {
+  if (e.target.id === 'ag-form') { e.preventDefault(); ligarAgenda(); return; }
   if (e.target.id === 'eq-add') {
     e.preventDefault(); const em = $('#eq-email').value.trim();
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) { toast('Digite um e-mail válido'); return; }
