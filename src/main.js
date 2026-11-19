@@ -1,11 +1,12 @@
 import './style.css';
-import { MODS, ORDER } from './schema.js';
+import { MODS, ORDER, AREAS_DEMANDA } from './schema.js';
 import * as store from './store.js';
 import * as gcal from './google.js';
 import { MODELOS, folhas } from './etiquetas.js';
 import * as docs from './documentos.js';
 import * as imp from './importar.js';
 import * as mapaLib from './mapa.js';
+import * as ags from './agendas.js';
 
 /* Dados do gabinete: editáveis em "Minha conta"; os do .env são só o ponto de partida. */
 const env = import.meta.env;
@@ -104,11 +105,11 @@ const waAniversario = p => msg('aniversario', { nome: primeiroNome(p.nome) });
 
 /* ---------- estado ---------- */
 const data = Object.fromEntries(ORDER.map(m => [m, []]));
-const state = { rota: [], cal: '', disp: null, rem: { ano: '', municipio: '' }, cid: null, mapa: { mod: 'demandas', so: 'abertos' }, imp: { mod: 'pessoas' }, rel: { mod: 'demandas', de: '', ate: '', municipio: '', bairro: '', status: '' }, view: 'painel', q: '', filter: 'abertos', agendaWin: 'proximos', loaded: false, session: null, profiles: [], et: { tipo: '', grupo: '', municipio: '', mes: '', modelo: '6180', pular: 0 } };
+const state = { rota: [], cal: '', disp: null, rem: { ano: '', municipio: '' }, cid: null, mapa: { mod: 'demandas', so: 'abertos', per: '', org: '' }, imp: { mod: 'pessoas' }, rel: { mod: 'demandas', de: '', ate: '', municipio: '', bairro: '', status: '' }, view: 'painel', q: '', filter: 'abertos', agendaWin: 'proximos', loaded: false, session: null, profiles: [], et: { tipo: '', grupo: '', municipio: '', mes: '', modelo: '6180', pular: 0 } };
 const drawer = { open: false, mod: null, id: null, geo: null };
 let geoMini = null; // mapinha aberto dentro do registro
 let pedidoInstalar = null; // convite do navegador para instalar o app
-const VIEWS = ['graficos', 'admin', 'disparo', 'painel', 'etiquetas', 'conta', 'relatorios', 'importar', 'mapa', 'resumo-emendas', 'cidadao', ...ORDER];
+const VIEWS = ['agendas', 'graficos', 'admin', 'disparo', 'painel', 'etiquetas', 'conta', 'relatorios', 'importar', 'mapa', 'resumo-emendas', 'cidadao', ...ORDER];
 
 function readHash() { const h = location.hash.slice(1); if (VIEWS.includes(h)) state.view = h; }
 window.addEventListener('hashchange', () => { readHash(); state.q = state.qNext || ''; state.filter = state.qNext ? 'todos' : 'abertos'; state.qNext = ''; render(); });
@@ -211,6 +212,7 @@ function shell() {
       <button class="btn ghost bell" id="btn-avisos" title="Avisos" aria-label="Avisos">🔔<span class="n" id="avisos-n" hidden></span></button>
       <button class="btn" id="btn-import" hidden>Importar</button>
       <button class="btn" id="btn-export" hidden>Exportar</button>
+      <button class="btn btn-agenda" data-go="agenda" title="Abrir a agenda" aria-label="Agenda">📅<span class="ag-txt">Agenda</span></button>
       <button class="btn primary" id="btn-new">+ Novo</button>
       <button class="btn ghost" data-go="conta" title="Minha conta" aria-label="Minha conta">☰</button>
     </div>
@@ -225,10 +227,10 @@ const myName = () => (state.profiles.find(p => p.id === state.session?.user?.id)
 
 function renderTabs() {
   const tabs = [['painel', 'Painel', null]].concat(ORDER.map(m => [m, MODS[m].label, data[m].filter(r => isOpen(m, r)).length]), [['relatorios', 'Relatórios', null]]);
-  const cur = state.view === 'graficos' ? 'relatorios' : state.view === 'disparo' ? 'pessoas' : state.view === 'resumo-emendas' ? 'emendas' : state.view === 'cidadao' ? 'pessoas' : state.view === 'etiquetas' ? 'pessoas' : state.view === 'importar' ? state.imp.mod : state.view === 'mapa' ? state.mapa.mod : state.view;
+  const cur = state.view === 'graficos' ? 'relatorios' : state.view === 'disparo' ? 'pessoas' : state.view === 'resumo-emendas' ? 'emendas' : state.view === 'cidadao' ? 'pessoas' : state.view === 'etiquetas' ? 'pessoas' : state.view === 'agendas' ? 'agenda' : state.view === 'importar' ? state.imp.mod : state.view === 'mapa' ? state.mapa.mod : state.view;
   $('#tabs').innerHTML = tabs.map(([k, l, n]) => `<button class="tab" role="tab" data-go="${k}" aria-selected="${cur === k}">${l}${n != null ? `<span class="n">${n}</span>` : ''}</button>`).join('');
   const nb = $('#btn-new');
-  nb.hidden = ['conta', 'etiquetas', 'relatorios', 'importar', 'mapa', 'resumo-emendas', 'cidadao'].includes(state.view);
+  nb.hidden = ['agendas', 'conta', 'etiquetas', 'relatorios', 'importar', 'mapa', 'resumo-emendas', 'cidadao'].includes(state.view);
   nb.textContent = '+ ' + (state.view === 'painel' ? MODS.demandas.novo : MODS[state.view]?.novo || 'Novo');
   $('#btn-export').hidden = !MODS[state.view];
   $('#btn-import').hidden = !MODS[state.view];
@@ -257,7 +259,10 @@ function renderPainel() {
   ].join('');
 
   const prox = data.agenda.filter(r => r.data >= t && r.data <= w && r.status !== 'Cancelado').sort((a, b) => (a.data + hhmm(a.inicio)).localeCompare(b.data + hhmm(b.inicio))).slice(0, 8);
-  const agHtml = prox.length ? prox.map(r => `<div class="ag-item" data-open="agenda:${r.id}"><div class="ag-when"><b>${r.data === t ? 'Hoje' : fmtDate(r.data)}</b>${esc(hhmm(r.inicio))}</div><div style="min-width:0"><div class="t">${esc(r.titulo)}</div><div class="m">${esc(MODS.agenda.meta(r))}</div></div><span class="pill ${STATUS_KIND[kindOf('agenda', r.status)]}">${esc(r.status)}</span></div>`).join('')
+  carregarExternas();
+  const proxExt = extEventos().filter(e => e.data >= t && e.data <= w);
+  const proxTudo = prox.concat(proxExt).sort((a, b) => (a.data + hhmm(a.inicio)).localeCompare(b.data + hhmm(b.inicio))).slice(0, 10);
+  const agHtml = proxTudo.length ? proxTudo.map(r => r.ext ? `<div class="ag-item ext-item" style="--cor:${esc(r.cor)}" data-ext="${esc(extTitulo(r))}"><div class="ag-when"><b>${r.data === t ? 'Hoje' : fmtDate(r.data)}</b>${esc(hhmm(r.inicio))}</div><div style="min-width:0"><div class="t">${esc(r.titulo)}</div><div class="m">${esc(r.local || '')}</div></div><span class="pill ext-pill">${esc(r.agenda)}</span></div>` : `<div class="ag-item" data-open="agenda:${r.id}"><div class="ag-when"><b>${r.data === t ? 'Hoje' : fmtDate(r.data)}</b>${esc(hhmm(r.inicio))}</div><div style="min-width:0"><div class="t">${esc(r.titulo)}</div><div class="m">${esc(MODS.agenda.meta(r))}</div></div><span class="pill ${STATUS_KIND[kindOf('agenda', r.status)]}">${esc(r.status)}</span></div>`).join('')
     : `<div class="empty"><b>Nada marcado para os próximos 7 dias</b>Use “Novo compromisso” na aba Agenda.</div>`;
 
   const md = s => s.slice(5); const days = [...Array(8)].map((_, i) => md(addDays(t, i)));
@@ -290,11 +295,11 @@ function renderPainel() {
   const mun = Object.entries(porMun).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([s, n]) => ({ s, n, v: n, c: 'var(--accent)' }));
   const munHtml = mun.length ? bars(mun, Math.max(...mun.map(x => x.v)), v => v) : `<div class="empty"><b>Sem demandas em aberto</b></div>`;
 
-  return `${banner()}<div class="eyebrow">${fmtDay(t)}</div><h2 class="sec">Olá${myName() ? ', ' + esc(primeiroNome(myName())) : ''}</h2>
+  return `${banner()}<div class="eyebrow">${fmtDay(t)}</div><div class="ola"><h2 class="sec">Olá${myName() ? ', ' + esc(primeiroNome(myName())) : ''}</h2><button class="btn primary" type="button" data-novo="agenda">+ Compromisso</button></div>
     <div class="kpis">${kpis}</div>
     <div class="cols">
       <div style="display:flex;flex-direction:column;gap:18px;min-width:0">
-        <section class="panel"><h3>Próximos 7 dias na agenda <a data-go="agenda">ver agenda</a></h3>${agHtml}</section>
+        <section class="panel"><h3>Próximos 7 dias na agenda <a data-go="agenda">ver agenda</a></h3>${agHtml}<button class="btn primary mini-full" type="button" data-novo="agenda">+ Compromisso</button></section>
         <section class="panel"><h3>Minhas tarefas <a data-go="tarefas">ver tarefas</a></h3>${minhasTarefasHtml()}</section>
         <section class="panel"><h3>Aniversariantes da semana <a data-go="pessoas">ver pessoas</a></h3>${anivHtml}${anivBtn}</section>
       </div>
@@ -369,11 +374,13 @@ function rowHtml(m, r) {
 function chip(attr, k, l, on) { return `<button class="chip" ${attr}="${esc(k)}" aria-pressed="${on}">${esc(l)}</button>`; }
 
 function renderList(m) {
-  const M = MODS[m]; const a = filtered(m);
+  const M = MODS[m]; let a = filtered(m);
   let chips, extra = '';
   if (m === 'agenda') {
     chips = [['proximos', 'Próximos'], ['mes', 'Calendário do mês'], ['passados', 'Passados'], ['todos', 'Todos']].map(([k, l]) => chip('data-win', k, l, state.agendaWin === k)).join('');
-    if (gcal.googleAvailable) extra = `<div class="no-print" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px"><button class="btn mini" id="g-sync">${gcal.isConnected() ? 'Sincronizar com Google Agenda' : 'Conectar Google Agenda'}</button><span class="gstat" id="g-stat">${gcal.isConnected() ? 'Conectado · calendário: ' + esc(gcal.calendarId()) : 'Compromissos salvos aqui vão para o Google Agenda do parlamentar.'}</span></div>`;
+    carregarExternas();
+    if (store.configured) extra = `<div class="no-print" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px"><button class="btn mini primary" data-go="agendas">🔗 Ligar com Gmail e outras agendas</button><span class="gstat">${extResumo()}</span></div>`;
+    if (gcal.googleAvailable) extra += `<div class="no-print" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px"><button class="btn mini" id="g-sync">${gcal.isConnected() ? 'Sincronizar com Google Agenda' : 'Conectar Google Agenda'}</button><span class="gstat" id="g-stat">${gcal.isConnected() ? 'Conectado · calendário: ' + esc(gcal.calendarId()) : 'Compromissos salvos aqui vão para o Google Agenda do parlamentar.'}</span></div>`;
   } else if (m === 'pessoas') {
     chips = [['abertos', 'Ativos'], ['pedidos', 'Fizeram pedidos'], ['tipo:Liderança', 'Lideranças'], ['tipo:Entidade / associação', 'Entidades'], ['aniv', 'Aniversariantes do mês'], ['todos', 'Todos']].map(([k, l]) => chip('data-filter', k, l, state.filter === k)).join('');
     extra = `<div class="no-print" style="margin-bottom:4px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn mini" data-go="etiquetas">Imprimir etiquetas</button><button class="btn mini" data-mapa-de="pessoas">Ver no mapa</button><button class="btn mini wa" data-disp-lista>Mensagem para esta lista</button><button class="btn mini" data-vcf>Salvar no celular (contatos)</button></div>`;
@@ -387,13 +394,15 @@ function renderList(m) {
     if (m === 'emendas') extra = `<div class="no-print" style="margin-bottom:4px"><button class="btn mini primary" data-go="resumo-emendas">Painel de emendas (indicado, empenhado, pago)</button></div>`;
   }
   let body;
-  if (!data[m].length && !(m === 'agenda' && state.agendaWin === 'mes')) body = `<div class="empty"><b>Nenhum registro ainda</b>Clique em “+ ${esc(M.novo)}” para cadastrar o primeiro.</div>`;
+  if (m === 'agenda' && state.agendaWin !== 'mes') a = a.concat(extFiltrados()).sort((x, y) => (x.data + hhmm(x.inicio)).localeCompare(y.data + hhmm(y.inicio)) * (state.agendaWin === 'passados' ? -1 : 1));
+  if (!data[m].length && !(m === 'agenda' && (state.agendaWin === 'mes' || a.length))) body = `<div class="empty"><b>Nenhum registro ainda</b>Clique em “+ ${esc(M.novo)}” para cadastrar o primeiro.</div>`;
   else if (!a.length && !(m === 'agenda' && state.agendaWin === 'mes')) body = `<div class="empty"><b>Nada encontrado</b>Mude o filtro ou a busca.</div>`;
   else if (m === 'agenda' && state.agendaWin === 'mes') body = calendarioHtml(a);
   else if (m === 'agenda') {
     const t = todayStr(); let out = '', cur = '';
     a.forEach(r => {
       if (r.data !== cur) { cur = r.data; const n = a.filter(x => x.data === cur).length; out += `<div class="day-h ${cur === t ? 'today' : ''}"><span>${cur === t ? 'Hoje · ' : ''}${fmtDay(cur)}</span><span class="m">${n} compromisso${n > 1 ? 's' : ''}</span></div>`; }
+      if (r.ext) { out += `<div class="row ext-row" style="--cor:${esc(r.cor)}" data-ext="${esc(extTitulo(r))}"><div style="min-width:0"><div class="t"><span class="num" style="margin-right:8px;color:var(--muted)">${esc(hhmm(r.inicio) || 'Dia todo')}${r.fim ? '–' + esc(hhmm(r.fim)) : ''}</span>${esc(r.titulo)}</div><div class="m">${esc(r.local || '')}</div></div><div class="mid m"></div><div class="right"><span class="pill ext-pill">${esc(r.agenda)}</span></div></div>`; return; }
       out += `<button class="row" data-open="agenda:${r.id}"><div style="min-width:0"><div class="t"><span class="num" style="margin-right:8px;color:var(--muted)">${esc(hhmm(r.inicio) || 'Dia todo')}${r.fim ? '–' + esc(hhmm(r.fim)) : ''}</span>${esc(r.titulo)}</div><div class="m">${esc(M.meta(r))}${r.google_event_id ? ' · no Google' : ''}</div></div><div class="mid m">${esc(r.contato || '')}</div><div class="right"><span class="pill ${STATUS_KIND[kindOf('agenda', r.status)]}">${esc(r.status)}</span></div></button>`;
     });
     body = out;
@@ -401,7 +410,7 @@ function renderList(m) {
   return `${banner()}<h2 class="sec">${M.label}</h2><div class="m" style="margin-top:2px">${M.hint}</div>
     <div class="print-only m">Impresso em ${fmtStamp(new Date().toISOString())} · ${a.length} registro(s)</div>
     <div class="toolbar"><input class="search" id="q" type="search" placeholder="Buscar por nome, município, assunto, protocolo…" value="${esc(state.q)}"><div class="chips">${chips}</div></div>
-    ${extra}<div class="list" id="list">${body}</div>`;
+    ${extra}<div class="no-print so-cel" style="margin-bottom:4px;gap:8px;flex-wrap:wrap"><button class="btn mini" data-importar>Importar planilha</button><button class="btn mini" data-exportar>Exportar planilha</button></div><div class="list" id="list">${body}</div>`;
 }
 
 /* ---------- etiquetas ---------- */
@@ -478,7 +487,7 @@ function render() {
   const hadFocus = document.activeElement && document.activeElement.id === 'q'; const pos = hadFocus ? document.activeElement.selectionStart : 0;
   if (state.view !== 'etiquetas') $('#page-css').textContent = '';
   if (state.view === 'admin') setTimeout(async () => { const b = $('#modelos-box'); if (b) b.innerHTML = await modelosHtml(); carregarAdmin(); }, 0);
-  main.innerHTML = state.view === 'painel' ? renderPainel() : state.view === 'etiquetas' ? renderEtiquetas() : state.view === 'conta' ? renderConta() : state.view === 'admin' ? renderAdmin() : state.view === 'graficos' ? renderGraficos() : state.view === 'relatorios' ? renderRelatorios() : state.view === 'importar' ? renderImportar() : state.view === 'mapa' ? renderMapa() : state.view === 'resumo-emendas' ? renderResumoEmendas() : state.view === 'cidadao' ? renderCidadao() : state.view === 'disparo' ? renderDisparo() : renderList(state.view);
+  main.innerHTML = state.view === 'painel' ? renderPainel() : state.view === 'agendas' ? renderAgendas() : state.view === 'etiquetas' ? renderEtiquetas() : state.view === 'conta' ? renderConta() : state.view === 'admin' ? renderAdmin() : state.view === 'graficos' ? renderGraficos() : state.view === 'relatorios' ? renderRelatorios() : state.view === 'importar' ? renderImportar() : state.view === 'mapa' ? renderMapa() : state.view === 'resumo-emendas' ? renderResumoEmendas() : state.view === 'cidadao' ? renderCidadao() : state.view === 'disparo' ? renderDisparo() : renderList(state.view);
   if (state.view === 'mapa') setTimeout(desenharMapa, 0); else mapaLib.destruir();
   if (hadFocus) { const q = $('#q'); if (q) { q.focus(); try { q.setSelectionRange(pos, pos); } catch { /* ok */ } } }
   if (drawer.open) refreshDatalists();
@@ -526,6 +535,7 @@ function openDrawer(mod, id, preset = {}) {
     if (linked) acts.push(`<button class="btn mini" type="button" data-search="${esc(rec.nome)}">Ver ${linked} registro(s) ligado(s)</button>`);
   }
   if (rec && mod === 'agenda') acts.push(`<button class="btn mini wa" type="button" data-disp-convite>Convidar pessoas pelo WhatsApp</button>`);
+  if (rec && mod === 'agenda' && rec.data) acts.push(`<a class="btn mini" href="${esc(ags.linkGoogleEvento(rec))}" target="_blank" rel="noopener">📅 Pôr no Google Agenda</a>`);
   if (rec && mod === 'recepcao') acts.push(`<button class="btn mini primary" type="button" data-recep-demanda>Transformar em demanda</button>`, `<button class="btn mini" type="button" data-cid="${esc(rec.nome)}" data-cid-tel="${esc(rec.telefone || '')}">Histórico de ${esc(primeiroNome(rec.nome))}</button>`);
   if (rec && mod === 'demandas') acts.push(`<button class="btn mini primary" type="button" data-oficio-de>Gerar ofício de solicitação</button>`);
   if (rec && ['demandas', 'servicos'].includes(mod) && rec.solicitante) acts.push(`<button class="btn mini" type="button" data-cid="${esc(rec.solicitante)}" data-cid-tel="${esc(rec.telefone || '')}">Histórico de ${esc(primeiroNome(rec.solicitante))}</button>`);
@@ -644,9 +654,9 @@ function upsertLocal(mod, row) { if (!row) return; const a = data[mod]; const i 
 /* ---------- ofício a partir da demanda ---------- */
 const ORGAO_POR_AREA = {
   'Obras': 'Secretaria Municipal de Obras Públicas', 'Infraestrutura': 'Secretaria Municipal de Obras Públicas', 'Iluminação pública': 'Secretaria Municipal de Obras Públicas',
-  'Trânsito': 'Órgão municipal de trânsito', 'Meio ambiente': 'Secretaria Municipal de Meio Ambiente',
+  'Trânsito': 'Autarquia Municipal de Mobilidade, Trânsito e Cidadania - TRANSITAR', 'Meio ambiente': 'Secretaria Municipal de Meio-Ambiente',
   'Saúde': 'Secretaria Municipal de Saúde', 'Educação': 'Secretaria Municipal de Educação', 'Assistência social': 'Secretaria Municipal de Assistência Social',
-  'Segurança': 'Secretaria Municipal de Segurança Pública', 'Emprego e renda': 'Secretaria Municipal de Desenvolvimento Econômico', 'Esporte e cultura': 'Secretaria Municipal de Esporte e Lazer',
+  'Segurança': 'Secretaria Municipal de Segurança Pública e Proteção à Comunidade', 'Emprego e renda': 'Secretaria Municipal de Desenvolvimento Econômico', 'Esporte e cultura': 'Secretaria Municipal de Esporte e Lazer',
 };
 async function oficioDaDemanda() {
   const { id } = drawer; let d = data.demandas.find(x => x.id === id); if (!d) return;
@@ -663,7 +673,7 @@ async function oficioDaDemanda() {
     linhas.push('Solicito, ainda, retorno a este gabinete sobre as providências adotadas e a previsão de atendimento.');
     const of = {
       servico: d.assunto, solicitante: d.solicitante, telefone: d.telefone, municipio: d.municipio, local: d.bairro,
-      orgao: ORGAO_POR_AREA[d.area] || null, tipo_doc: 'Ofício', prazo: addDays(todayStr(), 15), responsavel: por || d.responsavel,
+      orgao: (AREAS_DEMANDA.includes(d.area) ? d.area : ORGAO_POR_AREA[d.area]) || null, tipo_doc: 'Ofício', prazo: addDays(todayStr(), 15), responsavel: por || d.responsavel,
       corpo: linhas.join('\n'), status: 'Recebida', demanda_id: d.id,
       ...(d.lat != null ? { lat: d.lat, lng: d.lng } : {}),
       historico: [{ em: agora, txt: 'Criado a partir da demanda “' + d.assunto + '”', por }],
@@ -1094,7 +1104,7 @@ function renderRelatorios() {
         ${tabela('Por situação', conta('status', '—'))}
         ${M.fields.some(x => x.k === 'municipio') && !f.municipio ? tabela('Por município', conta('municipio', 'Sem município')) : ''}
         ${M.fields.some(x => x.k === 'bairro') ? tabela('Por bairro', conta('bairro', 'Sem bairro')) : ''}
-        ${M.fields.some(x => x.k === 'area') ? tabela('Por área', conta('area', 'Sem área')) : ''}
+        ${M.fields.some(x => x.k === 'area') ? (m === 'demandas' ? tabela('Por órgão destinatário', conta('area', 'Sem órgão')) : tabela('Por área', conta('area', 'Sem área'))) : ''}
         ${M.fields.some(x => x.k === 'tipo') ? tabela('Por tipo', conta('tipo', 'Sem tipo')) : ''}
         ${M.fields.some(x => x.k === 'responsavel') ? tabela('Por responsável', conta('responsavel', 'Sem responsável')) : ''}
       </div>
@@ -1107,10 +1117,20 @@ function fmtDataBR(s) { if (!s) return ''; const [y, mm, d] = s.split('-'); retu
 /* ---------- mapa por bairro ---------- */
 let geoCache = null, mapaOcupado = false, mapaDeNovo = false;
 const UF_GAB = () => (/[-–]\s*([A-Z]{2})\s*$/.exec(cfg.endereco_gabinete || '') || [])[1] || '';
-function gruposMapa() {
-  const { mod, so } = state.mapa; const por = {};
-  for (const r of data[mod]) {
-    if (so === 'abertos' && !isOpen(mod, r)) continue;
+const ORG_MAPA = { demandas: 'area', servicos: 'orgao' };
+/** Registros do mapa depois dos filtros (situação, período e órgão). */
+function regsMapa() {
+  const { mod, so, per, org } = state.mapa; const ko = ORG_MAPA[mod];
+  let desde = '';
+  if (per === 'ano') desde = todayStr().slice(0, 4) + '-01-01';
+  else if (per) desde = addDays(todayStr(), -(+per));
+  return data[mod].filter(r => (so !== 'abertos' || isOpen(mod, r))
+    && (!desde || String(r.criado_em || '').slice(0, 10) >= desde)
+    && (!org || !ko || (org === '—' ? !r[ko] : r[ko] === org)));
+}
+function gruposMapa(regs) {
+  const { mod } = state.mapa; const por = {};
+  for (const r of regs) {
     if (r.lat != null && r.lng != null) continue;
     if (!r.bairro) continue;
     const mun = r.municipio || cfg.cidade_gabinete || '';
@@ -1121,19 +1141,46 @@ function gruposMapa() {
   }
   return Object.values(por).sort((a, b) => b.total - a.total);
 }
+/** Ranking: todos os registros com bairro (com ou sem ponto exato). */
+function rankingMapa(regs) {
+  const { mod } = state.mapa; const por = {};
+  for (const r of regs) {
+    if (!r.bairro) continue;
+    const mun = r.municipio || cfg.cidade_gabinete || '';
+    const k = r.bairro.trim().toLowerCase() + '|' + mun.toLowerCase();
+    const g = por[k] || (por[k] = { bairro: r.bairro.trim(), municipio: mun, total: 0, abertos: 0, atrasados: 0 });
+    g.total++; if (isOpen(mod, r)) g.abertos++; if (isLate(mod, r)) g.atrasados++;
+  }
+  return Object.values(por).sort((a, b) => b.total - a.total || b.atrasados - a.atrasados);
+}
 function renderMapa() {
-  const { mod, so } = state.mapa; const M = MODS[mod];
-  const base = data[mod].filter(r => so !== 'abertos' || isOpen(mod, r));
-  const semBairro = base.filter(r => !r.bairro && r.lat == null).length;
+  const { mod, so, per = '', org = '' } = state.mapa; const M = MODS[mod]; const ko = ORG_MAPA[mod];
+  const regs = regsMapa();
+  const semBairro = regs.filter(r => !r.bairro && r.lat == null).length;
+  const rank = rankingMapa(regs); const maxR = Math.max(1, ...rank.map(g => g.total));
+  const orgs = ko ? [...new Set(data[mod].map(r => r[ko]).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR')) : [];
+  const abertos = regs.filter(r => isOpen(mod, r)).length, atras = regs.filter(r => isLate(mod, r)).length;
+  const comLocal = regs.filter(r => r.lat != null || r.bairro).length;
+  const multi = new Set(rank.map(g => g.municipio)).size > 1;
   return `<div class="no-print"><a class="linkbtn" data-go="${mod}">← ${esc(M.label)}</a></div>
-    <h2 class="sec" style="margin-top:6px">Mapa por bairro</h2>
-    <div class="m">Toque num ponto e em <b>+ Roteiro</b> para montar a rota de visitas. Pontos pequenos são pedidos com local exato marcado. Círculos grandes juntam os pedidos de um bairro; quanto maior, mais pedidos. <span style="color:#b3261e">Vermelho</span>: tem atrasado · <span style="color:#c77700">laranja</span>: em aberto · <span style="color:#1c7a3d">verde</span>: tudo resolvido.</div>
+    <h2 class="sec" style="margin-top:6px">Mapa</h2>
+    <div class="m">Círculos juntam os pedidos de um bairro (o número é a quantidade). Pontos pequenos são pedidos com o local exato marcado. Toque num deles e em <b>+ Roteiro</b> para montar a rota de visitas.</div>
     <div class="toolbar" style="margin-top:10px"><div class="chips">
       ${['demandas', 'servicos', 'pessoas'].map(k => chip('data-mapa-mod', k, MODS[k].label, mod === k)).join('')}
       ${mod !== 'pessoas' ? chip('data-mapa-so', 'abertos', 'Só em aberto', so === 'abertos') + chip('data-mapa-so', 'todos', 'Todos', so !== 'abertos') : ''}
     </div></div>
+    <div class="filters mapa-filtros">
+      <div class="f"><label for="mapa-per">Período</label><select id="mapa-per">${[['', 'Todo o período'], ['30', 'Últimos 30 dias'], ['90', 'Últimos 90 dias'], ['ano', 'Este ano']].map(([k, l]) => `<option value="${k}" ${per === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+      ${ko ? `<div class="f"><label for="mapa-org">Órgão destinatário</label><select id="mapa-org"><option value="">Todos os órgãos</option>${orgs.map(o => `<option ${org === o ? 'selected' : ''}>${esc(o)}</option>`).join('')}<option value="—" ${org === '—' ? 'selected' : ''}>Sem órgão</option></select></div>` : ''}
+    </div>
+    <div class="mapa-resumo"><span><b>${regs.length}</b> ${mod === 'pessoas' ? 'pessoa(s)' : 'registro(s)'}</span>${mod !== 'pessoas' ? `<span><b>${abertos}</b> em aberto</span>${atras ? `<span class="late"><b>${atras}</b> atrasado(s)</span>` : ''}` : ''}<span><b>${comLocal}</b> no mapa</span></div>
     <div class="m" id="mapa-prog" hidden></div>
-    <div id="mapa-el" class="mapa"></div>
+    <div class="mapa-grade">
+      <div class="mapa-wrap"><div id="mapa-el" class="mapa"></div></div>
+      <section class="panel mapa-rank"><h3>Bairros com mais ${mod === 'pessoas' ? 'pessoas' : 'pedidos'}</h3>
+        ${rank.length ? `<ol>${rank.slice(0, 15).map(g => `<li><button data-mapa-foco="${esc(g.bairro)}" data-mapa-foco-mun="${esc(g.municipio)}" title="Ver no mapa"><span class="nm">${esc(g.bairro)}${multi && g.municipio ? ` <small>${esc(g.municipio)}</small>` : ''}</span><span class="nr">${g.total}</span><span class="bar"><i style="width:${Math.round(100 * g.total / maxR)}%;background:${g.atrasados ? '#e5484d' : g.abertos ? '#f0a020' : '#3fb06a'}"></i></span>${mod !== 'pessoas' && (g.abertos || g.atrasados) ? `<span class="sub">${g.abertos} em aberto${g.atrasados ? ' · <b>' + g.atrasados + ' atrasado(s)</b>' : ''}</span>` : ''}</button></li>`).join('')}</ol>${rank.length > 15 ? `<p class="m" style="margin:6px 0 0">e mais ${rank.length - 15} bairro(s)</p>` : ''}` : '<p class="m">Nenhum registro com bairro nesse filtro.</p>'}
+      </section>
+    </div>
     <div id="rota-box">${rotaHtml()}</div>
     <div class="m" id="mapa-info" style="margin-top:8px">${semBairro ? semBairro + ' registro(s) sem bairro preenchido não aparecem no mapa.' : ''}</div>`;
 }
@@ -1143,19 +1190,21 @@ async function desenharMapa() {
   mapaOcupado = true;
   try {
     if (!geoCache) { try { geoCache = (await store.getConfig('geo')) || {}; } catch { geoCache = {}; } }
-    const grupos = gruposMapa();
+    const mod = state.mapa.mod, regs = regsMapa();
+    const grupos = gruposMapa(regs);
     const semLocal = await mapaLib.desenhar(el, grupos, {
       cache: geoCache, uf: UF_GAB(), cidadePadrao: cfg.cidade_gabinete, esc,
       salvarCache: c => store.setConfig('geo', c),
       onProgresso: (i, n) => { const p = $('#mapa-prog'); if (!p) return; p.hidden = !n; p.textContent = n ? `Localizando bairros no mapa… ${i} de ${n} (só na primeira vez)` : ''; },
-      onClique: g => { state.qNext = g.bairro; go(state.mapa.mod); },
-      pontosExatos: data[state.mapa.mod].filter(r => r.lat != null && r.lng != null && (state.mapa.so !== 'abertos' || isOpen(state.mapa.mod, r))).map(r => ({ id: r.id, lat: +r.lat, lng: +r.lng, titulo: MODS[state.mapa.mod].title(r) || '', status: r.status, sub: [r.bairro, r.solicitante].filter(Boolean).join(' · '), aberto: isOpen(state.mapa.mod, r), atrasado: isLate(state.mapa.mod, r) })),
-      onAbrir: p => openDrawer(state.mapa.mod, p.id),
+      onClique: g => { mapaLib.destruir(); state.qNext = g.bairro; go(mod); },
+      pontosExatos: regs.filter(r => r.lat != null && r.lng != null).map(r => ({ id: r.id, lat: +r.lat, lng: +r.lng, titulo: MODS[mod].title(r) || '', status: r.status, sub: [r.bairro, r.solicitante].filter(Boolean).join(' · '), bairro: (r.bairro || '').trim(), municipio: r.municipio || cfg.cidade_gabinete || '', aberto: isOpen(mod, r), atrasado: isLate(mod, r) })),
+      onAbrir: p => { mapaLib.sairTelaCheia(); openDrawer(mod, p.id); },
+      onAviso: toast,
       onRota: p => { if (state.rota.length >= 10) { toast('O Google Maps aceita até 10 paradas.'); return; } if (state.rota.some(x => x.lat === p.lat && x.lng === p.lng)) { toast('Já está no roteiro'); return; } state.rota.push(p); atualizarRota(); toast('Adicionado ao roteiro'); },
     });
     const info = $('#mapa-info');
     if (info && semLocal.length) info.textContent += (info.textContent ? ' ' : '') + 'Não achei no mapa: ' + semLocal.map(g => g.bairro).join(', ') + '.';
-    if (!grupos.length && info && !data[state.mapa.mod].some(r => r.lat != null && (state.mapa.so !== 'abertos' || isOpen(state.mapa.mod, r)))) info.textContent = 'Nenhum registro com bairro preenchido nesse filtro.';
+    if (!grupos.length && info && !regs.some(r => r.lat != null)) info.textContent = 'Nenhum registro com bairro preenchido nesse filtro.';
   } catch (e) { const info = $('#mapa-info'); if (info) info.textContent = 'Não foi possível abrir o mapa: ' + errMsg(e); }
   finally { mapaOcupado = false; if (mapaDeNovo) { mapaDeNovo = false; desenharMapa(); } }
 }
@@ -1477,7 +1526,7 @@ function renderGraficos() {
     ${pnl('Demandas recebidas por mês', grafMeses(porMes(data.demandas, r => r.criado_em)))}
     <div class="cols graf-cols">
       ${pnl('Demandas por situação', grafBarras(sit, { total: dem.length }))}
-      ${pnl('Demandas por área', grafBarras(contarPor(dem, r => r.area || 'Sem área'), { total: dem.length }))}
+      ${pnl('Demandas por órgão destinatário', grafBarras(contarPor(dem, r => r.area || 'Sem órgão'), { total: dem.length }))}
       ${pnl('Bairros com mais demandas', grafBarras(contarPor(dem, r => r.bairro ? r.bairro + (r.municipio && r.municipio !== cfg.cidade_gabinete ? ' · ' + r.municipio : '') : ''), { total: dem.length, vazio: 'Nenhuma demanda com bairro no período.' }))}
       ${pnl('Como as demandas chegaram', grafBarras(contarPor(dem, r => r.origem || 'Não informado'), { total: dem.length }))}
     </div>
@@ -1588,19 +1637,143 @@ function aparelho() {
   return tipo + (so && so !== tipo ? ' · ' + so : '') + (matchMedia('(display-mode: standalone)').matches ? ' · app' : '');
 }
 
+/* ---------- agenda ligada ao Gmail e outras agendas ---------- */
+state.ext = { lista: [], em: 0, carregando: false, erro: '' };
+state.agLink = null;
+state.agForm = { cor: ags.CORES[0] };
+function carregarExternas(force) {
+  const x = state.ext;
+  if (!store.configured || x.carregando || (!force && x.em && Date.now() - x.em < 600000) || (!force && x.erro && Date.now() - x.em < 120000)) return;
+  x.carregando = true;
+  store.agendaFn('eventos').then(r => { x.lista = r.agendas || []; x.erro = ''; })
+    .catch(err => { x.erro = errMsg(err); })
+    .finally(() => { x.carregando = false; x.em = Date.now(); if (['agenda', 'painel', 'agendas'].includes(state.view) && !drawer.open) render(); });
+}
+function extEventos() {
+  const out = [];
+  for (const g of state.ext.lista) for (const e of g.eventos || []) out.push({ ...e, id: e.uid, ext: true, agenda: g.nome, cor: g.cor });
+  return out;
+}
+function extFiltrados() {
+  const t = todayStr(); const q = state.q.trim().toLowerCase();
+  return extEventos().filter(r => (state.agendaWin === 'proximos' ? r.data >= t : state.agendaWin === 'passados' ? r.data < t : true) && (!q || (r.titulo + ' ' + (r.local || '') + ' ' + r.agenda).toLowerCase().includes(q)));
+}
+const extTitulo = r => `${r.titulo} · ${fmtDate(r.data)}${r.inicio ? ' às ' + hhmm(r.inicio) : ''}${r.local ? ' · ' + r.local : ''} — da agenda "${r.agenda}". Para mudar, mude lá.`;
+function extResumo() {
+  const x = state.ext; const l = x.lista; const comErro = l.filter(g => g.erro).length;
+  if (!l.length && x.carregando) return 'Carregando outras agendas…';
+  if (!l.length) return 'Veja aqui os compromissos do Gmail e veja os daqui no Gmail e no celular.';
+  return `${l.length} outra(s) agenda(s) aparecendo aqui: ${l.map(g => `<span class="ext-dot" style="--cor:${esc(g.cor)}"></span>${esc(g.nome)}`).join(', ')}${comErro ? ` · <b class="ext-erro">⚠ ${comErro} com problema</b>` : ''}`;
+}
+function carregarLinkAgenda(force) {
+  if (!store.configured || (state.agLink && !force && !state.agLink.erro)) return;
+  state.agLink = { carregando: true };
+  store.agendaFn('link').then(r => { state.agLink = { url: r.url }; }).catch(err => { state.agLink = { erro: errMsg(err) }; }).finally(() => { if (state.view === 'agendas') render(); });
+}
+function renderAgendas() {
+  if (!store.configured) return `${banner()}<h2 class="sec">Ligar com Gmail e outras agendas</h2><div class="empty"><b>Precisa do banco de dados ligado</b>Esta função usa o servidor do sistema.</div>`;
+  carregarLinkAgenda(); carregarExternas();
+  const L = state.agLink || { carregando: true }; const x = state.ext;
+  const sec1 = L.url ? `
+      <div class="ag-botoes">
+        <a class="btn primary" href="${esc(ags.linkAssinarGoogle(L.url))}" target="_blank" rel="noopener">Adicionar no Google Agenda (Gmail)</a>
+        <a class="btn" href="${esc(ags.linkWebcal(L.url))}">iPhone / Mac</a>
+        <a class="btn" href="${esc(ags.linkAssinarOutlook(L.url))}" target="_blank" rel="noopener">Outlook</a>
+      </div>
+      <ol class="ag-passos">
+        <li>Entre com o <b>Gmail do gabinete</b> (ou o seu) e clique no botão <b>Adicionar no Google Agenda</b> acima.</li>
+        <li>O Google pergunta <i>"Adicionar agenda?"</i>: clique em <b>Adicionar</b>.</li>
+        <li>Pronto. A "Agenda do gabinete (Fala Cascavel)" aparece no Google Agenda e no celular. O Google atualiza sozinho, de algumas em algumas horas.</li>
+      </ol>
+      <div class="f"><label for="ag-link">Link da agenda (para outros aplicativos)</label><input id="ag-link" value="${esc(L.url)}" readonly></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><button class="btn mini" type="button" data-ag-copiar>Copiar link</button>${state.admin ? '<button class="btn mini ghost" type="button" data-ag-trocar>Trocar link</button>' : ''}</div>
+      <p class="m">Quem tiver este link vê os compromissos. Mande só para a equipe.${state.admin ? ' Se vazar, use "Trocar link": o antigo para de funcionar.' : ''}</p>`
+    : L.erro ? `<div class="aviso-contatos"><span class="m">Não foi possível pegar o link: ${esc(L.erro)}</span> <button class="btn mini" type="button" data-ag-retentar>Tentar de novo</button></div>`
+    : '<p class="m">Preparando o link…</p>';
+  const lista = x.lista.length ? x.lista.map(g => `<div class="ag-ext"><span class="ext-dot" style="--cor:${esc(g.cor)}"></span><div style="min-width:0;flex:1"><b>${esc(g.nome)}</b><div class="m">${g.erro ? `<span class="ext-erro">⚠ ${esc(g.erro)}</span>` : `${(g.eventos || []).length} compromisso(s) lidos`}</div></div><button class="btn mini ghost" type="button" data-ag-rem="${esc(g.id)}">Remover</button></div>`).join('')
+    : x.carregando ? '<p class="m">Carregando…</p>' : x.erro ? `<p class="m ext-erro">⚠ ${esc(x.erro)}</p>` : '<p class="m">Nenhuma agenda ligada ainda.</p>';
+  return `${banner()}<div class="no-print"><a class="linkbtn" data-go="agenda">← Agenda</a></div>
+    <h2 class="sec" style="margin-top:6px">Ligar com Gmail e outras agendas</h2>
+    <div class="m">Duas mãos: os compromissos daqui aparecem no Gmail/celular, e os do Gmail (ou Outlook, iPhone) aparecem aqui.</div>
+    <div class="cols" style="margin-top:14px">
+      <section class="panel"><h3>1. Ver a agenda do sistema no Gmail e no celular</h3>${sec1}</section>
+      <section class="panel"><h3>2. Mostrar aqui outras agendas</h3>
+        <p class="m" style="margin-top:0">Os compromissos do Gmail, Outlook ou iPhone aparecem na Agenda do sistema, com a cor escolhida. Ficam só para ver: para mudar, mude na agenda de origem.</p>
+        <div class="ag-lista">${lista}</div>
+        <form id="ag-form" class="filters" style="grid-template-columns:1fr;margin:12px 0 0" novalidate>
+          <div class="f"><label for="ag-nome">Nome</label><input id="ag-nome" placeholder="Ex.: Gmail do vereador" maxlength="60" autocomplete="off"></div>
+          <div class="f"><label for="ag-url">Link da agenda (endereço iCal)</label><input id="ag-url" placeholder="https://calendar.google.com/calendar/ical/…/basic.ics" autocomplete="off" inputmode="url"></div>
+          <div class="f"><label>Cor</label><div class="ag-cores">${ags.CORES.map(c => `<button type="button" class="ag-cor" style="--cor:${c}" data-ag-cor="${c}" aria-pressed="${state.agForm.cor === c}" aria-label="Cor ${c}"></button>`).join('')}</div></div>
+          <div><button class="btn primary" type="submit" id="ag-add">Ligar esta agenda</button></div>
+        </form>
+        <details class="ag-ajuda" open><summary>Onde pego o link do Gmail (Google Agenda)?</summary><ol>
+          <li>No computador, abra <a href="https://calendar.google.com/calendar/r/settings" target="_blank" rel="noopener">as configurações do Google Agenda</a> com o Gmail da agenda.</li>
+          <li>Na coluna da esquerda, em <i>Configurações das minhas agendas</i>, clique no nome da agenda.</li>
+          <li>Desça até <i>Integrar agenda</i> e copie o <b>Endereço secreto no formato iCal</b> (termina em <code>basic.ics</code>).</li>
+          <li>Cole no campo <b>Link</b> acima, dê um nome e clique em <b>Ligar esta agenda</b>.</li></ol></details>
+        <details class="ag-ajuda"><summary>E do Outlook / Hotmail?</summary><ol>
+          <li>Em outlook.com, vá em ⚙ Configurações → Calendário → <i>Calendários compartilhados</i>.</li>
+          <li>Em <i>Publicar um calendário</i>, escolha o calendário e <i>Pode exibir todos os detalhes</i> → Publicar.</li>
+          <li>Copie o link <b>ICS</b> e cole aqui.</li></ol></details>
+        <details class="ag-ajuda"><summary>E do iPhone (iCloud)?</summary><ol>
+          <li>No iPhone, abra o app Calendário → <i>Calendários</i> → toque no ⓘ ao lado da agenda.</li>
+          <li>Ligue <i>Calendário Público</i> e toque em <i>Compartilhar Link</i> → Copiar.</li>
+          <li>Cole aqui (o link começa com webcal://, pode colar assim mesmo).</li></ol></details>
+      </section>
+    </div>`;
+}
+async function salvarAgendasExternas(mudar) {
+  const cfg = await store.getConfig('agendas_externas');
+  const lista = mudar((cfg?.lista || []).slice());
+  await store.agendaFn('salvar', { agendas: lista });
+  carregarExternas(true);
+}
+async function ligarAgenda() {
+  const nome = ($('#ag-nome')?.value || '').trim(); const url = ($('#ag-url')?.value || '').trim();
+  if (!url) { toast('Cole o link da agenda'); $('#ag-url')?.focus(); return; }
+  if (!/^(https|webcals?):\/\//i.test(url)) { toast('O link precisa começar com https:// ou webcal://'); return; }
+  const btn = $('#ag-add'); if (btn) { btn.disabled = true; btn.textContent = 'Conferindo o link…'; }
+  try {
+    const t = await store.agendaFn('testar', { url });
+    await salvarAgendasExternas(l => l.concat({ id: Date.now().toString(36), nome: nome || t.nome || 'Outra agenda', url, cor: state.agForm.cor }));
+    toast(`Agenda ligada: ${t.total} compromisso(s) encontrados`);
+    state.agForm.cor = ags.CORES[(ags.CORES.indexOf(state.agForm.cor) + 1) % ags.CORES.length];
+    render();
+  } catch (err) { toast(errMsg(err)); if (btn) { btn.disabled = false; btn.textContent = 'Ligar esta agenda'; } }
+}
+function agendasClique(e) {
+  if (e.target.closest('[data-ag-copiar]')) { const i = $('#ag-link'); try { navigator.clipboard.writeText(i.value).then(() => toast('Link copiado')); } catch { i.select(); document.execCommand('copy'); toast('Link copiado'); } return true; }
+  if (e.target.closest('[data-ag-retentar]')) { carregarLinkAgenda(true); render(); return true; }
+  if (e.target.closest('[data-ag-trocar]')) {
+    if (!confirm('Trocar o link? Quem já adicionou a agenda no Google ou no celular vai precisar adicionar de novo.')) return true;
+    store.agendaFn('novo-link').then(r => { state.agLink = { url: r.url }; render(); toast('Link novo criado. Adicione de novo no Google Agenda.'); }).catch(err => toast(errMsg(err)));
+    return true;
+  }
+  const c = e.target.closest('[data-ag-cor]'); if (c) { state.agForm.cor = c.dataset.agCor; document.querySelectorAll('[data-ag-cor]').forEach(b => b.setAttribute('aria-pressed', b === c)); return true; }
+  const rm = e.target.closest('[data-ag-rem]'); if (rm) {
+    const id = rm.dataset.agRem; const g = state.ext.lista.find(x => x.id === id);
+    if (!confirm(`Tirar a agenda "${g?.nome || ''}" do sistema? (Nada é apagado no Gmail.)`)) return true;
+    rm.disabled = true;
+    salvarAgendasExternas(l => l.filter(x => x.id !== id)).then(() => { state.ext.lista = state.ext.lista.filter(x => x.id !== id); render(); toast('Agenda removida'); }).catch(err => { toast(errMsg(err)); rm.disabled = false; });
+    return true;
+  }
+  return false;
+}
+
 /* ---------- calendário do mês (agenda) ---------- */
 function calendarioHtml() {
   const t = todayStr(); const ym = state.cal || t.slice(0, 7); const [y, mo] = ym.split('-').map(Number);
   const ini = new Date(y, mo - 1, 1); const vazio = ini.getDay(); const dias = new Date(y, mo, 0).getDate();
   const q = state.q.trim().toLowerCase();
   const ev = data.agenda.filter(r => r.data && r.data.startsWith(ym) && (!q || Object.values(r).some(v => typeof v === 'string' && v.toLowerCase().includes(q)))).sort((a, b) => (a.data + hhmm(a.inicio)).localeCompare(b.data + hhmm(b.inicio)));
+  const evx = extEventos().filter(r => r.data.startsWith(ym) && (!q || (r.titulo + ' ' + (r.local || '') + ' ' + r.agenda).toLowerCase().includes(q)));
   let cel = '';
   for (let i = 0; i < vazio; i++) cel += '<div class="cal-d fora"></div>';
   for (let d = 1; d <= dias; d++) {
-    const dia = ym + '-' + pad(d); const es = ev.filter(r => r.data === dia);
-    cel += `<div class="cal-d ${dia === t ? 'hoje' : ''}" data-cal-dia="${dia}" title="Novo compromisso em ${fmtDate(dia)}"><span class="cal-n">${d}</span>${es.slice(0, 3).map(r => `<button class="cal-ev ${r.status === 'Cancelado' ? 'cancel' : ''}" data-open="agenda:${r.id}" title="${esc(r.titulo)}">${r.inicio ? `<b>${esc(hhmm(r.inicio))}</b> ` : ''}${esc(r.titulo)}</button>`).join('')}${es.length > 3 ? `<span class="cal-mais">+${es.length - 3}</span>` : ''}</div>`;
+    const dia = ym + '-' + pad(d); const es = ev.filter(r => r.data === dia).concat(evx.filter(r => r.data === dia)).sort((a, b) => hhmm(a.inicio).localeCompare(hhmm(b.inicio)));
+    cel += `<div class="cal-d ${dia === t ? 'hoje' : ''}" data-cal-dia="${dia}" title="Novo compromisso em ${fmtDate(dia)}"><span class="cal-n">${d}</span>${es.slice(0, 3).map(r => r.ext ? `<span class="cal-ev ext" style="--cor:${esc(r.cor)}" data-ext="${esc(extTitulo(r))}" title="${esc(extTitulo(r))}">${r.inicio ? `<b>${esc(hhmm(r.inicio))}</b> ` : ''}${esc(r.titulo)}</span>` : `<button class="cal-ev ${r.status === 'Cancelado' ? 'cancel' : ''}" data-open="agenda:${r.id}" title="${esc(r.titulo)}">${r.inicio ? `<b>${esc(hhmm(r.inicio))}</b> ` : ''}${esc(r.titulo)}</button>`).join('')}${es.length > 3 ? `<span class="cal-mais">+${es.length - 3}</span>` : ''}</div>`;
   }
-  return `<div class="cal"><div class="cal-top"><button class="btn mini" data-cal-nav="-1" aria-label="Mês anterior">‹</button><b>${MESES[mo - 1].replace(/^./, c => c.toUpperCase())} de ${y}</b><button class="btn mini" data-cal-nav="1" aria-label="Próximo mês">›</button>${ym !== t.slice(0, 7) ? '<button class="btn mini ghost" data-cal-nav="0">Hoje</button>' : ''}<span class="m" style="margin-left:auto">${ev.length} compromisso(s) · toque num dia para marcar</span></div>
+  return `<div class="cal"><div class="cal-top"><button class="btn mini" data-cal-nav="-1" aria-label="Mês anterior">‹</button><b>${MESES[mo - 1].replace(/^./, c => c.toUpperCase())} de ${y}</b><button class="btn mini" data-cal-nav="1" aria-label="Próximo mês">›</button>${ym !== t.slice(0, 7) ? '<button class="btn mini ghost" data-cal-nav="0">Hoje</button>' : ''}<span class="m" style="margin-left:auto">${ev.length} compromisso(s)${evx.length ? ' + ' + evx.length + ' de outras agendas' : ''} · toque num dia para marcar</span></div>
     <div class="cal-g">${['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map(d => `<div class="cal-h">${d}</div>`).join('')}${cel}</div></div>`;
 }
 
@@ -1786,6 +1959,8 @@ document.addEventListener('click', e => {
   const sr = e.target.closest('[data-search]'); if (sr) { const q = sr.dataset.search; closeDrawer(); go('demandas'); state.q = q; state.filter = 'todos'; render(); return; }
   if (e.target.closest('[data-oficio-de]')) { oficioDaDemanda(); return; }
   const gp = e.target.closest('[data-graf-p]'); if (gp) { state.graf.p = gp.dataset.grafP; render(); return; }
+  const xe = e.target.closest('[data-ext]'); if (xe) { toast(xe.dataset.ext); return; }
+  if (agendasClique(e)) return;
   const cd = e.target.closest('[data-cal-dia]'); if (cd) { openDrawer('agenda', null, { data: cd.dataset.calDia }); return; }
   const cn = e.target.closest('[data-cal-nav]'); if (cn) { const [y, mo] = (state.cal || todayStr().slice(0, 7)).split('-').map(Number); const n = +cn.dataset.calNav; state.cal = n === 0 ? '' : ymd(new Date(y, mo - 1 + n, 1)).slice(0, 7); render(); return; }
   const rdel = e.target.closest('[data-rota-del]'); if (rdel) { state.rota.splice(+rdel.dataset.rotaDel, 1); atualizarRota(); return; }
@@ -1806,11 +1981,12 @@ document.addEventListener('click', e => {
   if (e.target.closest('#geo-gps')) { geoGps(); return; }
   if (e.target.closest('#geo-limpar')) { drawer.geo = null; geoMini?.marcar(null); geoInfo(); return; }
   if (e.target.closest('[data-tarefa-de]')) { const { mod, id } = drawer; const r = data[mod].find(x => x.id === id); closeDrawer(); go('tarefas'); openDrawer('tarefas', null, { relacionado: MODS[mod].sing + ': ' + (MODS[mod].title(r) || ''), prazo: addDays(todayStr(), 3) }); return; }
+  const nv = e.target.closest('[data-novo]'); if (nv) { go(nv.dataset.novo); openDrawer(nv.dataset.novo, null); return; }
   if (e.target.closest('#btn-new')) { openDrawer(state.view === 'painel' ? 'demandas' : state.view, null); return; }
-  if (e.target.closest('#btn-export')) { exportCsv(); return; }
+  if (e.target.closest('#btn-export, [data-exportar]')) { exportCsv(); return; }
   if (e.target.closest('[data-vcf]')) { exportVcf(); return; }
   if (e.target.closest('[data-trazer-pedidos]')) { const b = e.target.closest('[data-trazer-pedidos]'); b.disabled = true; b.textContent = 'Colocando…'; cadastrarQuemPediu().then(n => { toast(n + ' pessoa(s) colocada(s) na lista de contatos'); state.filter = 'pedidos'; render(); }).catch(err => { toast('Não foi possível: ' + errMsg(err)); render(); }); return; }
-  if (e.target.closest('#btn-import')) { state.imp = { mod: state.view }; go('importar'); return; }
+  if (e.target.closest('#btn-import, [data-importar]')) { state.imp = { mod: state.view }; go('importar'); return; }
   if (e.target.closest('#btn-avisos')) { abrirAvisos(); return; }
   if (e.target.closest('#av-notif')) { Notification.requestPermission().then(p => { toast(p === 'granted' ? 'Pronto: os avisos aparecem quando você abrir o sistema' : 'O navegador não liberou os avisos'); if (p === 'granted') { try { localStorage.removeItem('gabinete-aviso-dia'); } catch { /* ok */ } notificarNoComputador(); } abrirAvisos(); }); return; }
   const ab = e.target.closest('[data-anx-abrir]'); if (ab) { const r = data[drawer.mod].find(x => x.id === drawer.id); const x = r?.anexos?.[+ab.dataset.anxAbrir]; if (x) { const w = window.open('', '_blank'); store.linkAnexo(x.path).then(u => { if (w) w.location = u; else location.href = u; }).catch(err => { if (w) w.close(); toast(errMsg(err)); }); } return; }
@@ -1821,9 +1997,10 @@ document.addEventListener('click', e => {
   if (e.target.closest('#btn-instalar')) { if (pedidoInstalar) { pedidoInstalar.prompt(); pedidoInstalar.userChoice.finally(() => { pedidoInstalar = null; render(); }); } return; }
   const rr = e.target.closest('[data-rel-rapido]'); if (rr) { const t = todayStr(), k = rr.dataset.relRapido; state.rel.de = k === 'mes' ? t.slice(0, 8) + '01' : k === 'ano' ? t.slice(0, 5) + '01-01' : ''; state.rel.ate = k === 'tudo' ? '' : t; render(); return; }
   if (e.target.closest('#imp-go')) { importarAgora(); return; }
-  const mpd = e.target.closest('[data-mapa-de]'); if (mpd) { state.mapa.mod = mpd.dataset.mapaDe; go('mapa'); return; }
-  const mpm = e.target.closest('[data-mapa-mod]'); if (mpm) { state.mapa.mod = mpm.dataset.mapaMod; render(); return; }
+  const mpd = e.target.closest('[data-mapa-de]'); if (mpd) { state.mapa.mod = mpd.dataset.mapaDe; state.mapa.org = ''; go('mapa'); return; }
+  const mpm = e.target.closest('[data-mapa-mod]'); if (mpm) { state.mapa.mod = mpm.dataset.mapaMod; state.mapa.org = ''; render(); return; }
   const mps = e.target.closest('[data-mapa-so]'); if (mps) { state.mapa.so = mps.dataset.mapaSo; render(); return; }
+  const mpf = e.target.closest('[data-mapa-foco]'); if (mpf) { if (!mapaLib.focar(mpf.dataset.mapaFoco, mpf.dataset.mapaFocoMun)) toast('Esse bairro ainda não foi achado no mapa.'); return; }
   if (e.target.closest('#imp-reset')) { state.imp = { mod: state.imp.mod }; render(); return; }
   if (e.target.closest('#pub-copiar')) { const i = $('#pub-link'); try { navigator.clipboard.writeText(i.value).then(() => toast('Link copiado')); } catch { i.select(); document.execCommand('copy'); toast('Link copiado'); } return; }
   if (e.target.closest('#btn-save')) { saveDrawer(); return; }
@@ -1849,6 +2026,7 @@ document.addEventListener('click', e => {
 });
 document.addEventListener('change', async e => {
   if (e.target.id === 'adm-quem') { carregarHistorico(); return; }
+  if (e.target.id === 'mapa-per' || e.target.id === 'mapa-org') { state.mapa[e.target.id === 'mapa-per' ? 'per' : 'org'] = e.target.value; render(); return; }
   if (e.target.id === 'gf-de' || e.target.id === 'gf-ate') { state.graf[e.target.id === 'gf-de' ? 'de' : 'ate'] = e.target.value; render(); return; }
   const el = e.target;
   if (el.dataset && 'anxAdd' in el.dataset) { const files = [...el.files]; el.value = ''; if (files.length) anexarArquivos(drawer.mod, drawer.id, files).catch(err => toast('Não foi possível anexar: ' + errMsg(err))); return; }
@@ -1873,6 +2051,7 @@ document.addEventListener('change', async e => {
   } catch (err) { toast(errMsg(err)); }
 });
 document.addEventListener('submit', async e => {
+  if (e.target.id === 'ag-form') { e.preventDefault(); ligarAgenda(); return; }
   if (e.target.id === 'eq-add') {
     e.preventDefault(); const em = $('#eq-email').value.trim();
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) { toast('Digite um e-mail válido'); return; }
