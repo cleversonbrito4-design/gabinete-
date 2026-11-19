@@ -625,3 +625,36 @@ body.mapa-cheio{overflow:hidden}
 .so-cel{display:none}
 @media (max-width:620px){#btn-import,#btn-export{display:none!important}.so-cel{display:flex}}
 @media (max-width:400px){.logo-top img{height:27px}.brand .btn{padding:8px 10px}.brand .btn.ghost{padding:8px 7px}#btn-new{padding:8px 12px}}
+/* relatório do mês */
+.mensal-head{display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+.mensal-logo img{height:46px;width:auto;display:block}
+.mensal-logo .lg-escuro{display:none}
+:root[data-theme="dark"] .mensal-logo .lg-escuro{display:block}
+:root[data-theme="dark"] .mensal-logo .lg-claro{display:none}
+.mensal .rel-grid{grid-template-columns:repeat(auto-fill,minmax(300px,1fr))}
+@media print{
+  :root[data-theme="dark"] .mensal-logo .lg-claro{display:block}
+  :root[data-theme="dark"] .mensal-logo .lg-escuro{display:none}
+  .mensal .rel-grid{grid-template-columns:1fr 1fr}
+  .mensal .gb-l{font-size:10pt;color:#000}
+  .mensal .kpis{grid-template-columns:repeat(4,1fr)!important}
+  .mensal .kpi .big{color:#000!important}
+}
+/* convite para instalar o app */
+.instalar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:0 0 14px;padding:12px 14px;border:1px solid var(--line);border-radius:14px;background:var(--surface)}
+.instalar img{width:40px;height:40px;border-radius:10px}
+.instalar .tx{flex:1 1 220px;min-width:0}
+/* impressão / PDF sempre no tema claro, mesmo com a tela no escuro */
+@media print{
+  :root[data-theme="dark"]{
+    --bg:#ffffff; --surface:#ffffff; --surface-2:#f1f5f9; --line:#cfd8e3;
+    --fg:#0b1a2a; --muted:#4a5b6c; --accent:#1f6fae; --accent-fg:#ffffff; --accent-soft:#dcebf7;
+    --verde:#5f9a2c; --azul:#1a5f96; --marca-azul:#257ebf; --marca-verde:#72a83b;
+    --novo:#1f6fae; --novo-bg:#dcebf7; --and:#9a5b00; --and-bg:#fdf0dc; --ok:#1e7a3c; --ok-bg:#e3f4e8; --neg:#5c6670; --neg-bg:#eef0f2; --late:#b42318; --late-bg:#fde8e6;
+    --glass:#ffffff; --glass-line:#cfd8e3; --glass-hi:#ffffff; --campo:#ffffff; --campo-line:#cfdbe7;
+    --shadow:none; color-scheme:light;
+  }
+  body::after{display:none}
+}
+.mensal .gb-l{grid-template-columns:minmax(110px,50%) minmax(0,1fr) auto}
+.mensal .gb-k{white-space:normal;overflow:visible;line-height:1.25}
