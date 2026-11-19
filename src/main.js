@@ -43,12 +43,12 @@ const kindOf = (mod, st) => { const f = MODS[mod].statuses.find(x => x[0] === st
 const STATUS_KIND = { novo: 'k-novo', and: 'k-and', ok: 'k-ok', neg: 'k-neg' };
 const isOpen = (mod, r) => mod === 'pessoas' ? r.status !== 'Inativo' : mod === 'agenda' ? (r.data >= todayStr() && r.status !== 'Cancelado') : ['novo', 'and'].includes(kindOf(mod, r.status));
 const isLate = (mod, r) => { const f = MODS[mod].deadline; return f && r[f] && isOpen(mod, r) && r[f] < todayStr(); };
-function toastAcao(msg, href, label) {
+function toastAcao(msg, href, label, attrs = '', tempo = 15000) {
   document.querySelectorAll('.toast.acao').forEach(t => t.remove());
   const t = document.createElement('div'); t.className = 'toast acao';
-  t.innerHTML = `<span>${esc(msg)}</span><a class="btn wa mini" href="${esc(href)}" target="_blank" rel="noopener">${esc(label)}</a><button class="btn mini ghost" type="button" aria-label="Fechar">✕</button>`;
+  t.innerHTML = `<span>${esc(msg)}</span><a class="btn wa mini" href="${esc(href)}" target="_blank" rel="noopener" ${attrs}>${esc(label)}</a><button class="btn mini ghost" type="button" aria-label="Fechar">✕</button>`;
   t.querySelector('button').addEventListener('click', () => t.remove()); t.querySelector('a').addEventListener('click', () => setTimeout(() => t.remove(), 300));
-  document.body.appendChild(t); setTimeout(() => t.remove(), 15000);
+  document.body.appendChild(t); setTimeout(() => t.remove(), tempo);
 }
 function toast(msg) { const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), 2600); }
 const errMsg = e => (e && (e.message || e.error_description)) || 'Erro desconhecido';
@@ -102,6 +102,32 @@ function waStatus(mod, r) {
   return msg('andamento', vars);
 }
 const waAniversario = p => msg('aniversario', { nome: primeiroNome(p.nome) });
+/* Aviso ao cidadão: quando a situação muda e ninguém mandou o WhatsApp ainda, fica "aviso pendente".
+   O envio automático exigiria a API paga do WhatsApp; aqui a equipe envia com um toque e o sistema anota. */
+const AVISO_TXT = 'Cidadão avisado pelo WhatsApp';
+function avisoPendente(m, r) {
+  if (!['demandas', 'servicos'].includes(m) || !r || !waLink(r[MODS[m].phone])) return false;
+  const h = r.historico || [];
+  for (let i = h.length - 1; i >= 0; i--) {
+    if (h[i].aviso || h[i].txt === AVISO_TXT) return false;
+    if (String(h[i].txt || '').startsWith('Situação:')) return diasDesde(h[i].em) <= 30;
+  }
+  return false;
+}
+async function marcarAvisado(m, id) {
+  const r = data[m].find(x => x.id === id); if (!r || !avisoPendente(m, r)) return;
+  const historico = (r.historico || []).concat({ em: new Date().toISOString(), txt: AVISO_TXT, por: myName(), aviso: 1 }).slice(-100);
+  try { upsertLocal(m, await store.saveRow(m, id, { historico })); } catch { /* fica pendente; tenta de novo no próximo envio */ }
+}
+/* Ofício sem resposta: enviado há mais de 15 dias e ainda "Ofício enviado". */
+const DIAS_COBRAR = 15;
+function diasSemResposta(r) {
+  if (!r || r.status !== 'Ofício enviado') return 0;
+  let desde = r.data_envio ? r.data_envio + 'T12:00:00' : '';
+  if (!desde) { const h = (r.historico || []).filter(x => /Ofício enviado”?$/.test(String(x.txt || ''))).pop(); desde = h ? h.em : r.criado_em; }
+  const d = diasDesde(desde); return isFinite(d) ? d : 0;
+}
+const semResposta = r => diasSemResposta(r) > DIAS_COBRAR;
 
 /* ---------- estado ---------- */
 const data = Object.fromEntries(ORDER.map(m => [m, []]));
@@ -109,10 +135,20 @@ const state = { rota: [], cal: '', disp: null, rem: { ano: '', municipio: '' }, 
 const drawer = { open: false, mod: null, id: null, geo: null };
 let geoMini = null; // mapinha aberto dentro do registro
 let pedidoInstalar = null; // convite do navegador para instalar o app
-const VIEWS = ['agendas', 'graficos', 'admin', 'disparo', 'painel', 'etiquetas', 'conta', 'relatorios', 'importar', 'mapa', 'resumo-emendas', 'cidadao', ...ORDER];
+const appInstalado = () => { try { return matchMedia('(display-mode: standalone)').matches || navigator.standalone === true; } catch { return false; } };
+const ehIphone = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const ehAndroid = () => /android/i.test(navigator.userAgent);
+function conviteInstalar() {
+  if (appInstalado()) return '';
+  try { if (localStorage.getItem('fc-instalar-fechado')) return ''; } catch { /* ok */ }
+  if (!pedidoInstalar && !ehIphone() && !ehAndroid()) return '';
+  const como = pedidoInstalar ? '' : ehIphone() ? 'No Safari, toque em <b>Compartilhar</b> ⬆ e depois em <b>Adicionar à Tela de Início</b>.' : 'No Chrome, toque no menu <b>⋮</b> e depois em <b>Instalar app</b> (ou <b>Adicionar à tela inicial</b>).';
+  return `<div class="instalar no-print"><img src="/icon-192.png" alt=""><div class="tx"><b>Instale o Fala Cascavel no celular</b><div class="m">Fica um ícone na tela inicial e abre como aplicativo. ${como}</div></div>${pedidoInstalar ? '<button class="btn primary mini" type="button" id="btn-instalar">Instalar</button>' : ''}<button class="btn ghost mini" type="button" data-instalar-fechar aria-label="Agora não">Agora não</button></div>`;
+}
+const VIEWS = ['mensal', 'agendas', 'graficos', 'admin', 'disparo', 'painel', 'etiquetas', 'conta', 'relatorios', 'importar', 'mapa', 'resumo-emendas', 'cidadao', ...ORDER];
 
 function readHash() { const h = location.hash.slice(1); if (VIEWS.includes(h)) state.view = h; }
-window.addEventListener('hashchange', () => { readHash(); state.q = state.qNext || ''; state.filter = state.qNext ? 'todos' : 'abertos'; state.qNext = ''; render(); });
+window.addEventListener('hashchange', () => { readHash(); state.q = state.qNext || ''; state.filter = state.filterNext || (state.qNext ? 'todos' : 'abertos'); state.qNext = ''; state.filterNext = ''; render(); });
 function go(v) { if (location.hash !== '#' + v) location.hash = v; else { state.view = v; render(); } window.scrollTo(0, 0); }
 
 /* ---------- login ---------- */
@@ -159,6 +195,19 @@ function renderLogin(msg = '', ok = '', email = '') {
   });
 }
 
+/** Confere a senha na lista pública de senhas vazadas (Have I Been Pwned). Só os 5 primeiros caracteres
+    do código da senha saem do aparelho; a senha em si nunca é enviada. Sem internet, deixa passar. */
+async function senhaVazada(senha) {
+  try {
+    const buf = await crypto.subtle.digest('SHA-1', new TextEncoder().encode(senha));
+    const hex = [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('').toUpperCase();
+    const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 6000);
+    const r = await fetch('https://api.pwnedpasswords.com/range/' + hex.slice(0, 5), { headers: { 'Add-Padding': 'true' }, signal: ctl.signal });
+    clearTimeout(tm); if (!r.ok) return 0;
+    const linha = (await r.text()).split('\n').find(l => l.startsWith(hex.slice(5) + ':'));
+    return linha ? parseInt(linha.split(':')[1], 10) || 0 : 0;
+  } catch { return 0; }
+}
 function renderSetPassword(msg = '') {
   document.body.innerHTML = `<div class="login portal">${topoPortal()}<form class="login-card" id="setpw" novalidate>
     <h1>Crie sua senha</h1><div class="m">Você vai usar esta senha para entrar no sistema do gabinete.</div>
@@ -171,6 +220,9 @@ function renderSetPassword(msg = '') {
     const a = $('#p1').value, b = $('#p2').value;
     if (a.length < 8) return renderSetPassword('A senha precisa ter pelo menos 8 caracteres.');
     if (a !== b) return renderSetPassword('As duas senhas não são iguais.');
+    const bt = e.submitter || $('#setpw button[type=submit]'); if (bt) { bt.disabled = true; bt.textContent = 'Conferindo…'; }
+    const vazada = await senhaVazada(a);
+    if (vazada) return renderSetPassword(`Essa senha já apareceu em vazamentos de dados na internet (${vazada.toLocaleString('pt-BR')} vezes). Escolha outra, de preferência uma frase com 3 ou 4 palavras.`);
     try { await store.setPassword(a); mustSetPassword = false; history.replaceState(null, '', location.pathname + '#painel'); startApp(); }
     catch (err) { renderSetPassword(errMsg(err)); }
   });
@@ -227,10 +279,10 @@ const myName = () => (state.profiles.find(p => p.id === state.session?.user?.id)
 
 function renderTabs() {
   const tabs = [['painel', 'Painel', null]].concat(ORDER.map(m => [m, MODS[m].label, data[m].filter(r => isOpen(m, r)).length]), [['relatorios', 'Relatórios', null]]);
-  const cur = state.view === 'graficos' ? 'relatorios' : state.view === 'disparo' ? 'pessoas' : state.view === 'resumo-emendas' ? 'emendas' : state.view === 'cidadao' ? 'pessoas' : state.view === 'etiquetas' ? 'pessoas' : state.view === 'agendas' ? 'agenda' : state.view === 'importar' ? state.imp.mod : state.view === 'mapa' ? state.mapa.mod : state.view;
+  const cur = state.view === 'graficos' || state.view === 'mensal' ? 'relatorios' : state.view === 'disparo' ? 'pessoas' : state.view === 'resumo-emendas' ? 'emendas' : state.view === 'cidadao' ? 'pessoas' : state.view === 'etiquetas' ? 'pessoas' : state.view === 'agendas' ? 'agenda' : state.view === 'importar' ? state.imp.mod : state.view === 'mapa' ? state.mapa.mod : state.view;
   $('#tabs').innerHTML = tabs.map(([k, l, n]) => `<button class="tab" role="tab" data-go="${k}" aria-selected="${cur === k}">${l}${n != null ? `<span class="n">${n}</span>` : ''}</button>`).join('');
   const nb = $('#btn-new');
-  nb.hidden = ['agendas', 'conta', 'etiquetas', 'relatorios', 'importar', 'mapa', 'resumo-emendas', 'cidadao'].includes(state.view);
+  nb.hidden = ['mensal', 'agendas', 'conta', 'etiquetas', 'relatorios', 'importar', 'mapa', 'resumo-emendas', 'cidadao'].includes(state.view);
   nb.textContent = '+ ' + (state.view === 'painel' ? MODS.demandas.novo : MODS[state.view]?.novo || 'Novo');
   $('#btn-export').hidden = !MODS[state.view];
   $('#btn-import').hidden = !MODS[state.view];
@@ -253,7 +305,7 @@ function renderPainel() {
   const sem = data.agenda.filter(r => r.data >= t && r.data <= w && r.status !== 'Cancelado').length;
   const kpis = [
     kpi('demandas', data.demandas.filter(r => isOpen('demandas', r)).length, 'demandas em aberto', lateTxt('demandas')),
-    kpi('servicos', data.servicos.filter(r => isOpen('servicos', r)).length, 'ofícios aguardando resposta', lateTxt('servicos')),
+    kpi('servicos', data.servicos.filter(r => isOpen('servicos', r)).length, 'ofícios aguardando resposta', lateTxt('servicos') + (data.servicos.some(semResposta) ? `<span class="alert">${data.servicos.filter(semResposta).length} sem resposta há +${DIAS_COBRAR} dias</span>` : '')),
     kpi('emendas', data.emendas.filter(r => isOpen('emendas', r)).length, 'pedidos em aberto', `<span class="sub">${brl(data.emendas.filter(r => isOpen('emendas', r)).reduce((s, r) => s + (+r.valor_pedido || 0), 0))} pedidos</span>`),
     kpi('agenda', hoje, `compromisso${hoje === 1 ? '' : 's'} hoje`, `<span class="sub">${sem} nos próximos 7 dias</span>`),
   ].join('');
@@ -279,10 +331,11 @@ function renderPainel() {
   const satHtml = notas.length ? `<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap"><b style="font-family:var(--display);font-size:30px">${media.toFixed(1).replace('.', ',')}</b><span class="estrelas">${estrelas(media)}</span><span class="m">${notas.length} avaliação(ões) · ${conc ? Math.round(notas.length / conc * 100) : 0}% das demandas concluídas</span></div>`
       + notas.filter(r => r.nota_comentario).sort((a, b) => String(b.nota_em || '').localeCompare(String(a.nota_em || ''))).slice(0, 3).map(r => `<div class="ag-item" data-open="demandas:${r.id}"><div class="ag-when"><b class="estrelas">${'★'.repeat(+r.nota)}</b></div><div style="min-width:0"><div class="t">“${esc(r.nota_comentario)}”</div><div class="m">${esc([r.solicitante, r.assunto].filter(Boolean).join(' · '))}</div></div></div>`).join('')
     : `<div class="empty"><b>Nenhuma avaliação ainda</b>Ao concluir uma demanda, toque em WhatsApp: a mensagem já leva o link para o cidadão dar a nota.</div>`;
-  const pend = []; ['demandas', 'servicos'].forEach(m => data[m].forEach(r => { if (isOpen(m, r) && r.prazo && r.prazo <= w) pend.push([m, r]); }));
-  pend.sort((a, b) => a[1].prazo.localeCompare(b[1].prazo));
-  const pendHtml = pend.length ? pend.slice(0, 8).map(([m, r]) => `<div class="ag-item" data-open="${m}:${r.id}"><div class="ag-when"><b>${fmtDate(r.prazo)}</b>${m === 'demandas' ? 'demanda' : 'ofício'}</div><div style="min-width:0"><div class="t">${esc(MODS[m].title(r))}</div><div class="m">${esc(MODS[m].meta(r))}</div></div><span class="pill ${r.prazo < t ? 'k-late' : 'k-and'}">${r.prazo < t ? 'Vencido' : 'Esta semana'}</span></div>`).join('')
-    : `<div class="empty"><b>Nenhum prazo vencido ou nesta semana</b>Prazos aparecem aqui quando faltam 7 dias ou menos.</div>`;
+  const pend = []; ['demandas', 'servicos'].forEach(m => data[m].forEach(r => { if (isOpen(m, r) && ((r.prazo && r.prazo <= w) || (m === 'servicos' && semResposta(r)))) pend.push([m, r]); }));
+  const chavePend = r => r.prazo && r.prazo <= w ? r.prazo : addDays(t, -diasSemResposta(r));
+  pend.sort((a, b) => chavePend(a[1]).localeCompare(chavePend(b[1])));
+  const pendHtml = pend.length ? pend.slice(0, 8).map(([m, r]) => { const sr = !(r.prazo && r.prazo <= w); return `<div class="ag-item" data-open="${m}:${r.id}"><div class="ag-when"><b>${sr ? diasSemResposta(r) + ' dias' : fmtDate(r.prazo)}</b>${m === 'demandas' ? 'demanda' : 'ofício'}</div><div style="min-width:0"><div class="t">${esc(MODS[m].title(r))}</div><div class="m">${esc(MODS[m].meta(r))}</div></div><span class="pill ${sr || r.prazo < t ? 'k-late' : 'k-and'}">${sr ? 'Sem resposta' : r.prazo < t ? 'Vencido' : 'Esta semana'}</span></div>`; }).join('')
+    : `<div class="empty"><b>Nenhum prazo vencido ou nesta semana</b>Prazos aparecem aqui quando faltam 7 dias ou menos. Ofícios sem resposta há mais de ${DIAS_COBRAR} dias também.</div>`;
 
   const col = { novo: 'var(--novo)', and: 'var(--and)', ok: 'var(--ok)', neg: 'var(--neg)' };
   const bars = (rows, maxV, fmt) => `<div class="bars">${rows.map(x => `<div class="bar-row"><span>${esc(x.s)} <span class="m">(${x.n})</span></span><div class="bar"><i style="width:${(x.v / (maxV || 1) * 100).toFixed(1)}%;background:${x.c}"></i></div><span class="num">${fmt(x.v)}</span></div>`).join('')}</div>`;
@@ -295,7 +348,7 @@ function renderPainel() {
   const mun = Object.entries(porMun).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([s, n]) => ({ s, n, v: n, c: 'var(--accent)' }));
   const munHtml = mun.length ? bars(mun, Math.max(...mun.map(x => x.v)), v => v) : `<div class="empty"><b>Sem demandas em aberto</b></div>`;
 
-  return `${banner()}<div class="eyebrow">${fmtDay(t)}</div><div class="ola"><h2 class="sec">Olá${myName() ? ', ' + esc(primeiroNome(myName())) : ''}</h2><button class="btn primary" type="button" data-novo="agenda">+ Compromisso</button></div>
+  return `${banner()}${conviteInstalar()}<div class="eyebrow">${fmtDay(t)}</div><div class="ola"><h2 class="sec">Olá${myName() ? ', ' + esc(primeiroNome(myName())) : ''}</h2><button class="btn primary" type="button" data-novo="agenda">+ Compromisso</button></div>
     <div class="kpis">${kpis}</div>
     <div class="cols">
       <div style="display:flex;flex-direction:column;gap:18px;min-width:0">
@@ -338,6 +391,8 @@ function filtered(m) {
     if (state.filter === 'abertos') a = a.filter(r => isOpen(m, r));
     else if (state.filter === 'atrasados') a = a.filter(r => isLate(m, r));
     else if (state.filter === 'meus') a = a.filter(r => r.responsavel && r.responsavel === myName());
+    else if (state.filter === 'semresp') a = a.filter(r => semResposta(r)).sort((x, y) => diasSemResposta(y) - diasSemResposta(x));
+    else if (state.filter === 'avisar') a = a.filter(r => avisoPendente(m, r));
     else if (state.filter !== 'todos') a = a.filter(r => r.status === state.filter);
     if (m === 'recepcao') { // fila: quem chegou primeiro aparece primeiro
       if (state.filter === 'hoje') a = data.recepcao.filter(r => String(r.criado_em || '').slice(0, 10) === t);
@@ -346,7 +401,7 @@ function filtered(m) {
       return a;
     }
     const px = { Alta: 0, 'Média': 1, Baixa: 2 };
-    a.sort((x, y) => { const lx = isLate(m, x) ? 0 : 1, ly = isLate(m, y) ? 0 : 1; if (lx !== ly) return lx - ly; const d = (px[x.prioridade] ?? 1) - (px[y.prioridade] ?? 1); if (d) return d; return String(y.criado_em || '').localeCompare(String(x.criado_em || '')); });
+    if (state.filter !== 'semresp') a.sort((x, y) => { const lx = isLate(m, x) ? 0 : 1, ly = isLate(m, y) ? 0 : 1; if (lx !== ly) return lx - ly; const d = (px[x.prioridade] ?? 1) - (px[y.prioridade] ?? 1); if (d) return d; return String(y.criado_em || '').localeCompare(String(x.criado_em || '')); });
   }
   if (q) a = a.filter(r => Object.values(r).some(v => (typeof v === 'string' || typeof v === 'number') && String(v).toLowerCase().includes(q)));
   return a;
@@ -354,6 +409,7 @@ function filtered(m) {
 
 function midText(m, r) {
   if (m === 'demandas') return r.prazo ? 'Prazo ' + fmtDate(r.prazo) : (r.responsavel || '');
+  if (m === 'servicos' && semResposta(r)) return 'Sem resposta há ' + diasSemResposta(r) + ' dias';
   if (m === 'servicos') return r.prazo ? 'Resposta até ' + fmtDate(r.prazo) : (r.data_envio ? 'Enviado ' + fmtDate(r.data_envio) : '');
   if (m === 'emendas') { const v = r.valor_indicado || r.valor_pedido; return v ? brl(v) : ''; }
   if (m === 'tarefas') return r.prazo ? 'Prazo ' + fmtDate(r.prazo) : '';
@@ -387,7 +443,7 @@ function renderList(m) {
     const novos = quemPediuSemCadastro();
     if (novos.length) extra += `<div class="no-print aviso-contatos" style="margin:6px 0;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span class="m"><b>${novos.length}</b> pessoa(s) que fizeram pedidos ainda não estão na lista.</span><button class="btn mini primary" data-trazer-pedidos>Colocar na lista</button></div>`;
   } else {
-    const opts = [['abertos', 'Em aberto']].concat(M.deadline ? [['atrasados', 'Atrasados']] : []).concat(M.fields.some(f => f.k === 'responsavel') ? [['meus', 'Comigo']] : []).concat([['todos', 'Todos']], M.statuses.map(s => [s[0], s[0]]));
+    const opts = [['abertos', 'Em aberto']].concat(M.deadline ? [['atrasados', 'Atrasados']] : []).concat(m === 'servicos' ? [['semresp', 'Sem resposta +' + DIAS_COBRAR + ' dias']] : []).concat(['demandas', 'servicos'].includes(m) ? [['avisar', 'Avisar cidadão']] : []).concat(M.fields.some(f => f.k === 'responsavel') ? [['meus', 'Comigo']] : []).concat([['todos', 'Todos']], M.statuses.map(s => [s[0], s[0]]));
     chips = opts.map(([k, l]) => chip('data-filter', k, l, state.filter === k)).join('');
     if (['demandas', 'servicos'].includes(m)) extra = `<div class="no-print" style="margin-bottom:4px"><button class="btn mini" data-mapa-de="${m}">Ver no mapa</button></div>`;
     if (m === 'recepcao') { chips = chip('data-filter', 'abertos', 'Fila agora', state.filter === 'abertos') + chip('data-filter', 'hoje', 'Hoje', state.filter === 'hoje') + chip('data-filter', 'todos', 'Todos', state.filter === 'todos'); const n = data.recepcao.filter(r => r.status === 'Aguardando').length; extra = `<div class="m" style="margin-bottom:4px">${n ? `<b>${n}</b> pessoa(s) aguardando.` : 'Ninguém aguardando agora.'}</div>`; }
@@ -462,7 +518,7 @@ function renderConta() {
       <button class="btn primary" type="button" data-backup>Baixar cópia completa (Excel)</button></section>
     <section class="panel"><h3>Usar no celular</h3>
       <p class="m" style="margin-top:0">Instale o sistema na tela inicial do celular ou do computador. Ele abre como um aplicativo, sem a barra do navegador.</p>
-      <button class="btn primary" id="btn-instalar" type="button" ${pedidoInstalar ? '' : 'hidden'}>Instalar o aplicativo</button>
+      ${appInstalado() ? '<p class="m"><b>✓ O aplicativo já está instalado neste aparelho.</b></p>' : `<button class="btn primary" id="btn-instalar" type="button" ${pedidoInstalar ? '' : 'hidden'}>Instalar o aplicativo</button>`}
       <p class="m"><b>Android (Chrome):</b> menu ⋮ → <i>Instalar app</i> ou <i>Adicionar à tela inicial</i>.<br><b>iPhone (Safari):</b> botão Compartilhar ⬆ → <i>Adicionar à Tela de Início</i>.</p></section>
     ${store.configured ? `<section class="panel"><h3>Prestação de contas pública</h3>
       <p class="m" style="margin-top:0">Página aberta para divulgar nas redes, com o que foi conquistado. Só aparece o que a equipe marcar com <b>"Mostrar na prestação de contas pública"</b>: demandas concluídas, ofícios atendidos e emendas indicadas, empenhadas ou pagas. Nome, telefone e endereço do cidadão nunca aparecem.</p>
@@ -487,7 +543,7 @@ function render() {
   const hadFocus = document.activeElement && document.activeElement.id === 'q'; const pos = hadFocus ? document.activeElement.selectionStart : 0;
   if (state.view !== 'etiquetas') $('#page-css').textContent = '';
   if (state.view === 'admin') setTimeout(async () => { const b = $('#modelos-box'); if (b) b.innerHTML = await modelosHtml(); carregarAdmin(); }, 0);
-  main.innerHTML = state.view === 'painel' ? renderPainel() : state.view === 'agendas' ? renderAgendas() : state.view === 'etiquetas' ? renderEtiquetas() : state.view === 'conta' ? renderConta() : state.view === 'admin' ? renderAdmin() : state.view === 'graficos' ? renderGraficos() : state.view === 'relatorios' ? renderRelatorios() : state.view === 'importar' ? renderImportar() : state.view === 'mapa' ? renderMapa() : state.view === 'resumo-emendas' ? renderResumoEmendas() : state.view === 'cidadao' ? renderCidadao() : state.view === 'disparo' ? renderDisparo() : renderList(state.view);
+  main.innerHTML = state.view === 'painel' ? renderPainel() : state.view === 'agendas' ? renderAgendas() : state.view === 'etiquetas' ? renderEtiquetas() : state.view === 'conta' ? renderConta() : state.view === 'admin' ? renderAdmin() : state.view === 'graficos' ? renderGraficos() : state.view === 'mensal' ? renderMensal() : state.view === 'relatorios' ? renderRelatorios() : state.view === 'importar' ? renderImportar() : state.view === 'mapa' ? renderMapa() : state.view === 'resumo-emendas' ? renderResumoEmendas() : state.view === 'cidadao' ? renderCidadao() : state.view === 'disparo' ? renderDisparo() : renderList(state.view);
   if (state.view === 'mapa') setTimeout(desenharMapa, 0); else mapaLib.destruir();
   if (hadFocus) { const q = $('#q'); if (q) { q.focus(); try { q.setSelectionRange(pos, pos); } catch { /* ok */ } } }
   if (drawer.open) refreshDatalists();
@@ -527,7 +583,7 @@ function openDrawer(mod, id, preset = {}) {
   const hist = rec && rec.historico && rec.historico.length ? `<div class="hist"><span class="eyebrow">Histórico</span><ol>${rec.historico.slice().reverse().map(h => `<li><time>${fmtStamp(h.em)}</time><span>${esc(h.txt)}${h.por ? ' <span class="m">· ' + esc(h.por) + '</span>' : ''}</span></li>`).join('')}</ol></div>` : '';
   // ações rápidas
   const acts = [];
-  if (rec && M.phone) { const wa = waLink(rec[M.phone], waTexto(mod, rec)); if (wa) acts.push(`<a class="btn wa mini" href="${esc(wa)}" target="_blank" rel="noopener">Abrir WhatsApp</a>`); }
+  if (rec && M.phone) { const wa = waLink(rec[M.phone], waTexto(mod, rec)); const pend = avisoPendente(mod, rec); if (wa) acts.push(`<a class="btn wa mini" href="${esc(wa)}" target="_blank" rel="noopener" data-avisar="${mod}:${rec.id}">${pend ? 'Avisar da nova situação (WhatsApp)' : 'Abrir WhatsApp'}</a>`); }
   if (rec && mod === 'pessoas') {
     const linked = ['demandas', 'servicos', 'emendas'].reduce((n, m) => n + data[m].filter(x => [x.solicitante, x.beneficiario, x.quem_pediu].includes(rec.nome)).length, 0);
     acts.push(`<button class="btn mini primary" type="button" data-cid="${esc(rec.nome)}" data-cid-tel="${esc(rec.telefone || '')}">Histórico do cidadão</button>`);
@@ -637,7 +693,7 @@ async function saveDrawer() {
     if (!old && mod === 'demandas') cadastrarQuemPediu([row]).catch(() => {});
     if (old && old.status !== st && M.phone && row[M.phone] && ['demandas', 'servicos'].includes(mod)) {
       const wa = waLink(row[M.phone], waStatus(mod, row));
-      if (wa) setTimeout(() => toastAcao('Avisar ' + (primeiroNome(row.solicitante) || 'o cidadão') + ' da nova situação?', wa, 'Avisar no WhatsApp'), 400);
+      if (wa) setTimeout(() => toastAcao('Avisar ' + (primeiroNome(row.solicitante) || 'o cidadão') + ' da nova situação?', wa, 'Avisar no WhatsApp', `data-avisar="${mod}:${row.id}"`, 60000), 400);
     }
     if (mod === 'agenda' && gcal.isConnected()) {
       try { const gid = await gcal.pushEvent(row); if (gid !== (row.google_event_id || null)) { row = await store.saveRow('agenda', row.id, { google_event_id: gid }); upsertLocal('agenda', row); } toast('Google Agenda atualizado'); }
@@ -929,6 +985,8 @@ function avisos() {
     else if (r.prazo <= am) itens.push({ m, r, nivel: 'and', txt: r.prazo === t ? 'Prazo vence hoje' : 'Prazo vence amanhã', urg: 1 });
   }));
   data.tarefas.forEach(r => { if (isOpen('tarefas', r) && r.prazo && r.prazo <= t && (!r.responsavel || r.responsavel === myName())) itens.push({ m: 'tarefas', r, nivel: r.prazo < t ? 'late' : 'and', txt: r.prazo < t ? 'Tarefa atrasada desde ' + fmtDate(r.prazo) : 'Tarefa para hoje', urg: 1 }); });
+  data.servicos.forEach(r => { if (semResposta(r) && !(r.prazo && r.prazo < t)) itens.push({ m: 'servicos', r, nivel: 'late', txt: 'Sem resposta há ' + diasSemResposta(r) + ' dias. Cobrar o órgão.', urg: 1, tag: 'Cobrar' }); });
+  ['demandas', 'servicos'].forEach(m => data[m].forEach(r => { if (avisoPendente(m, r)) itens.push({ m, r, nivel: 'and', txt: 'Situação mudou para “' + r.status + '”. Avise ' + (primeiroNome(r.solicitante) || 'o cidadão') + '.', urg: 1, wa: waLink(r[MODS[m].phone], waStatus(m, r)), waLabel: 'Avisar', avisar: m + ':' + r.id }); }));
   data.demandas.forEach(r => { if (r.status === 'Nova' && r.origem === 'Site do gabinete') itens.push({ m: 'demandas', r, nivel: 'novo', txt: 'Pedido novo pelo site', urg: 1 }); });
   data.agenda.forEach(r => { if (r.data === t && r.status !== 'Cancelado') itens.push({ m: 'agenda', r, nivel: 'and', txt: 'Hoje ' + (hhmm(r.inicio) || ''), urg: 0 }); });
   data.pessoas.forEach(r => { if (r.nascimento && r.status !== 'Inativo' && r.nascimento.slice(5) === md) itens.push({ m: 'pessoas', r, nivel: 'ok', txt: 'Faz aniversário hoje', urg: 1, wa: waLink(r.telefone, waAniversario(r)) }); });
@@ -946,8 +1004,8 @@ function abrirAvisos() {
     <div class="dr-body" style="display:block">
       ${podeNotif ? '<div class="dr-actions" style="margin-bottom:12px"><button class="btn mini" id="av-notif" type="button">Receber estes avisos no computador</button></div>' : ''}
       ${backupAtrasado() ? `<div class="ag-item" style="cursor:default"><div class="ag-when"><b>Cópia</b></div><div style="min-width:0"><div class="t">Fazer cópia de segurança</div><div class="m">${state.backup?.em ? 'A última foi há ' + diasDesde(state.backup.em) + ' dias' : 'Ainda não foi feita nenhuma'}. Guarde o arquivo no Google Drive ou no e-mail.</div></div><button class="btn mini primary" type="button" data-backup>Baixar</button></div>` : ''}
-      ${itens.length ? itens.map(i => `<div class="ag-item" data-open="${i.m}:${i.r.id}"><div class="ag-when"><b>${esc(MODS[i.m].sing || MODS[i.m].label)}</b></div><div style="min-width:0"><div class="t">${esc(titulo(i))}</div><div class="m">${esc(i.txt)}</div></div>${i.wa ? `<a class="btn wa mini" href="${esc(i.wa)}" target="_blank" rel="noopener" data-stop>Parabenizar</a>` : `<span class="pill k-${i.nivel}">${i.nivel === 'late' ? 'Vencido' : i.nivel === 'novo' ? 'Novo' : 'Hoje'}</span>`}</div>`).join('')
-        : backupAtrasado() ? '' : '<div class="empty"><b>Nenhum aviso hoje</b>Prazos vencendo, pedidos do site, compromissos e aniversários do dia aparecem aqui.</div>'}
+      ${itens.length ? itens.map(i => `<div class="ag-item" data-open="${i.m}:${i.r.id}"><div class="ag-when"><b>${esc(MODS[i.m].sing || MODS[i.m].label)}</b></div><div style="min-width:0"><div class="t">${esc(titulo(i))}</div><div class="m">${esc(i.txt)}</div></div>${i.wa ? `<a class="btn wa mini" href="${esc(i.wa)}" target="_blank" rel="noopener" data-stop${i.avisar ? ` data-avisar="${i.avisar}"` : ''}>${i.waLabel || 'Parabenizar'}</a>` : `<span class="pill k-${i.nivel}">${i.tag || (i.nivel === 'late' ? 'Vencido' : i.nivel === 'novo' ? 'Novo' : 'Hoje')}</span>`}</div>`).join('')
+        : backupAtrasado() ? '' : '<div class="empty"><b>Nenhum aviso hoje</b>Prazos vencendo, ofícios sem resposta, cidadãos a avisar, pedidos do site, compromissos e aniversários do dia aparecem aqui.</div>'}
     </div></aside>`;
 }
 function notificarNoComputador() {
@@ -956,8 +1014,9 @@ function notificarNoComputador() {
     const chave = 'gabinete-aviso-dia', hoje = todayStr();
     if (localStorage.getItem(chave) === hoje) return;
     const { itens, urgentes } = avisos(); if (!urgentes) return;
-    const venc = itens.filter(i => i.nivel === 'late').length, site = itens.filter(i => i.nivel === 'novo').length, aniv = itens.filter(i => i.m === 'pessoas').length;
-    const partes = [venc && venc + ' prazo(s) vencido(s)', site && site + ' pedido(s) novo(s) pelo site', aniv && aniv + ' aniversariante(s) hoje'].filter(Boolean);
+    const venc = itens.filter(i => i.nivel === 'late' && !i.tag).length, site = itens.filter(i => i.nivel === 'novo').length, aniv = itens.filter(i => i.m === 'pessoas').length;
+    const cobrar = itens.filter(i => i.tag === 'Cobrar').length, avisar = itens.filter(i => i.avisar).length;
+    const partes = [venc && venc + ' prazo(s) vencido(s)', cobrar && cobrar + ' ofício(s) sem resposta há +' + DIAS_COBRAR + ' dias', avisar && avisar + ' cidadão(s) para avisar no WhatsApp', site && site + ' pedido(s) novo(s) pelo site', aniv && aniv + ' aniversariante(s) hoje'].filter(Boolean);
     new Notification(NOME_GAB(), { body: partes.join(' · ') || urgentes + ' aviso(s) para hoje' });
     localStorage.setItem(chave, hoje);
   } catch { /* navegador sem suporte */ }
@@ -1082,7 +1141,7 @@ function renderRelatorios() {
   const linha = r => { const d = fmtDataBR(String(DATA_REL[m](r) || '').slice(0, 10)); const loc = [r.bairro, r.municipio].filter(Boolean).join(', ');
     const c = { demandas: [d, r.assunto, r.solicitante, loc, r.status], servicos: [d, r.servico, r.orgao, loc || r.local, r.status], emendas: [d, r.objeto, r.beneficiario, brl(val(r)), r.status], proposituras: [d, r.ementa, [r.tipo, r.numero && 'nº ' + r.numero].filter(Boolean).join(' '), r.tema, r.status], agenda: [d + (r.inicio ? ' ' + hhmm(r.inicio) : ''), r.titulo, r.local || r.municipio, r.contato, r.status], tarefas: [d, r.titulo, r.responsavel, r.relacionado, r.status], recepcao: [d + (r.hora_chegada ? ' ' + hhmm(r.hora_chegada) : ''), r.nome, r.motivo, r.atendente, r.status], pessoas: [d, r.nome, r.tipo, loc, r.telefone] }[m];
     return `<tr data-open="${m}:${r.id}">${c.map(x => `<td>${esc(x || '')}</td>`).join('')}</tr>`; };
-  return `<div class="no-print" style="margin-bottom:8px"><button class="btn primary" data-go="graficos">📊 Ver relatórios em gráficos</button></div><h2 class="sec">Relatórios</h2><div class="m no-print" style="margin-top:2px">Escolha o assunto e o período. Para salvar em PDF, toque em "Imprimir / salvar PDF" e escolha <b>Salvar como PDF</b> no destino da impressora.</div>
+  return `<div class="no-print" style="margin-bottom:8px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" data-go="mensal">📄 Relatório do mês (prestação de contas)</button><button class="btn" data-go="graficos">📊 Ver relatórios em gráficos</button></div><h2 class="sec">Relatórios</h2><div class="m no-print" style="margin-top:2px">Escolha o assunto e o período. Para salvar em PDF, toque em "Imprimir / salvar PDF" e escolha <b>Salvar como PDF</b> no destino da impressora.</div>
     <div class="filters">
       ${sel('mod', 'Relatório de', ORDER.map(k => [k, MODS[k].label]), m, '')}
       <div class="f"><label for="rl-de">De</label><input id="rl-de" type="date" data-rel="de" value="${esc(f.de)}"></div>
@@ -1110,6 +1169,60 @@ function renderRelatorios() {
       </div>
       <section class="panel" style="margin-top:14px"><h3>Lista (${rows.length})</h3><div class="rtab-wrap"><table class="rtab det"><thead><tr>${colsDet.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>${rows.map(linha).join('')}</tbody></table></div></section>`
       : '<div class="empty"><b>Nenhum registro nesse filtro</b>Mude o período ou os filtros acima.</div>'}
+    </div>`;
+}
+/* ---------- relatório mensal (prestação de contas em PDF) ---------- */
+const diaLocal = v => { const t = String(v || ''); return t.length > 10 ? ymd(new Date(t)) : t.slice(0, 10); };
+/** Dia em que o registro passou para uma situação do tipo pedido (ok/neg). Sem histórico, usa a última atualização. */
+function diaDaSituacao(m, r, tipos) {
+  const h = (r.historico || []).filter(x => { const mm = /→\s*(.+)$/.exec(String(x.txt || '')) || /^Cadastrado como “(.+)”$/.exec(String(x.txt || '')); return mm && tipos.includes(kindOf(m, mm[1].trim())); }).pop();
+  if (h) return diaLocal(h.em);
+  return tipos.includes(kindOf(m, r.status)) ? diaLocal(r.atualizado_em || r.criado_em) : '';
+}
+function renderMensal() {
+  const hoje = todayStr(), mes = state.mensal || hoje.slice(0, 7);
+  const [y, mo] = mes.split('-').map(Number); const ant = ymd(new Date(y, mo - 2, 1)).slice(0, 7);
+  const meses = [...Array(24)].map((_, i) => ymd(new Date(+hoje.slice(0, 4), +hoje.slice(5, 7) - 1 - i, 1)).slice(0, 7));
+  const noMes = (v, k = mes) => diaLocal(v).slice(0, 7) === k;
+  const recebidas = data.demandas.filter(r => noMes(r.criado_em));
+  const recebidasAnt = data.demandas.filter(r => noMes(r.criado_em, ant)).length;
+  const concluidas = data.demandas.filter(r => noMes(diaDaSituacao('demandas', r, ['ok'])) && kindOf('demandas', r.status) === 'ok');
+  const oficios = data.servicos.filter(r => noMes(r.data_envio || r.criado_em));
+  const respondidos = data.servicos.filter(r => ['ok', 'neg'].includes(kindOf('servicos', r.status)) && noMes(diaDaSituacao('servicos', r, ['ok', 'neg'])));
+  const atendidos = respondidos.filter(r => kindOf('servicos', r.status) === 'ok').length;
+  const notas = data.demandas.filter(r => r.nota != null && noMes(r.nota_em));
+  const media = notas.length ? (notas.reduce((a, r) => a + +r.nota, 0) / notas.length).toFixed(1).replace('.', ',') : '—';
+  const emendasPagas = data.emendas.filter(r => r.status === 'Paga' && noMes(diaDaSituacao('emendas', r, ['ok'])));
+  const pend = data.servicos.filter(semResposta).length;
+  const dif = recebidas.length - recebidasAnt;
+  const kpi = (t, n, sub) => `<div class="kpi"><span class="eyebrow">${t}</span><span class="big">${n}</span><span class="sub">${sub}</span></div>`;
+  const bloco = (t, pares, total, vazio) => `<section class="panel rel-box"><h3>${t}</h3>${grafBarras(pares, { max: 15, total, vazio })}</section>`;
+  const nomeM = nomeMes(mes);
+  return `<div class="no-print" style="margin-bottom:8px"><button class="btn ghost" data-go="relatorios">← Relatórios</button></div>
+    <h2 class="sec no-print">Relatório do mês</h2>
+    <div class="m no-print" style="margin-top:2px">Resumo para prestação de contas: pedidos por bairro e por órgão, ofícios enviados e respondidos. Toque em <b>Salvar em PDF</b> e, na janela que abrir, escolha <b>Salvar como PDF</b>. O relatório não mostra nome nem telefone de ninguém.</div>
+    <div class="filters no-print" style="max-width:420px"><div class="f"><label for="mensal-mes">Mês</label><select id="mensal-mes">${meses.map(k => `<option value="${k}" ${k === mes ? 'selected' : ''}>${esc(nomeMes(k))}</option>`).join('')}</select></div></div>
+    <div class="no-print" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px"><button class="btn primary" id="mensal-pdf">Salvar em PDF / imprimir</button></div>
+    <div class="rel mensal">
+      <div class="rel-head mensal-head"><span class="mensal-logo"><img class="lg-claro" src="/marca/fala-cascavel.svg" alt="Fala Cascavel"><img class="lg-escuro" src="/marca/fala-cascavel-branca.svg" alt=""></span><div><div class="eyebrow">${esc(NOME_GAB())}</div><h2 class="sec" style="margin:2px 0">Prestação de contas · ${esc(nomeM)}</h2>
+        <div class="m">Emitido em ${fmtStamp(new Date().toISOString())}</div></div></div>
+      <div class="kpis rel-kpis">
+        ${kpi('Pedidos recebidos', recebidas.length, recebidasAnt || dif ? (dif > 0 ? '+' : '') + dif + ' em relação a ' + MESES[(mo + 10) % 12].toLowerCase() : 'no mês')}
+        ${kpi('Pedidos atendidos', concluidas.length, 'concluídos no mês')}
+        ${kpi('Ofícios enviados', oficios.length, respondidos.length + ' respondido(s), ' + atendidos + ' atendido(s)')}
+        ${kpi('Satisfação', media, notas.length ? notas.length + ' avaliação(ões) de 1 a 5' : 'sem avaliações no mês')}
+      </div>
+      ${emendasPagas.length ? `<div class="m" style="margin-top:8px">Emendas pagas no mês: <b>${emendasPagas.length}</b>, total ${brl(emendasPagas.reduce((a, r) => a + (+(r.valor_pago || r.valor_indicado || r.valor_pedido) || 0), 0))}.</div>` : ''}
+      ${mes === hoje.slice(0, 7) && pend ? `<div class="m no-print" style="margin-top:8px"><b>${pend}</b> ofício(s) sem resposta há mais de ${DIAS_COBRAR} dias. <a href="#servicos" data-filtro-ir="servicos:semresp">Ver e cobrar</a></div>` : ''}
+      <div class="rel-grid">
+        ${bloco('Pedidos por bairro', contarPor(recebidas, r => r.bairro || 'Sem bairro'), recebidas.length, 'Nenhum pedido no mês.')}
+        ${bloco('Pedidos por órgão destinatário', contarPor(recebidas, r => r.area || 'Sem órgão definido'), recebidas.length, 'Nenhum pedido no mês.')}
+        ${bloco('Ofícios por órgão', contarPor(oficios, r => r.orgao || 'Sem órgão'), oficios.length, 'Nenhum ofício enviado no mês.')}
+        ${bloco('Como os pedidos chegaram', contarPor(recebidas, r => r.origem || 'Não informado'), recebidas.length, 'Nenhum pedido no mês.')}
+        ${bloco('Situação atual dos pedidos do mês', contarPor(recebidas, r => r.status || '—'), recebidas.length, 'Nenhum pedido no mês.')}
+        ${bloco('Atendidos por bairro', contarPor(concluidas, r => r.bairro || 'Sem bairro'), concluidas.length, 'Nenhum atendimento concluído no mês.')}
+      </div>
+      ${concluidas.length ? `<section class="panel" style="margin-top:14px"><h3>Pedidos atendidos no mês (${concluidas.length})</h3><div class="rtab-wrap"><table class="rtab det"><thead><tr><th>Concluído</th><th>Pedido</th><th>Bairro</th><th>Órgão</th></tr></thead><tbody>${concluidas.sort((a, b) => diaDaSituacao('demandas', a, ['ok']).localeCompare(diaDaSituacao('demandas', b, ['ok']))).map(r => `<tr data-open="demandas:${r.id}"><td>${fmtDataBR(diaDaSituacao('demandas', r, ['ok']))}</td><td>${esc(r.assunto)}</td><td>${esc(r.bairro || '')}</td><td>${esc(r.area || '')}</td></tr>`).join('')}</tbody></table></div></section>` : ''}
     </div>`;
 }
 function fmtDataBR(s) { if (!s) return ''; const [y, mm, d] = s.split('-'); return d + '/' + mm + '/' + y; }
@@ -1949,6 +2062,7 @@ async function renderPrestacao() {
 document.addEventListener('click', e => {
   const bt = e.target.closest('#btn-tema');
   if (bt) { const t = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light'; document.documentElement.dataset.theme = t; try { localStorage.setItem('fc-tema', t); } catch { /* ok */ } bt.textContent = t === 'light' ? '🌙' : '☀️'; return; }
+  const avz = e.target.closest('[data-avisar]'); if (avz) { const [m, id] = avz.dataset.avisar.split(':'); setTimeout(() => marcarAvisado(m, id), 300); }
   if (e.target.closest('[data-stop]')) { e.stopPropagation(); return; }
   const g = e.target.closest('[data-go]'); if (g) { e.preventDefault(); go(g.dataset.go); return; }
   const o = e.target.closest('[data-open]'); if (o) { const [m, id] = o.dataset.open.split(':'); openDrawer(m, id); return; }
@@ -1993,7 +2107,10 @@ document.addEventListener('click', e => {
   const av = e.target.closest('[data-anx-ver]'); if (av) { verMidia(+av.dataset.anxVer); return; }
   const ad = e.target.closest('[data-anx-del]'); if (ad) { if (ad.dataset.ok) removerAnexo(drawer.mod, drawer.id, +ad.dataset.anxDel).catch(err => toast(errMsg(err))); else { ad.dataset.ok = '1'; ad.textContent = 'Confirmar'; ad.classList.add('danger'); } return; }
   if (e.target.closest('#rel-print')) { window.print(); return; }
+  if (e.target.closest('#mensal-pdf')) { const t = document.title; document.title = 'Prestacao de contas ' + nomeMes(state.mensal || todayStr().slice(0, 7)); window.print(); setTimeout(() => { document.title = t; }, 1000); return; }
+  const fi = e.target.closest('[data-filtro-ir]'); if (fi) { e.preventDefault(); const [m, f] = fi.dataset.filtroIr.split(':'); state.filter = f; state.filterNext = f; state.q = ''; go(m); return; }
   const bk = e.target.closest('[data-backup]'); if (bk) { baixarBackup(bk); return; }
+  if (e.target.closest('[data-instalar-fechar]')) { try { localStorage.setItem('fc-instalar-fechado', '1'); } catch { /* ok */ } e.target.closest('.instalar')?.remove(); return; }
   if (e.target.closest('#btn-instalar')) { if (pedidoInstalar) { pedidoInstalar.prompt(); pedidoInstalar.userChoice.finally(() => { pedidoInstalar = null; render(); }); } return; }
   const rr = e.target.closest('[data-rel-rapido]'); if (rr) { const t = todayStr(), k = rr.dataset.relRapido; state.rel.de = k === 'mes' ? t.slice(0, 8) + '01' : k === 'ano' ? t.slice(0, 5) + '01-01' : ''; state.rel.ate = k === 'tudo' ? '' : t; render(); return; }
   if (e.target.closest('#imp-go')) { importarAgora(); return; }
@@ -2026,6 +2143,7 @@ document.addEventListener('click', e => {
 });
 document.addEventListener('change', async e => {
   if (e.target.id === 'adm-quem') { carregarHistorico(); return; }
+  if (e.target.id === 'mensal-mes') { state.mensal = e.target.value; render(); return; }
   if (e.target.id === 'mapa-per' || e.target.id === 'mapa-org') { state.mapa[e.target.id === 'mapa-per' ? 'per' : 'org'] = e.target.value; render(); return; }
   if (e.target.id === 'gf-de' || e.target.id === 'gf-ate') { state.graf[e.target.id === 'gf-de' ? 'de' : 'ate'] = e.target.value; render(); return; }
   const el = e.target;
@@ -2143,4 +2261,5 @@ store.onAuth((ev) => {
 });
 startApp();
 if ('serviceWorker' in navigator && location.protocol === 'https:') window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
-window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); pedidoInstalar = e; const b = $('#btn-instalar'); if (b) b.hidden = false; });
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); pedidoInstalar = e; const b = $('#btn-instalar'); if (b) b.hidden = false; else if (state.view === 'painel' && $('#main') && !drawer.open) render(); });
+window.addEventListener('appinstalled', () => { pedidoInstalar = null; toast('Pronto! O Fala Cascavel está na tela inicial.'); if ($('#main') && !drawer.open) render(); });

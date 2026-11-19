@@ -107,7 +107,7 @@ end $$;
 revoke all on function public.admin_usuarios() from public, anon;
 grant execute on function public.admin_usuarios() to authenticated;
 
-create or replace function public.tocar_atualizado_em() returns trigger language plpgsql as $$
+create or replace function public.tocar_atualizado_em() returns trigger language plpgsql set search_path = '' as $$
 begin new.atualizado_em = now(); return new; end $$;
 
 -- Demandas
