@@ -301,3 +301,17 @@ export async function consultarProtocolo(protocolo, telefone) {
   if (error) throw error;
   return data;
 }
+
+/* ---------- agenda: link para Gmail/Outlook/iPhone e outras agendas ---------- */
+export async function agendaFn(acao, extra = {}) {
+  if (!sb) throw new Error('Ligue o banco de dados para usar esta função.');
+  const { data, error } = await sb.functions.invoke('agenda', { body: { acao, ...extra } });
+  if (error) {
+    let msg = '';
+    try { const j = await error.context.json(); msg = j.erro; } catch { /* ok */ }
+    if (!msg && /Failed to send|fetch/i.test(error.message || '')) msg = 'Sem conexão com o servidor da agenda. Tente de novo.';
+    throw new Error(msg || error.message || 'Erro na agenda.');
+  }
+  if (data?.erro) throw new Error(data.erro);
+  return data;
+}

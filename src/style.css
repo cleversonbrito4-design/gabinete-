@@ -599,3 +599,25 @@ body.mapa-cheio{overflow:hidden}
 .mapa .leaflet-popup-content-wrapper{border-radius:12px}
 .mapa .leaflet-popup-content a{color:#1f6fae;font-weight:600}
 @media (max-width:640px){.mapa .leaflet-control-layers-expanded{padding:4px 8px;font-size:12px}}
+
+/* ---------- outras agendas (Gmail, Outlook, iPhone) ---------- */
+.ext-dot{display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--cor);margin:0 5px 0 2px;vertical-align:baseline}
+.ext-erro{color:#e5484d}
+.ext-pill{background:color-mix(in srgb,var(--cor) 18%,transparent);color:var(--fg);border:1px solid color-mix(in srgb,var(--cor) 55%,transparent)}
+.row.ext-row{cursor:default;box-shadow:inset 4px 0 0 var(--cor)}
+.ag-item.ext-item{cursor:default;border-left-color:var(--cor)!important}
+.cal-ev.ext{background:color-mix(in srgb,var(--cor) 16%,var(--surface));border-left-color:var(--cor);cursor:help}
+@media (max-width:640px){.cal-ev.ext{background:var(--cor)}}
+.ag-botoes{display:flex;gap:8px;flex-wrap:wrap;margin:4px 0 10px}
+.ag-passos{margin:6px 0 14px;padding-left:20px;line-height:1.55}
+.ag-passos li,.ag-ajuda li{margin:3px 0}
+.ag-lista{display:flex;flex-direction:column;gap:8px}
+.ag-ext{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:12px}
+.ag-ext .ext-dot{width:14px;height:14px;flex:none}
+.ag-cores{display:flex;gap:10px;flex-wrap:wrap}
+.ag-cor{all:unset;cursor:pointer;width:30px;height:30px;border-radius:50%;background:var(--cor);box-shadow:0 0 0 2px var(--surface),0 0 0 3px transparent}
+.ag-cor[aria-pressed="true"]{box-shadow:0 0 0 3px var(--surface),0 0 0 5px var(--fg)}
+.ag-ajuda{margin-top:12px;border-top:1px solid var(--line);padding-top:10px}
+.ag-ajuda summary{cursor:pointer;font-weight:600}
+.ag-ajuda ol{padding-left:20px;line-height:1.55;margin:8px 0 0}
+.ag-ajuda code{font-size:12px}
