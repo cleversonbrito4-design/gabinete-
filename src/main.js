@@ -104,7 +104,7 @@ const waAniversario = p => msg('aniversario', { nome: primeiroNome(p.nome) });
 
 /* ---------- estado ---------- */
 const data = Object.fromEntries(ORDER.map(m => [m, []]));
-const state = { rota: [], cal: '', disp: null, rem: { ano: '', municipio: '' }, cid: null, mapa: { mod: 'demandas', so: 'abertos' }, imp: { mod: 'pessoas' }, rel: { mod: 'demandas', de: '', ate: '', municipio: '', bairro: '', status: '' }, view: 'painel', q: '', filter: 'abertos', agendaWin: 'proximos', loaded: false, session: null, profiles: [], et: { tipo: '', grupo: '', municipio: '', mes: '', modelo: '6180', pular: 0 } };
+const state = { rota: [], cal: '', disp: null, rem: { ano: '', municipio: '' }, cid: null, mapa: { mod: 'demandas', so: 'abertos', per: '', org: '' }, imp: { mod: 'pessoas' }, rel: { mod: 'demandas', de: '', ate: '', municipio: '', bairro: '', status: '' }, view: 'painel', q: '', filter: 'abertos', agendaWin: 'proximos', loaded: false, session: null, profiles: [], et: { tipo: '', grupo: '', municipio: '', mes: '', modelo: '6180', pular: 0 } };
 const drawer = { open: false, mod: null, id: null, geo: null };
 let geoMini = null; // mapinha aberto dentro do registro
 let pedidoInstalar = null; // convite do navegador para instalar o app
@@ -1108,10 +1108,20 @@ function fmtDataBR(s) { if (!s) return ''; const [y, mm, d] = s.split('-'); retu
 /* ---------- mapa por bairro ---------- */
 let geoCache = null, mapaOcupado = false, mapaDeNovo = false;
 const UF_GAB = () => (/[-–]\s*([A-Z]{2})\s*$/.exec(cfg.endereco_gabinete || '') || [])[1] || '';
-function gruposMapa() {
-  const { mod, so } = state.mapa; const por = {};
-  for (const r of data[mod]) {
-    if (so === 'abertos' && !isOpen(mod, r)) continue;
+const ORG_MAPA = { demandas: 'area', servicos: 'orgao' };
+/** Registros do mapa depois dos filtros (situação, período e órgão). */
+function regsMapa() {
+  const { mod, so, per, org } = state.mapa; const ko = ORG_MAPA[mod];
+  let desde = '';
+  if (per === 'ano') desde = todayStr().slice(0, 4) + '-01-01';
+  else if (per) desde = addDays(todayStr(), -(+per));
+  return data[mod].filter(r => (so !== 'abertos' || isOpen(mod, r))
+    && (!desde || String(r.criado_em || '').slice(0, 10) >= desde)
+    && (!org || !ko || (org === '—' ? !r[ko] : r[ko] === org)));
+}
+function gruposMapa(regs) {
+  const { mod } = state.mapa; const por = {};
+  for (const r of regs) {
     if (r.lat != null && r.lng != null) continue;
     if (!r.bairro) continue;
     const mun = r.municipio || cfg.cidade_gabinete || '';
@@ -1122,19 +1132,46 @@ function gruposMapa() {
   }
   return Object.values(por).sort((a, b) => b.total - a.total);
 }
+/** Ranking: todos os registros com bairro (com ou sem ponto exato). */
+function rankingMapa(regs) {
+  const { mod } = state.mapa; const por = {};
+  for (const r of regs) {
+    if (!r.bairro) continue;
+    const mun = r.municipio || cfg.cidade_gabinete || '';
+    const k = r.bairro.trim().toLowerCase() + '|' + mun.toLowerCase();
+    const g = por[k] || (por[k] = { bairro: r.bairro.trim(), municipio: mun, total: 0, abertos: 0, atrasados: 0 });
+    g.total++; if (isOpen(mod, r)) g.abertos++; if (isLate(mod, r)) g.atrasados++;
+  }
+  return Object.values(por).sort((a, b) => b.total - a.total || b.atrasados - a.atrasados);
+}
 function renderMapa() {
-  const { mod, so } = state.mapa; const M = MODS[mod];
-  const base = data[mod].filter(r => so !== 'abertos' || isOpen(mod, r));
-  const semBairro = base.filter(r => !r.bairro && r.lat == null).length;
+  const { mod, so, per = '', org = '' } = state.mapa; const M = MODS[mod]; const ko = ORG_MAPA[mod];
+  const regs = regsMapa();
+  const semBairro = regs.filter(r => !r.bairro && r.lat == null).length;
+  const rank = rankingMapa(regs); const maxR = Math.max(1, ...rank.map(g => g.total));
+  const orgs = ko ? [...new Set(data[mod].map(r => r[ko]).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR')) : [];
+  const abertos = regs.filter(r => isOpen(mod, r)).length, atras = regs.filter(r => isLate(mod, r)).length;
+  const comLocal = regs.filter(r => r.lat != null || r.bairro).length;
+  const multi = new Set(rank.map(g => g.municipio)).size > 1;
   return `<div class="no-print"><a class="linkbtn" data-go="${mod}">← ${esc(M.label)}</a></div>
-    <h2 class="sec" style="margin-top:6px">Mapa por bairro</h2>
-    <div class="m">Toque num ponto e em <b>+ Roteiro</b> para montar a rota de visitas. Pontos pequenos são pedidos com local exato marcado. Círculos grandes juntam os pedidos de um bairro; quanto maior, mais pedidos. <span style="color:#b3261e">Vermelho</span>: tem atrasado · <span style="color:#c77700">laranja</span>: em aberto · <span style="color:#1c7a3d">verde</span>: tudo resolvido.</div>
+    <h2 class="sec" style="margin-top:6px">Mapa</h2>
+    <div class="m">Círculos juntam os pedidos de um bairro (o número é a quantidade). Pontos pequenos são pedidos com o local exato marcado. Toque num deles e em <b>+ Roteiro</b> para montar a rota de visitas.</div>
     <div class="toolbar" style="margin-top:10px"><div class="chips">
       ${['demandas', 'servicos', 'pessoas'].map(k => chip('data-mapa-mod', k, MODS[k].label, mod === k)).join('')}
       ${mod !== 'pessoas' ? chip('data-mapa-so', 'abertos', 'Só em aberto', so === 'abertos') + chip('data-mapa-so', 'todos', 'Todos', so !== 'abertos') : ''}
     </div></div>
+    <div class="filters mapa-filtros">
+      <div class="f"><label for="mapa-per">Período</label><select id="mapa-per">${[['', 'Todo o período'], ['30', 'Últimos 30 dias'], ['90', 'Últimos 90 dias'], ['ano', 'Este ano']].map(([k, l]) => `<option value="${k}" ${per === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+      ${ko ? `<div class="f"><label for="mapa-org">Órgão destinatário</label><select id="mapa-org"><option value="">Todos os órgãos</option>${orgs.map(o => `<option ${org === o ? 'selected' : ''}>${esc(o)}</option>`).join('')}<option value="—" ${org === '—' ? 'selected' : ''}>Sem órgão</option></select></div>` : ''}
+    </div>
+    <div class="mapa-resumo"><span><b>${regs.length}</b> ${mod === 'pessoas' ? 'pessoa(s)' : 'registro(s)'}</span>${mod !== 'pessoas' ? `<span><b>${abertos}</b> em aberto</span>${atras ? `<span class="late"><b>${atras}</b> atrasado(s)</span>` : ''}` : ''}<span><b>${comLocal}</b> no mapa</span></div>
     <div class="m" id="mapa-prog" hidden></div>
-    <div id="mapa-el" class="mapa"></div>
+    <div class="mapa-grade">
+      <div class="mapa-wrap"><div id="mapa-el" class="mapa"></div></div>
+      <section class="panel mapa-rank"><h3>Bairros com mais ${mod === 'pessoas' ? 'pessoas' : 'pedidos'}</h3>
+        ${rank.length ? `<ol>${rank.slice(0, 15).map(g => `<li><button data-mapa-foco="${esc(g.bairro)}" data-mapa-foco-mun="${esc(g.municipio)}" title="Ver no mapa"><span class="nm">${esc(g.bairro)}${multi && g.municipio ? ` <small>${esc(g.municipio)}</small>` : ''}</span><span class="nr">${g.total}</span><span class="bar"><i style="width:${Math.round(100 * g.total / maxR)}%;background:${g.atrasados ? '#e5484d' : g.abertos ? '#f0a020' : '#3fb06a'}"></i></span>${mod !== 'pessoas' && (g.abertos || g.atrasados) ? `<span class="sub">${g.abertos} em aberto${g.atrasados ? ' · <b>' + g.atrasados + ' atrasado(s)</b>' : ''}</span>` : ''}</button></li>`).join('')}</ol>${rank.length > 15 ? `<p class="m" style="margin:6px 0 0">e mais ${rank.length - 15} bairro(s)</p>` : ''}` : '<p class="m">Nenhum registro com bairro nesse filtro.</p>'}
+      </section>
+    </div>
     <div id="rota-box">${rotaHtml()}</div>
     <div class="m" id="mapa-info" style="margin-top:8px">${semBairro ? semBairro + ' registro(s) sem bairro preenchido não aparecem no mapa.' : ''}</div>`;
 }
@@ -1144,19 +1181,21 @@ async function desenharMapa() {
   mapaOcupado = true;
   try {
     if (!geoCache) { try { geoCache = (await store.getConfig('geo')) || {}; } catch { geoCache = {}; } }
-    const grupos = gruposMapa();
+    const mod = state.mapa.mod, regs = regsMapa();
+    const grupos = gruposMapa(regs);
     const semLocal = await mapaLib.desenhar(el, grupos, {
       cache: geoCache, uf: UF_GAB(), cidadePadrao: cfg.cidade_gabinete, esc,
       salvarCache: c => store.setConfig('geo', c),
       onProgresso: (i, n) => { const p = $('#mapa-prog'); if (!p) return; p.hidden = !n; p.textContent = n ? `Localizando bairros no mapa… ${i} de ${n} (só na primeira vez)` : ''; },
-      onClique: g => { state.qNext = g.bairro; go(state.mapa.mod); },
-      pontosExatos: data[state.mapa.mod].filter(r => r.lat != null && r.lng != null && (state.mapa.so !== 'abertos' || isOpen(state.mapa.mod, r))).map(r => ({ id: r.id, lat: +r.lat, lng: +r.lng, titulo: MODS[state.mapa.mod].title(r) || '', status: r.status, sub: [r.bairro, r.solicitante].filter(Boolean).join(' · '), aberto: isOpen(state.mapa.mod, r), atrasado: isLate(state.mapa.mod, r) })),
-      onAbrir: p => openDrawer(state.mapa.mod, p.id),
+      onClique: g => { mapaLib.destruir(); state.qNext = g.bairro; go(mod); },
+      pontosExatos: regs.filter(r => r.lat != null && r.lng != null).map(r => ({ id: r.id, lat: +r.lat, lng: +r.lng, titulo: MODS[mod].title(r) || '', status: r.status, sub: [r.bairro, r.solicitante].filter(Boolean).join(' · '), bairro: (r.bairro || '').trim(), municipio: r.municipio || cfg.cidade_gabinete || '', aberto: isOpen(mod, r), atrasado: isLate(mod, r) })),
+      onAbrir: p => { mapaLib.sairTelaCheia(); openDrawer(mod, p.id); },
+      onAviso: toast,
       onRota: p => { if (state.rota.length >= 10) { toast('O Google Maps aceita até 10 paradas.'); return; } if (state.rota.some(x => x.lat === p.lat && x.lng === p.lng)) { toast('Já está no roteiro'); return; } state.rota.push(p); atualizarRota(); toast('Adicionado ao roteiro'); },
     });
     const info = $('#mapa-info');
     if (info && semLocal.length) info.textContent += (info.textContent ? ' ' : '') + 'Não achei no mapa: ' + semLocal.map(g => g.bairro).join(', ') + '.';
-    if (!grupos.length && info && !data[state.mapa.mod].some(r => r.lat != null && (state.mapa.so !== 'abertos' || isOpen(state.mapa.mod, r)))) info.textContent = 'Nenhum registro com bairro preenchido nesse filtro.';
+    if (!grupos.length && info && !regs.some(r => r.lat != null)) info.textContent = 'Nenhum registro com bairro preenchido nesse filtro.';
   } catch (e) { const info = $('#mapa-info'); if (info) info.textContent = 'Não foi possível abrir o mapa: ' + errMsg(e); }
   finally { mapaOcupado = false; if (mapaDeNovo) { mapaDeNovo = false; desenharMapa(); } }
 }
@@ -1823,9 +1862,10 @@ document.addEventListener('click', e => {
   if (e.target.closest('#btn-instalar')) { if (pedidoInstalar) { pedidoInstalar.prompt(); pedidoInstalar.userChoice.finally(() => { pedidoInstalar = null; render(); }); } return; }
   const rr = e.target.closest('[data-rel-rapido]'); if (rr) { const t = todayStr(), k = rr.dataset.relRapido; state.rel.de = k === 'mes' ? t.slice(0, 8) + '01' : k === 'ano' ? t.slice(0, 5) + '01-01' : ''; state.rel.ate = k === 'tudo' ? '' : t; render(); return; }
   if (e.target.closest('#imp-go')) { importarAgora(); return; }
-  const mpd = e.target.closest('[data-mapa-de]'); if (mpd) { state.mapa.mod = mpd.dataset.mapaDe; go('mapa'); return; }
-  const mpm = e.target.closest('[data-mapa-mod]'); if (mpm) { state.mapa.mod = mpm.dataset.mapaMod; render(); return; }
+  const mpd = e.target.closest('[data-mapa-de]'); if (mpd) { state.mapa.mod = mpd.dataset.mapaDe; state.mapa.org = ''; go('mapa'); return; }
+  const mpm = e.target.closest('[data-mapa-mod]'); if (mpm) { state.mapa.mod = mpm.dataset.mapaMod; state.mapa.org = ''; render(); return; }
   const mps = e.target.closest('[data-mapa-so]'); if (mps) { state.mapa.so = mps.dataset.mapaSo; render(); return; }
+  const mpf = e.target.closest('[data-mapa-foco]'); if (mpf) { if (!mapaLib.focar(mpf.dataset.mapaFoco, mpf.dataset.mapaFocoMun)) toast('Esse bairro ainda não foi achado no mapa.'); return; }
   if (e.target.closest('#imp-reset')) { state.imp = { mod: state.imp.mod }; render(); return; }
   if (e.target.closest('#pub-copiar')) { const i = $('#pub-link'); try { navigator.clipboard.writeText(i.value).then(() => toast('Link copiado')); } catch { i.select(); document.execCommand('copy'); toast('Link copiado'); } return; }
   if (e.target.closest('#btn-save')) { saveDrawer(); return; }
@@ -1851,6 +1891,7 @@ document.addEventListener('click', e => {
 });
 document.addEventListener('change', async e => {
   if (e.target.id === 'adm-quem') { carregarHistorico(); return; }
+  if (e.target.id === 'mapa-per' || e.target.id === 'mapa-org') { state.mapa[e.target.id === 'mapa-per' ? 'per' : 'org'] = e.target.value; render(); return; }
   if (e.target.id === 'gf-de' || e.target.id === 'gf-ate') { state.graf[e.target.id === 'gf-de' ? 'de' : 'ate'] = e.target.value; render(); return; }
   const el = e.target;
   if (el.dataset && 'anxAdd' in el.dataset) { const files = [...el.files]; el.value = ''; if (files.length) anexarArquivos(drawer.mod, drawer.id, files).catch(err => toast('Não foi possível anexar: ' + errMsg(err))); return; }
