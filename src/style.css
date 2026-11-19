@@ -555,3 +555,9 @@ h2.sec{font-weight:800;font-size:26px;letter-spacing:-.02em}
 .pt-top.sem-logo{justify-content:flex-end}
 .pt-top.sem-logo .pt-logo{display:none}
 .pt-logo-card{display:block;align-self:center;width:min(240px,70%);height:auto;margin:4px 0 2px}
+
+/* atalhos da agenda */
+.ola{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.ola .sec{margin-right:auto}
+.mini-full{width:100%;justify-content:center;margin-top:12px}
+@media (max-width:620px){.btn-agenda .ag-txt{display:none}}

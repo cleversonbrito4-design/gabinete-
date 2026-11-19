@@ -1,5 +1,5 @@
 import './style.css';
-import { MODS, ORDER } from './schema.js';
+import { MODS, ORDER, AREAS_DEMANDA } from './schema.js';
 import * as store from './store.js';
 import * as gcal from './google.js';
 import { MODELOS, folhas } from './etiquetas.js';
@@ -211,6 +211,7 @@ function shell() {
       <button class="btn ghost bell" id="btn-avisos" title="Avisos" aria-label="Avisos">🔔<span class="n" id="avisos-n" hidden></span></button>
       <button class="btn" id="btn-import" hidden>Importar</button>
       <button class="btn" id="btn-export" hidden>Exportar</button>
+      <button class="btn btn-agenda" data-go="agenda" title="Abrir a agenda" aria-label="Agenda">📅<span class="ag-txt">Agenda</span></button>
       <button class="btn primary" id="btn-new">+ Novo</button>
       <button class="btn ghost" data-go="conta" title="Minha conta" aria-label="Minha conta">☰</button>
     </div>
@@ -290,11 +291,11 @@ function renderPainel() {
   const mun = Object.entries(porMun).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([s, n]) => ({ s, n, v: n, c: 'var(--accent)' }));
   const munHtml = mun.length ? bars(mun, Math.max(...mun.map(x => x.v)), v => v) : `<div class="empty"><b>Sem demandas em aberto</b></div>`;
 
-  return `${banner()}<div class="eyebrow">${fmtDay(t)}</div><h2 class="sec">Olá${myName() ? ', ' + esc(primeiroNome(myName())) : ''}</h2>
+  return `${banner()}<div class="eyebrow">${fmtDay(t)}</div><div class="ola"><h2 class="sec">Olá${myName() ? ', ' + esc(primeiroNome(myName())) : ''}</h2><button class="btn primary" type="button" data-novo="agenda">+ Compromisso</button></div>
     <div class="kpis">${kpis}</div>
     <div class="cols">
       <div style="display:flex;flex-direction:column;gap:18px;min-width:0">
-        <section class="panel"><h3>Próximos 7 dias na agenda <a data-go="agenda">ver agenda</a></h3>${agHtml}</section>
+        <section class="panel"><h3>Próximos 7 dias na agenda <a data-go="agenda">ver agenda</a></h3>${agHtml}<button class="btn primary mini-full" type="button" data-novo="agenda">+ Compromisso</button></section>
         <section class="panel"><h3>Minhas tarefas <a data-go="tarefas">ver tarefas</a></h3>${minhasTarefasHtml()}</section>
         <section class="panel"><h3>Aniversariantes da semana <a data-go="pessoas">ver pessoas</a></h3>${anivHtml}${anivBtn}</section>
       </div>
@@ -644,9 +645,9 @@ function upsertLocal(mod, row) { if (!row) return; const a = data[mod]; const i 
 /* ---------- ofício a partir da demanda ---------- */
 const ORGAO_POR_AREA = {
   'Obras': 'Secretaria Municipal de Obras Públicas', 'Infraestrutura': 'Secretaria Municipal de Obras Públicas', 'Iluminação pública': 'Secretaria Municipal de Obras Públicas',
-  'Trânsito': 'Órgão municipal de trânsito', 'Meio ambiente': 'Secretaria Municipal de Meio Ambiente',
+  'Trânsito': 'Autarquia Municipal de Mobilidade, Trânsito e Cidadania - TRANSITAR', 'Meio ambiente': 'Secretaria Municipal de Meio-Ambiente',
   'Saúde': 'Secretaria Municipal de Saúde', 'Educação': 'Secretaria Municipal de Educação', 'Assistência social': 'Secretaria Municipal de Assistência Social',
-  'Segurança': 'Secretaria Municipal de Segurança Pública', 'Emprego e renda': 'Secretaria Municipal de Desenvolvimento Econômico', 'Esporte e cultura': 'Secretaria Municipal de Esporte e Lazer',
+  'Segurança': 'Secretaria Municipal de Segurança Pública e Proteção à Comunidade', 'Emprego e renda': 'Secretaria Municipal de Desenvolvimento Econômico', 'Esporte e cultura': 'Secretaria Municipal de Esporte e Lazer',
 };
 async function oficioDaDemanda() {
   const { id } = drawer; let d = data.demandas.find(x => x.id === id); if (!d) return;
@@ -663,7 +664,7 @@ async function oficioDaDemanda() {
     linhas.push('Solicito, ainda, retorno a este gabinete sobre as providências adotadas e a previsão de atendimento.');
     const of = {
       servico: d.assunto, solicitante: d.solicitante, telefone: d.telefone, municipio: d.municipio, local: d.bairro,
-      orgao: ORGAO_POR_AREA[d.area] || null, tipo_doc: 'Ofício', prazo: addDays(todayStr(), 15), responsavel: por || d.responsavel,
+      orgao: (AREAS_DEMANDA.includes(d.area) ? d.area : ORGAO_POR_AREA[d.area]) || null, tipo_doc: 'Ofício', prazo: addDays(todayStr(), 15), responsavel: por || d.responsavel,
       corpo: linhas.join('\n'), status: 'Recebida', demanda_id: d.id,
       ...(d.lat != null ? { lat: d.lat, lng: d.lng } : {}),
       historico: [{ em: agora, txt: 'Criado a partir da demanda “' + d.assunto + '”', por }],
@@ -1094,7 +1095,7 @@ function renderRelatorios() {
         ${tabela('Por situação', conta('status', '—'))}
         ${M.fields.some(x => x.k === 'municipio') && !f.municipio ? tabela('Por município', conta('municipio', 'Sem município')) : ''}
         ${M.fields.some(x => x.k === 'bairro') ? tabela('Por bairro', conta('bairro', 'Sem bairro')) : ''}
-        ${M.fields.some(x => x.k === 'area') ? tabela('Por área', conta('area', 'Sem área')) : ''}
+        ${M.fields.some(x => x.k === 'area') ? (m === 'demandas' ? tabela('Por órgão destinatário', conta('area', 'Sem órgão')) : tabela('Por área', conta('area', 'Sem área'))) : ''}
         ${M.fields.some(x => x.k === 'tipo') ? tabela('Por tipo', conta('tipo', 'Sem tipo')) : ''}
         ${M.fields.some(x => x.k === 'responsavel') ? tabela('Por responsável', conta('responsavel', 'Sem responsável')) : ''}
       </div>
@@ -1477,7 +1478,7 @@ function renderGraficos() {
     ${pnl('Demandas recebidas por mês', grafMeses(porMes(data.demandas, r => r.criado_em)))}
     <div class="cols graf-cols">
       ${pnl('Demandas por situação', grafBarras(sit, { total: dem.length }))}
-      ${pnl('Demandas por área', grafBarras(contarPor(dem, r => r.area || 'Sem área'), { total: dem.length }))}
+      ${pnl('Demandas por órgão destinatário', grafBarras(contarPor(dem, r => r.area || 'Sem órgão'), { total: dem.length }))}
       ${pnl('Bairros com mais demandas', grafBarras(contarPor(dem, r => r.bairro ? r.bairro + (r.municipio && r.municipio !== cfg.cidade_gabinete ? ' · ' + r.municipio : '') : ''), { total: dem.length, vazio: 'Nenhuma demanda com bairro no período.' }))}
       ${pnl('Como as demandas chegaram', grafBarras(contarPor(dem, r => r.origem || 'Não informado'), { total: dem.length }))}
     </div>
@@ -1806,6 +1807,7 @@ document.addEventListener('click', e => {
   if (e.target.closest('#geo-gps')) { geoGps(); return; }
   if (e.target.closest('#geo-limpar')) { drawer.geo = null; geoMini?.marcar(null); geoInfo(); return; }
   if (e.target.closest('[data-tarefa-de]')) { const { mod, id } = drawer; const r = data[mod].find(x => x.id === id); closeDrawer(); go('tarefas'); openDrawer('tarefas', null, { relacionado: MODS[mod].sing + ': ' + (MODS[mod].title(r) || ''), prazo: addDays(todayStr(), 3) }); return; }
+  const nv = e.target.closest('[data-novo]'); if (nv) { go(nv.dataset.novo); openDrawer(nv.dataset.novo, null); return; }
   if (e.target.closest('#btn-new')) { openDrawer(state.view === 'painel' ? 'demandas' : state.view, null); return; }
   if (e.target.closest('#btn-export')) { exportCsv(); return; }
   if (e.target.closest('[data-vcf]')) { exportVcf(); return; }

@@ -2,6 +2,40 @@
 // e também o SQL do banco (scripts/gen-sql.mjs). Para incluir um campo novo:
 // adicione aqui, rode `npm run sql` e aplique a alteração no Supabase.
 
+// Secretarias e órgãos da Prefeitura de Cascavel (campo Órgão destinatário das demandas; vai para o ofício).
+// Demandas antigas com outra área continuam mostrando o valor que tinham.
+export const AREAS_DEMANDA = [
+        'Secretaria Municipal da Casa Civil',
+        'Secretaria Municipal de Agricultura',
+        'Secretaria Municipal de Assistência Social',
+        'Secretaria Municipal de Comunicação Social',
+        'Secretaria Municipal de Cultura',
+        'Secretaria Municipal de Desenvolvimento Econômico',
+        'Secretaria Municipal de Educação',
+        'Secretaria Municipal de Esporte e Lazer',
+        'Secretaria Municipal de Finanças',
+        'Secretaria Municipal de Meio-Ambiente',
+        'Secretaria Municipal de Planejamento e Gestão',
+        'Secretaria Municipal de Saúde',
+        'Secretaria Municipal de Segurança Pública e Proteção à Comunidade',
+        'Secretaria Municipal de Obras Públicas',
+        'Secretaria Municipal de Políticas Sobre Drogas',
+        'Secretaria Municipal da Mulher e Cidadania',
+        'Procuradoria Geral do Município',
+        'Controladoria-Geral do Município',
+        'Território Cidadão',
+        'PROCON',
+        'COMPDEC',
+        'Agência de Inteligência e Fomento - AIF',
+        'Companhia Municipal de Habitação de Cascavel - COHAVEL',
+        'Fundação Municipal de Esporte e Cultura - FMEC',
+        'Fundação para o Desenvolvimento Científico e Tecnológico - FUNDETEC',
+        'Instituto de Planejamento de Cascavel - IPC',
+        'Instituto de Previdência dos Servidores Públicos de Cascavel - IPMC',
+        'Autarquia Municipal de Mobilidade, Trânsito e Cidadania - TRANSITAR',
+        'Administração dos Cemitérios e Serviços Funerários de Cascavel - ACESC',
+      ];
+
 export const UFS = ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'];
 
 export const MODS = {
@@ -15,7 +49,7 @@ export const MODS = {
       { k:'telefone', l:'Telefone / WhatsApp', type:'tel' },
       { k:'municipio', l:'Município', list:1 },
       { k:'bairro', l:'Bairro / Localidade' },
-      { k:'area', l:'Área', type:'select', opts:['Obras','Infraestrutura','Iluminação pública','Trânsito','Meio ambiente','Saúde','Educação','Assistência social','Segurança','Emprego e renda','Esporte e cultura','Outros'] },
+      { k:'area', l:'Órgão destinatário', type:'select', opts:AREAS_DEMANDA },
       { k:'prioridade', l:'Prioridade', type:'select', opts:['Baixa','Média','Alta'] },
       { k:'responsavel', l:'Responsável no gabinete', team:1 },
       { k:'prazo', l:'Prazo de retorno', type:'date' },
