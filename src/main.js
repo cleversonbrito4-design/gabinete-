@@ -410,7 +410,7 @@ function renderList(m) {
   return `${banner()}<h2 class="sec">${M.label}</h2><div class="m" style="margin-top:2px">${M.hint}</div>
     <div class="print-only m">Impresso em ${fmtStamp(new Date().toISOString())} · ${a.length} registro(s)</div>
     <div class="toolbar"><input class="search" id="q" type="search" placeholder="Buscar por nome, município, assunto, protocolo…" value="${esc(state.q)}"><div class="chips">${chips}</div></div>
-    ${extra}<div class="list" id="list">${body}</div>`;
+    ${extra}<div class="no-print so-cel" style="margin-bottom:4px;gap:8px;flex-wrap:wrap"><button class="btn mini" data-importar>Importar planilha</button><button class="btn mini" data-exportar>Exportar planilha</button></div><div class="list" id="list">${body}</div>`;
 }
 
 /* ---------- etiquetas ---------- */
@@ -1983,10 +1983,10 @@ document.addEventListener('click', e => {
   if (e.target.closest('[data-tarefa-de]')) { const { mod, id } = drawer; const r = data[mod].find(x => x.id === id); closeDrawer(); go('tarefas'); openDrawer('tarefas', null, { relacionado: MODS[mod].sing + ': ' + (MODS[mod].title(r) || ''), prazo: addDays(todayStr(), 3) }); return; }
   const nv = e.target.closest('[data-novo]'); if (nv) { go(nv.dataset.novo); openDrawer(nv.dataset.novo, null); return; }
   if (e.target.closest('#btn-new')) { openDrawer(state.view === 'painel' ? 'demandas' : state.view, null); return; }
-  if (e.target.closest('#btn-export')) { exportCsv(); return; }
+  if (e.target.closest('#btn-export, [data-exportar]')) { exportCsv(); return; }
   if (e.target.closest('[data-vcf]')) { exportVcf(); return; }
   if (e.target.closest('[data-trazer-pedidos]')) { const b = e.target.closest('[data-trazer-pedidos]'); b.disabled = true; b.textContent = 'Colocando…'; cadastrarQuemPediu().then(n => { toast(n + ' pessoa(s) colocada(s) na lista de contatos'); state.filter = 'pedidos'; render(); }).catch(err => { toast('Não foi possível: ' + errMsg(err)); render(); }); return; }
-  if (e.target.closest('#btn-import')) { state.imp = { mod: state.view }; go('importar'); return; }
+  if (e.target.closest('#btn-import, [data-importar]')) { state.imp = { mod: state.view }; go('importar'); return; }
   if (e.target.closest('#btn-avisos')) { abrirAvisos(); return; }
   if (e.target.closest('#av-notif')) { Notification.requestPermission().then(p => { toast(p === 'granted' ? 'Pronto: os avisos aparecem quando você abrir o sistema' : 'O navegador não liberou os avisos'); if (p === 'granted') { try { localStorage.removeItem('gabinete-aviso-dia'); } catch { /* ok */ } notificarNoComputador(); } abrirAvisos(); }); return; }
   const ab = e.target.closest('[data-anx-abrir]'); if (ab) { const r = data[drawer.mod].find(x => x.id === drawer.id); const x = r?.anexos?.[+ab.dataset.anxAbrir]; if (x) { const w = window.open('', '_blank'); store.linkAnexo(x.path).then(u => { if (w) w.location = u; else location.href = u; }).catch(err => { if (w) w.close(); toast(errMsg(err)); }); } return; }

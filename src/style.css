@@ -551,7 +551,7 @@ h2.sec{font-weight:800;font-size:26px;letter-spacing:-.02em}
   .portal .btn.primary{padding-inline:58px}
   .portal .prot-box .btn.primary{padding-inline:20px 60px}
 }
-@media (max-width:380px){#btn-new{font-size:0;padding:8px 14px}#btn-new::before{content:"+ Novo";font-size:14px}}
+@media (max-width:620px){#btn-new{font-size:0;padding:8px 14px}#btn-new::before{content:"+ Novo";font-size:14px}}
 .pt-top.sem-logo{justify-content:flex-end}
 .pt-top.sem-logo .pt-logo{display:none}
 .pt-logo-card{display:block;align-self:center;width:min(240px,70%);height:auto;margin:4px 0 2px}
@@ -621,3 +621,7 @@ body.mapa-cheio{overflow:hidden}
 .ag-ajuda summary{cursor:pointer;font-weight:600}
 .ag-ajuda ol{padding-left:20px;line-height:1.55;margin:8px 0 0}
 .ag-ajuda code{font-size:12px}
+/* celular: Importar/Exportar saem do topo (encobriam o logo) e vão para a lista */
+.so-cel{display:none}
+@media (max-width:620px){#btn-import,#btn-export{display:none!important}.so-cel{display:flex}}
+@media (max-width:400px){.logo-top img{height:27px}.brand .btn{padding:8px 10px}.brand .btn.ghost{padding:8px 7px}#btn-new{padding:8px 12px}}
