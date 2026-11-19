@@ -415,6 +415,8 @@ nav.tabs{gap:4px;padding-bottom:10px}
 .btn.primary:hover{filter:none;background:color-mix(in srgb,var(--inverso) 88%,var(--accent))}
 .btn.ghost{background:none;border-color:transparent;-webkit-backdrop-filter:none;backdrop-filter:none}
 .btn.ghost:hover{background:var(--glass-hi)}
+.btn.wa{background:#1f9d55;border-color:#1f9d55;color:#fff}
+.btn.wa:hover{background:#178a48;border-color:#178a48}
 .btn[disabled]{opacity:.55;cursor:default}
 
 /* cartões de vidro */
