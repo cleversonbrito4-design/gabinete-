@@ -130,7 +130,7 @@ export const MODS = {
       { k:'destinatario', l:'Destinatário / homenageado (indicações, requerimentos e moções)' },
       { k:'orgao', l:'Órgão destinatário' },
       { k:'link', l:'Link da tramitação', type:'url', wide:1 },
-      { k:'texto', l:'Texto (REQUEIRO… / INDICO…) – vai para o Word', type:'textarea', wide:1 },
+      { k:'texto', l:'Texto – vai para o Word (projeto de lei: um artigo por linha, a numeração é automática)', type:'textarea', wide:1 },
       { k:'corpo', l:'Justificativa (vai para o Word; um parágrafo por linha)', type:'textarea', wide:1 },
       { k:'obs', l:'Tramitação / observações', type:'textarea', wide:1 },
     ],
