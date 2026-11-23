@@ -59,7 +59,7 @@ export const MODS = {
       { k:'publico', l:'Mostrar na prestação de contas pública (sem nome nem telefone do cidadão)', type:'bool', wide:1 },
     ],
     title: r => r.assunto,
-    meta: r => [r.solicitante, r.municipio && (r.municipio + (r.bairro ? ' · ' + r.bairro : '')), r.area].filter(Boolean).join(' · '),
+    meta: r => [r.protocolo && ('Prot. ' + r.protocolo), r.solicitante, r.municipio && (r.municipio + (r.bairro ? ' · ' + r.bairro : '')), r.area].filter(Boolean).join(' · '),
     deadline: 'prazo', phone: 'telefone',
     extraCols: [['lat','double precision'],['lng','double precision'],['avaliacao_token','uuid default gen_random_uuid()'],['nota','integer'],['nota_comentario','text'],['nota_em','timestamptz']], geo: 1,
   },
