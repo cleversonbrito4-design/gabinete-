@@ -668,3 +668,13 @@ body.mapa-cheio{overflow:hidden}
 .eq-linha .t{flex:1;min-width:0;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .eq-linha .m{white-space:nowrap}
 .eq-ok{font-size:12px;font-weight:700;color:#72a83b;white-space:nowrap}
+
+/* ---------- agenda do dia ---------- */
+.dia-top{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px}
+.dia-top input[type=date]{width:auto;min-width:170px}
+.dia-item{display:grid;grid-template-columns:96px minmax(0,1fr) auto;gap:12px;align-items:center;padding:12px 16px;border-top:1px solid var(--line);cursor:pointer}
+.dia-item:first-child{border-top:0}
+.dia-item.ext-row{cursor:help}
+.dia-hora{font-family:var(--mono);font-weight:700;font-size:13.5px}
+@media (max-width:560px){.dia-item{grid-template-columns:74px minmax(0,1fr)}.dia-item .pill{display:none}.dia-hora{font-size:12.5px}}
+@media print{.dia-item{break-inside:avoid;padding:8px 0}.dia-lista{border:0}}
