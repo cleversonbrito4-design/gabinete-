@@ -348,6 +348,8 @@ function renderPainel() {
   const estrelas = n => '★★★★★'.slice(0, Math.round(n)) + '☆☆☆☆☆'.slice(0, 5 - Math.round(n));
   const satHtml = notas.length ? `<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap"><b style="font-family:var(--display);font-size:30px">${media.toFixed(1).replace('.', ',')}</b><span class="estrelas">${estrelas(media)}</span><span class="m">${notas.length} avaliação(ões) · ${conc ? Math.round(notas.length / conc * 100) : 0}% das demandas concluídas</span></div>`
       + notas.filter(r => r.nota_comentario).sort((a, b) => String(b.nota_em || '').localeCompare(String(a.nota_em || ''))).slice(0, 3).map(r => `<div class="ag-item" data-open="demandas:${r.id}"><div class="ag-when"><b class="estrelas">${'★'.repeat(+r.nota)}</b></div><div style="min-width:0"><div class="t">“${esc(r.nota_comentario)}”</div><div class="m">${esc([r.solicitante, r.assunto].filter(Boolean).join(' · '))}</div></div></div>`).join('')
+      + (() => { const lim = addDays(t, -60); const baixas = notas.filter(r => +r.nota <= 2 && String(r.nota_em || '').slice(0, 10) >= lim).sort((a, b) => String(b.nota_em || '').localeCompare(String(a.nota_em || ''))).slice(0, 3);
+          return baixas.length ? `<div class="eyebrow" style="margin-top:12px;color:var(--late)">Notas baixas · vale ligar para entender</div>` + baixas.map(r => `<div class="ag-item" data-open="demandas:${r.id}"><div class="ag-when"><b class="estrelas">${'★'.repeat(+r.nota)}</b></div><div style="min-width:0"><div class="t">${r.nota_comentario ? '“' + esc(r.nota_comentario) + '”' : 'Sem comentário'}</div><div class="m">${esc([r.solicitante, r.telefone, r.assunto].filter(Boolean).join(' · '))}</div></div></div>`).join('') : ''; })()
     : `<div class="empty"><b>Nenhuma avaliação ainda</b>Ao concluir uma demanda, toque em WhatsApp: a mensagem já leva o link para o cidadão dar a nota.</div>`;
   const pend = []; ['demandas', 'servicos'].forEach(m => data[m].forEach(r => { if (isOpen(m, r) && r.prazo && r.prazo <= w) pend.push([m, r]); }));
   pend.sort((a, b) => a[1].prazo.localeCompare(b[1].prazo));
@@ -783,6 +785,13 @@ function diasSemResposta(r) {
   return Math.floor((Date.now() - envio) / 86400000);
 }
 const DIAS_REITERAR = 30;
+// frases padrão dos ofícios (estilo oficial do gabinete)
+const OF_ABERTURA = 'Ao cumprimentar cordialmente Vossa Senhoria, ';
+const OF_INTERESSE = 'A medida é de interesse público, pois contribui para a segurança, o bem-estar e a qualidade de vida dos moradores da região.';
+const OF_RETORNO = 'Solicito, ainda, que este gabinete seja informado, com a brevidade possível, sobre as providências adotadas e a previsão de atendimento.';
+const OF_FECHO = 'Certo de contar com a habitual atenção de Vossa Senhoria, renovo protestos de elevada estima e consideração.';
+const ofFrase = t => { t = String(t || '').replace(/\s*\n+\s*/g, ' ').trim(); return t && !/[.!?]$/.test(t) ? t + '.' : t; };
+const ofOrigem = (solic, prot, resto = 'que aguarda providências') => `Ressalto que a solicitação decorre de demanda apresentada a este gabinete por ${solic || 'munícipe'}${prot ? ' (protocolo nº ' + prot + ')' : ''}, ${resto}.`;
 async function reiterarOficio() {
   const o = data.servicos.find(x => x.id === drawer.id); if (!o) return;
   const btn = $('[data-reiterar]'); if (btn) { btn.disabled = true; btn.textContent = 'Criando…'; }
@@ -790,9 +799,11 @@ async function reiterarOficio() {
     const dataEnvio = o.data_envio ? fmtDataBR(o.data_envio) : '';
     const assunto = o.servico ? o.servico.charAt(0).toLowerCase() + o.servico.slice(1) : 'providências';
     const linhas = [
-      `Reitero o Ofício nº ${o.protocolo || '(sem número)'}${dataEnvio ? ', de ' + dataEnvio : ''}, por meio do qual este gabinete solicitou ${assunto}${o.local && !assunto.toLowerCase().includes(o.local.toLowerCase()) ? ', na ' + o.local : ''}${o.municipio ? ', no município de ' + o.municipio : ''}, até o momento sem resposta.`,
-      ...(o.solicitante ? [`A solicitação atende à demanda de ${o.solicitante}, que segue aguardando providências.`] : []),
+      OF_ABERTURA + `reitero os termos do Ofício nº ${o.protocolo || '(sem número)'}${dataEnvio ? ', de ' + dataEnvio : ''}, por meio do qual este gabinete solicitou ${assunto}${o.local && !assunto.toLowerCase().includes(o.local.toLowerCase()) ? ', na ' + o.local : ''}${o.municipio ? ', no município de ' + o.municipio : ''}.`,
+      'Até a presente data, este gabinete não recebeu resposta, e a situação permanece sem solução, causando transtornos à comunidade.',
+      ofOrigem(o.solicitante, data.demandas.find(x => x.id === o.demanda_id)?.protocolo, 'que segue aguardando providências'),
       'Considerando o tempo decorrido, solicito, com urgência, informações sobre as providências adotadas e a previsão de atendimento.',
+      OF_FECHO,
     ];
     const agora = new Date().toISOString(), por = myName();
     const novo = { servico: 'Reiteração do Ofício nº ' + (o.protocolo || '') + ' – ' + (o.servico || ''), solicitante: o.solicitante, telefone: o.telefone, municipio: o.municipio, local: o.local,
@@ -814,11 +825,13 @@ async function oficioDaDemanda() {
     const form = readForm('demandas'); const st = $('#f-status').value;
     if (Object.keys(form).some(k => String(form[k] ?? '') !== String(d[k] ?? '')) || st !== d.status) { d = await store.saveRow('demandas', d.id, { ...form, status: st }); upsertLocal('demandas', d); }
     const agora = new Date().toISOString(), por = myName();
-    const linhas = [`Solicito a Vossa Senhoria ${d.assunto ? d.assunto.charAt(0).toLowerCase() + d.assunto.slice(1) : 'providências'}${d.bairro ? ', no bairro ' + d.bairro : ''}${d.municipio ? ', no município de ' + d.municipio : ''}.`];
-    if (d.descricao) linhas.push(d.descricao.replace(/\s*\n+\s*/g, ' '));
-    if (d.lat != null) linhas.push('Localização exata: ' + linkMaps([+d.lat, +d.lng]));
-    linhas.push(`A solicitação atende à demanda encaminhada a este gabinete por ${d.solicitante || 'munícipe'}${d.protocolo ? ' (protocolo nº ' + d.protocolo + ')' : ''}, que aguarda providências.`);
-    linhas.push('Solicito, ainda, retorno a este gabinete sobre as providências adotadas e a previsão de atendimento.');
+    const linhas = [OF_ABERTURA + `solicito, por intermédio do setor competente, ${d.assunto ? d.assunto.charAt(0).toLowerCase() + d.assunto.slice(1) : 'providências'}${d.bairro ? ', no bairro ' + d.bairro : ''}${d.municipio ? ', no município de ' + d.municipio : ''}.`];
+    if (d.descricao) linhas.push('Conforme relato recebido por este gabinete: ' + ofFrase(d.descricao));
+    if (d.lat != null) linhas.push('Para facilitar a identificação do local, segue a localização exata: ' + linkMaps([+d.lat, +d.lng]));
+    linhas.push(OF_INTERESSE);
+    linhas.push(ofOrigem(d.solicitante, d.protocolo));
+    linhas.push(OF_RETORNO);
+    linhas.push(OF_FECHO);
     const of = {
       servico: d.assunto, solicitante: d.solicitante, telefone: d.telefone, municipio: d.municipio, local: d.bairro,
       orgao: (AREAS_DEMANDA.includes(d.area) ? d.area : ORGAO_POR_AREA[d.area]) || null, tipo_doc: 'Ofício', prazo: addDays(todayStr(), 15), responsavel: por || d.responsavel,
@@ -898,14 +911,16 @@ async function gerarDocumento() {
     const minusc = t => t ? t.charAt(0).toLowerCase() + t.slice(1) : t;
     const protDemanda = mod === 'servicos' && r.demanda_id ? (data.demandas.find(x => x.id === r.demanda_id)?.protocolo || '') : '';
     const paragrafos = linhas(r.corpo).length && tipo === 'oficio' ? linhas(r.corpo) : [
-      `Solicito ${minusc(assunto)}${localTxt}.`,
-      (r.solicitante ? `A solicitação atende à demanda encaminhada ao gabinete por ${r.solicitante}` : 'A solicitação atende à demanda encaminhada ao gabinete') + (protDemanda ? ` (protocolo nº ${protDemanda})` : '') + '.',
-      'Solicito, ainda, retorno a este gabinete sobre as providências adotadas e a previsão de atendimento.',
+      OF_ABERTURA + `solicito, por intermédio do setor competente, ${minusc(assunto)}${localTxt}.`,
+      OF_INTERESSE,
+      ofOrigem(r.solicitante, protDemanda),
+      OF_RETORNO,
+      OF_FECHO,
     ];
     const texto = r.texto || (tipo === 'indicacao'
-      ? `INDICO, nos termos regimentais desta Casa de Leis, que seja encaminhado expediente ao(à) ${destOrg}, solicitando ${minusc(assunto)}${localTxt}.`
-      : `REQUEIRO, nos termos regimentais desta Casa de Leis, ${minusc(assunto)}.`);
-    const justificativa = tipo === 'oficio' ? [] : (linhas(r.corpo).length ? linhas(r.corpo) : [r.solicitante ? `A presente proposição atende à demanda apresentada por ${r.solicitante}.` : 'A presente proposição atende à demanda encaminhada ao gabinete.']);
+      ? `INDICO à Mesa, na forma regimental, que seja encaminhado expediente ao(à) ${destOrg}, solicitando, por intermédio do setor competente, ${minusc(assunto)}${localTxt}.`
+      : `REQUEIRO à Mesa, na forma regimental, ${minusc(assunto)}.`);
+    const justificativa = tipo === 'oficio' ? [] : (linhas(r.corpo).length ? linhas(r.corpo) : [`A presente proposição atende à demanda apresentada a este gabinete por ${r.solicitante || 'munícipes da região'}${protDemanda ? ' (protocolo nº ' + protDemanda + ')' : ''}.`, 'A medida é de interesse público, pois contribui para a segurança, o bem-estar e a qualidade de vida da população atendida.', 'Diante da relevância do pedido, conto com o apoio dos nobres Pares para a aprovação desta proposição.']);
     // fotos e mapa do local vão numa página de anexo no fim do documento
     if (btn) btn.textContent = 'Juntando fotos e mapa…';
     const anexoImgs = await imagensDoDocumento(mod, r);
@@ -1096,6 +1111,7 @@ function avisos() {
   data.tarefas.forEach(r => { if (isOpen('tarefas', r) && r.prazo && r.prazo <= t && (!r.responsavel || r.responsavel === myName())) itens.push({ m: 'tarefas', r, nivel: r.prazo < t ? 'late' : 'and', txt: r.prazo < t ? 'Tarefa atrasada desde ' + fmtDate(r.prazo) : 'Tarefa para hoje', urg: 1 }); });
   data.demandas.forEach(r => { if (r.status === 'Nova' && r.origem === 'Site do gabinete') itens.push({ m: 'demandas', r, nivel: 'novo', txt: 'Pedido novo pelo site', urg: 1 }); });
   data.demandas.forEach(r => { if (isUrgente('demandas', r) && !itens.some(i => i.r === r)) itens.push({ m: 'demandas', r, nivel: 'late', txt: '🚨 Urgente · ' + (r.status || ''), urg: 1 }); });
+  data.demandas.forEach(r => { if (r.nota != null && +r.nota <= 2 && String(r.nota_em || '').slice(0, 10) >= addDays(t, -7)) itens.push({ m: 'demandas', r, nivel: 'late', txt: 'Cidadão deu nota ' + r.nota + ' · ligue para entender', urg: 1 }); });
   // demandas paradas: as 5 mais antigas, para a equipe dar retorno antes de o cidadão cobrar
   data.demandas.map(r => [r, diasParada(r)]).filter(x => x[1] && !itens.some(i => i.r === x[0])).sort((a, b) => b[1] - a[1]).slice(0, 5)
     .forEach(([r, d]) => itens.push({ m: 'demandas', r, nivel: 'and', txt: 'Sem novidade há ' + d + ' dias', urg: 0 }));
@@ -1124,9 +1140,12 @@ function notificarNoComputador() {
     if (!('Notification' in window) || Notification.permission !== 'granted') return;
     const chave = 'gabinete-aviso-dia', hoje = todayStr();
     if (localStorage.getItem(chave) === hoje) return;
-    const { itens, urgentes } = avisos(); if (!urgentes) return;
-    const venc = itens.filter(i => i.nivel === 'late').length, site = itens.filter(i => i.nivel === 'novo').length, aniv = itens.filter(i => i.m === 'pessoas').length;
-    const partes = [venc && venc + ' prazo(s) vencido(s)', site && site + ' pedido(s) novo(s) pelo site', aniv && aniv + ' aniversariante(s) hoje'].filter(Boolean);
+    const { itens, urgentes } = avisos();
+    const urg = data.demandas.filter(r => isUrgente('demandas', r)).length;
+    const ag = data.agenda.filter(r => r.data === hoje && r.status !== 'Cancelado').sort((a, b) => hhmm(a.inicio).localeCompare(hhmm(b.inicio)));
+    if (!urgentes && !ag.length) return;
+    const venc = itens.filter(i => i.nivel === 'late' && !/Urgente|nota/.test(i.txt)).length, site = itens.filter(i => i.nivel === 'novo').length, aniv = itens.filter(i => i.m === 'pessoas').length;
+    const partes = [ag.length && (ag.length === 1 ? '1 compromisso hoje' : ag.length + ' compromissos hoje') + (ag[0].inicio ? ' (o primeiro às ' + hhmm(ag[0].inicio) + ')' : ''), urg && '🚨 ' + urg + ' urgente(s)', venc && venc + ' prazo(s) vencido(s)', site && site + ' pedido(s) novo(s) pelo site', aniv && aniv + ' aniversariante(s) hoje'].filter(Boolean);
     new Notification(NOME_GAB(), { body: partes.join(' · ') || urgentes + ' aviso(s) para hoje' });
     localStorage.setItem(chave, hoje);
   } catch { /* navegador sem suporte */ }
