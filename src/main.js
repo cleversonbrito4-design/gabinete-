@@ -2146,7 +2146,7 @@ document.addEventListener('click', e => {
   if (e.target.closest('[data-oficio-de]')) { oficioDaDemanda(); return; }
   if (e.target.closest('[data-reiterar]')) { reiterarOficio(); return; }
   if (e.target.closest('[data-arte-mes]')) { arteDoMes(e.target.closest('[data-arte-mes]')); return; }
-  const bcel = e.target.closest('[data-busca-cel]'); if (bcel) { const regs = registrosDoCidadao('', bcel.dataset.buscaCel); const r0 = regs.find(([m]) => m !== 'pessoas'); const nome = r0 ? (r0[1].solicitante || r0[1].nome || '') : ''; state.q = ''; abrirCidadao(nome || 'Celular ' + mascaraTel(bcel.dataset.buscaCel), bcel.dataset.buscaCel); return; }
+  const bcel = e.target.closest('[data-busca-cel]'); if (bcel) { const regs = registrosDoCidadao('', bcel.dataset.buscaCel); const r0 = regs.find(([m]) => m !== 'pessoas'); const nome = r0 ? (r0[1].solicitante || r0[1].nome || '') : ''; state.q = ''; abrirCidadao(nome || 'Celular ' + mascaraTel(bcel.dataset.buscaCel), mascaraTel(bcel.dataset.buscaCel)); return; }
   const gp = e.target.closest('[data-graf-p]'); if (gp) { state.graf.p = gp.dataset.grafP; render(); return; }
   const xe = e.target.closest('[data-ext]'); if (xe) { toast(xe.dataset.ext); return; }
   if (agendasClique(e)) return;
