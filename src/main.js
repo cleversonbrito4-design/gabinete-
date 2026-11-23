@@ -595,7 +595,7 @@ function openDrawer(mod, id, preset = {}) {
   const M = MODS[mod]; const rec = id ? data[mod].find(r => r.id === id) : null;
   if (id && !rec) return;
   if (geoMini) { geoMini.remover(); geoMini = null; }
-  drawer.open = true; drawer.mod = mod; drawer.id = id;
+  drawer.open = true; drawer.mod = mod; drawer.id = id; drawer.parecidoOk = false;
   drawer.geo = rec && rec.lat != null && rec.lng != null ? [+rec.lat, +rec.lng] : (preset.lat != null ? [preset.lat, preset.lng] : null);
   const defaults = { status: M.statuses[0][0], ...(mod === 'agenda' ? { data: todayStr() } : {}), ...(mod === 'emendas' ? { exercicio: new Date().getFullYear() } : {}), ...(mod === 'proposituras' ? { ano: new Date().getFullYear() } : {}), ...(M.fields.some(f => f.k === 'responsavel') ? { responsavel: myName() } : {}), ...(mod === 'recepcao' ? { hora_chegada: pad(new Date().getHours()) + ':' + pad(new Date().getMinutes()) } : {}) };
   const r = rec || { ...defaults, ...preset };
@@ -626,7 +626,7 @@ function openDrawer(mod, id, preset = {}) {
   if (rec && mod === 'proposituras' && rec.link) acts.push(`<a class="btn mini" href="${esc(rec.link)}" target="_blank" rel="noopener">Abrir tramitação</a>`);
   $('#overlay').innerHTML = `<div class="scrim" data-close></div><aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="dr-t">
     <div class="dr-head"><div style="min-width:0"><div class="eyebrow">${esc(M.label)}${rec && rec.protocolo ? ' · Protocolo ' + esc(rec.protocolo) : ''}</div><h3 id="dr-t">${rec ? esc(M.title(rec)) : esc(M.novo)}</h3></div><button class="btn ghost" data-close aria-label="Fechar">✕</button></div>
-    <form class="dr-body" id="frm" novalidate>${mod === 'demandas' ? protocoloBox(rec) : ''}${acts.length ? `<div class="dr-actions">${acts.join('')}</div>` : ''}${statusSel}<div class="f"></div>${fields}
+    <form class="dr-body" id="frm" novalidate>${mod === 'demandas' ? protocoloBox(rec) : ''}${rec ? parecidoHtml(pedidosParecidos(mod, rec)) : ''}${acts.length ? `<div class="dr-actions">${acts.join('')}</div>` : ''}${statusSel}<div class="f"></div>${fields}
       <datalist id="dl-munis"></datalist><datalist id="dl-pessoas"></datalist><datalist id="dl-equipe"></datalist><datalist id="dl-orgaos">${AREAS_DEMANDA.map(o => `<option value="${esc(o)}">`).join('')}</datalist><div class="err" id="frm-err" hidden></div>
       ${M.geo ? `<div class="geo" id="geo"><span class="eyebrow">Localização exata</span>
         <div class="geo-busca"><input id="geo-end" placeholder="Rua, número, bairro" value="${esc(r.local || [r.bairro, r.municipio].filter(Boolean).join(', '))}" autocomplete="off"><button class="btn mini" type="button" id="geo-buscar">🔎 Buscar</button><button class="btn mini" type="button" id="geo-gps">📍 Estou no local</button></div>
@@ -705,6 +705,10 @@ async function saveDrawer() {
   const telRuim = M.fields.filter(f => f.type === 'tel' && rec[f.k] && digitosTel(rec[f.k]) !== digitosTel(old?.[f.k]) && !telefoneOk(rec[f.k]));
   if (telRuim.length) { const e = $('#frm-err'); e.hidden = false; e.textContent = 'Telefone inválido. Digite com DDD: (45) 99999-9999 para celular ou (45) 3333-4444 para fixo.'; const i = $('#f-' + telRuim[0].k); if (i) i.focus(); return; }
   M.fields.filter(f => f.type === 'tel' && rec[f.k] && telefoneOk(rec[f.k])).forEach(f => { rec[f.k] = mascaraTel(rec[f.k]); });
+  if (!old && !drawer.parecidoOk) {
+    const par = pedidosParecidos(mod, rec);
+    if (par.length) { drawer.parecidoOk = true; const e = $('#frm-err'); e.hidden = false; e.innerHTML = parecidoHtml(par) + '<div style="margin-top:6px">Se for outro pedido, toque em <b>Salvar</b> de novo.</div>'; e.scrollIntoView({ block: 'center', behavior: 'smooth' }); return; }
+  }
   const st = $('#f-status').value; const now = new Date().toISOString(); const por = myName();
   const hist = (old?.historico || []).slice();
   if (!old) hist.push({ em: now, txt: 'Cadastrado como “' + st + '”', por });
@@ -790,6 +794,44 @@ const OF_ABERTURA = 'Ao cumprimentar cordialmente Vossa Senhoria, ';
 const OF_INTERESSE = 'A medida é de interesse público, pois contribui para a segurança, o bem-estar e a qualidade de vida dos moradores da região.';
 const OF_RETORNO = 'Solicito, ainda, que este gabinete seja informado, com a brevidade possível, sobre as providências adotadas e a previsão de atendimento.';
 const OF_FECHO = 'Certo de contar com a habitual atenção de Vossa Senhoria, renovo protestos de elevada estima e consideração.';
+// justificativa conforme o tipo de pedido (procura palavras no assunto/descrição)
+const semAcento = t => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+const TIPOS_PEDIDO = [
+  ['iluminacao', /lampada|iluminac|poste|luminaria|\bluz\b|escur/, 'A iluminação pública adequada é essencial para a segurança de pedestres, motoristas e moradores, especialmente no período noturno, ajudando a prevenir acidentes e a criminalidade.'],
+  ['buraco', /buraco|asfalt|pavimenta|recape|tapa|cascalh|patrolamento|estrada rural/, 'As más condições da via colocam em risco motoristas, motociclistas, ciclistas e pedestres, podendo causar acidentes e danos aos veículos.'],
+  ['arvore', /poda|arvore|galho|corte de arvore/, 'A situação oferece risco de queda de galhos sobre pessoas, veículos, imóveis e a rede elétrica, especialmente em dias de chuva e vento.'],
+  ['esgoto', /esgoto|bueiro|boca de lobo|galeria|alagament|drenagem|enxurrada|agua parada/, 'O problema provoca alagamentos e mau cheiro, compromete a saúde pública e causa transtornos aos moradores, sobretudo em dias de chuva.'],
+  ['mato', /\bmato\b|rocad|rocagem|terreno baldio|capina|limpeza de terreno|limpeza do terreno/, 'O acúmulo de mato favorece a proliferação de insetos, escorpiões, ratos e do mosquito da dengue, colocando em risco a saúde dos moradores.'],
+  ['lixo', /\blixo|entulho|coleta|residuo|lixeira/, 'O acúmulo de lixo e entulho compromete a saúde pública, favorece a proliferação de animais e insetos e prejudica o meio ambiente.'],
+  ['transito', /sinaliza|faixa de pedestre|faixa elevada|lombada|redutor|quebra-mola|semaforo|placa|radar/, 'A sinalização adequada é fundamental para a segurança no trânsito, prevenindo acidentes e protegendo os pedestres, especialmente crianças e idosos.'],
+  ['calcada', /calcada|passeio|acessibilid|rampa/, 'A melhoria garante segurança e acessibilidade aos pedestres, especialmente idosos, crianças e pessoas com deficiência.'],
+  ['saude', /saude|\bubs\b|\bupa\b|medic|consulta|exame|remedio|cirurgia|especialista/, 'O atendimento à solicitação é fundamental para garantir o direito à saúde dos munícipes, previsto na Constituição Federal.'],
+  ['educacao', /escola|cmei|creche|vaga|transporte escolar/, 'O atendimento à solicitação é fundamental para garantir o acesso à educação das crianças e o apoio às famílias.'],
+  ['animal', /animal|cachorro|cao |gato|castrac|zoonose/, 'A medida contribui para a saúde pública, o bem-estar animal e a segurança dos moradores.'],
+];
+const tipoPedido = t => { const n = semAcento(t); return TIPOS_PEDIDO.find(x => x[1].test(n)) || null; };
+const ofInteresse = t => tipoPedido(t)?.[2] || OF_INTERESSE;
+// pedidos parecidos em aberto: mesmo tipo de pedido no mesmo bairro/rua, ou mesma rua com o mesmo assunto
+const RUA_RE = /\b(rua|r\.|avenida|av\.?|travessa|tv\.?|rodovia|estrada|alameda|linha)\s+([a-z0-9]+(?:\s+(?:de|da|do|dos|das|e)?\s*[a-z0-9]+){0,3})/g;
+const ruasDe = t => { const out = new Set(); for (const m of semAcento(t).matchAll(RUA_RE)) out.add(m[2].replace(/\s+(de|da|do|dos|das|e)$/, '').replace(/\s+(n|no|na|numero|bairro|perto|proximo|esquina)\b.*$/, '').replace(/(\s+\d+)+$/, '').trim()); return [...out].filter(x => x.length >= 3); };
+function infoPedido(mod, r) {
+  const texto = mod === 'servicos' ? [r.servico, r.local].join('. ') : [r.assunto, r.descricao].join('. ');
+  return { tipo: tipoPedido(mod === 'servicos' ? r.servico : [r.assunto, r.descricao].join(' '))?.[0] || null, ruas: ruasDe(texto), lugar: normBairro(mod === 'servicos' ? r.local : r.bairro), assunto: semAcento(mod === 'servicos' ? r.servico : r.assunto).replace(/\s+/g, ' ').trim() };
+}
+function pedidosParecidos(mod, r) {
+  if (!['demandas', 'servicos'].includes(mod)) return [];
+  const a = infoPedido(mod, r); if (!a.tipo && !a.ruas.length && !a.assunto) return [];
+  const ligados = new Set([r.id, r.demanda_id].filter(Boolean));
+  const cand = [...data.demandas.map(x => ['demandas', x]), ...data.servicos.map(x => ['servicos', x])]
+    .filter(([m, x]) => !ligados.has(x.id) && !(x.demanda_id && ligados.has(x.demanda_id)) && !(mod === 'demandas' && r.id && x.demanda_id === r.id) && isOpen(m, x));
+  return cand.filter(([m, x]) => {
+    const b = infoPedido(m, x);
+    const mesmaRua = a.ruas.some(u => b.ruas.includes(u));
+    const mesmoLugar = a.lugar && a.lugar === b.lugar;
+    return (a.tipo && a.tipo === b.tipo && (mesmaRua || (mesmoLugar && !a.ruas.length) || (mesmoLugar && !b.ruas.length))) || (a.assunto && a.assunto.length > 8 && a.assunto === b.assunto && (mesmoLugar || mesmaRua || !a.lugar));
+  }).slice(0, 4);
+}
+const parecidoHtml = lista => lista.length ? `<div class="parecido-aviso"><span>🔁 <b>Pedido parecido em aberto</b> · confira antes para não repetir:</span>${lista.map(([m, x]) => `<button class="btn mini" type="button" data-open="${m}:${x.id}">${m === 'servicos' ? '📄 Ofício ' + esc(x.protocolo || '(sem nº)') : 'Prot. ' + esc(x.protocolo || '')} · ${esc((m === 'servicos' ? x.servico : x.assunto) || '')}${(m === 'servicos' ? x.local : x.bairro) ? ' · ' + esc(m === 'servicos' ? x.local : x.bairro) : ''}</button>`).join('')}</div>` : '';
 const ofFrase = t => { t = String(t || '').replace(/\s*\n+\s*/g, ' ').trim(); return t && !/[.!?]$/.test(t) ? t + '.' : t; };
 const ofOrigem = (solic, prot, resto = 'que aguarda providências') => `Ressalto que a solicitação decorre de demanda apresentada a este gabinete por ${solic || 'munícipe'}${prot ? ' (protocolo nº ' + prot + ')' : ''}, ${resto}.`;
 async function reiterarOficio() {
@@ -828,7 +870,7 @@ async function oficioDaDemanda() {
     const linhas = [OF_ABERTURA + `solicito, por intermédio do setor competente, ${d.assunto ? d.assunto.charAt(0).toLowerCase() + d.assunto.slice(1) : 'providências'}${d.bairro ? ', no bairro ' + d.bairro : ''}${d.municipio ? ', no município de ' + d.municipio : ''}.`];
     if (d.descricao) linhas.push('Conforme relato recebido por este gabinete: ' + ofFrase(d.descricao));
     if (d.lat != null) linhas.push('Para facilitar a identificação do local, segue a localização exata: ' + linkMaps([+d.lat, +d.lng]));
-    linhas.push(OF_INTERESSE);
+    linhas.push(ofInteresse([d.assunto, d.descricao].join(' ')));
     linhas.push(ofOrigem(d.solicitante, d.protocolo));
     linhas.push(OF_RETORNO);
     linhas.push(OF_FECHO);
@@ -912,7 +954,7 @@ async function gerarDocumento() {
     const protDemanda = mod === 'servicos' && r.demanda_id ? (data.demandas.find(x => x.id === r.demanda_id)?.protocolo || '') : '';
     const paragrafos = linhas(r.corpo).length && tipo === 'oficio' ? linhas(r.corpo) : [
       OF_ABERTURA + `solicito, por intermédio do setor competente, ${minusc(assunto)}${localTxt}.`,
-      OF_INTERESSE,
+      ofInteresse(assunto),
       ofOrigem(r.solicitante, protDemanda),
       OF_RETORNO,
       OF_FECHO,
@@ -920,7 +962,7 @@ async function gerarDocumento() {
     const texto = r.texto || (tipo === 'indicacao'
       ? `INDICO à Mesa, na forma regimental, que seja encaminhado expediente ao(à) ${destOrg}, solicitando, por intermédio do setor competente, ${minusc(assunto)}${localTxt}.`
       : `REQUEIRO à Mesa, na forma regimental, ${minusc(assunto)}.`);
-    const justificativa = tipo === 'oficio' ? [] : (linhas(r.corpo).length ? linhas(r.corpo) : [`A presente proposição atende à demanda apresentada a este gabinete por ${r.solicitante || 'munícipes da região'}${protDemanda ? ' (protocolo nº ' + protDemanda + ')' : ''}.`, 'A medida é de interesse público, pois contribui para a segurança, o bem-estar e a qualidade de vida da população atendida.', 'Diante da relevância do pedido, conto com o apoio dos nobres Pares para a aprovação desta proposição.']);
+    const justificativa = tipo === 'oficio' ? [] : (linhas(r.corpo).length ? linhas(r.corpo) : [`A presente proposição atende à demanda apresentada a este gabinete por ${r.solicitante || 'munícipes da região'}${protDemanda ? ' (protocolo nº ' + protDemanda + ')' : ''}.`, tipoPedido(assunto)?.[2] || 'A medida é de interesse público, pois contribui para a segurança, o bem-estar e a qualidade de vida da população atendida.', 'Diante da relevância do pedido, conto com o apoio dos nobres Pares para a aprovação desta proposição.']);
     // fotos e mapa do local vão numa página de anexo no fim do documento
     if (btn) btn.textContent = 'Juntando fotos e mapa…';
     const anexoImgs = await imagensDoDocumento(mod, r);
