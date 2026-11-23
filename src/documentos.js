@@ -5,13 +5,13 @@ import PizZip from 'pizzip';
 import Docxtemplater from 'docxtemplater';
 import * as store from './store.js';
 
-export const TIPOS = { oficio: 'Ofício', requerimento: 'Requerimento', indicacao: 'Indicação' };
+export const TIPOS = { oficio: 'Ofício', requerimento: 'Requerimento', indicacao: 'Indicação', mocao: 'Moção' };
 
 export const CAMPOS = [
   ['numero', 'Número do ofício (ex.: 164)'], ['numero_doc', 'Número de indicação/requerimento (em branco até a Câmara numerar)'], ['ano', 'Ano'], ['data_extenso', 'Data por extenso (16 de novembro de 2026)'],
   ['cidade_gabinete', 'Cidade do gabinete'], ['destinatario', 'Destinatário'], ['orgao', 'Órgão'], ['destinatario_orgao', 'Destinatário e órgão juntos'],
   ['municipio_uf', 'Município do pedido'], ['assunto', 'Assunto / serviço'], ['local_texto', '", na Rua X, em Município" (indicação)'],
-  ['texto', 'Texto do requerimento/indicação (REQUEIRO… / INDICO…)'], ['#paragrafos', 'Parágrafos do ofício (use {#paragrafos}{.}{/paragrafos}, cada um em uma linha)'],
+  ['titulo_doc', 'Título da moção (MOÇÃO DE APLAUSO)'], ['texto', 'Texto do requerimento/indicação/moção (REQUEIRO… / INDICO…)'], ['#paragrafos', 'Parágrafos do ofício (use {#paragrafos}{.}{/paragrafos}, cada um em uma linha)'],
   ['#justificativa', 'Parágrafos da justificativa (use {#justificativa}{.}{/justificativa})'], ['vocativo', 'Vocativo (Senhor Prefeito)'], ['solicitante', 'Quem pediu'], ['proponente', 'Vereador Fulano/PARTIDO'], ['gabinete_maiusculo', 'Nome do gabinete em maiúsculas'],
   ['deputado_nome', 'Nome do deputado'], ['deputado_cargo', 'Cargo (Deputado Estadual)'], ['gabinete', 'Nome do gabinete'],
   ['casa_legislativa', 'Casa legislativa'], ['endereco_gabinete', 'Endereço e contato do gabinete'],
