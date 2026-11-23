@@ -152,7 +152,7 @@ const state = { rota: [], cal: '', disp: null, rem: { ano: '', municipio: '' }, 
 const drawer = { open: false, mod: null, id: null, geo: null };
 let geoMini = null; // mapinha aberto dentro do registro
 let pedidoInstalar = null; // convite do navegador para instalar o app
-const VIEWS = ['meudia', 'semana', 'agendas', 'graficos', 'admin', 'disparo', 'painel', 'etiquetas', 'conta', 'relatorios', 'importar', 'mapa', 'resumo-emendas', 'cidadao', ...ORDER];
+const VIEWS = ['agendadia', 'meudia', 'semana', 'agendas', 'graficos', 'admin', 'disparo', 'painel', 'etiquetas', 'conta', 'relatorios', 'importar', 'mapa', 'resumo-emendas', 'cidadao', ...ORDER];
 
 function readHash() { const h = location.hash.slice(1); if (VIEWS.includes(h)) state.view = h; }
 window.addEventListener('hashchange', () => { readHash(); state.q = state.qNext || ''; state.filter = state.filterNext || (state.qNext ? 'todos' : 'abertos'); state.filterNext = ''; state.qNext = ''; render(); });
@@ -270,10 +270,10 @@ const myName = () => (state.profiles.find(p => p.id === state.session?.user?.id)
 
 function renderTabs() {
   const tabs = [['painel', 'Painel', null]].concat(ORDER.map(m => [m, MODS[m].label, data[m].filter(r => isOpen(m, r)).length]), [['relatorios', 'Relatórios', null]]);
-  const cur = state.view === 'graficos' ? 'relatorios' : state.view === 'disparo' ? 'pessoas' : state.view === 'resumo-emendas' ? 'emendas' : state.view === 'cidadao' ? 'pessoas' : state.view === 'etiquetas' ? 'pessoas' : state.view === 'agendas' ? 'agenda' : state.view === 'importar' ? state.imp.mod : state.view === 'mapa' ? state.mapa.mod : state.view;
+  const cur = state.view === 'graficos' ? 'relatorios' : state.view === 'disparo' ? 'pessoas' : state.view === 'resumo-emendas' ? 'emendas' : state.view === 'cidadao' ? 'pessoas' : state.view === 'etiquetas' ? 'pessoas' : state.view === 'agendas' || state.view === 'agendadia' ? 'agenda' : state.view === 'importar' ? state.imp.mod : state.view === 'mapa' ? state.mapa.mod : state.view;
   $('#tabs').innerHTML = tabs.map(([k, l, n]) => `<button class="tab" role="tab" data-go="${k}" aria-selected="${cur === k}">${l}${n != null ? `<span class="n">${n}</span>` : ''}</button>`).join('');
   const nb = $('#btn-new');
-  nb.hidden = ['agendas', 'conta', 'etiquetas', 'relatorios', 'importar', 'mapa', 'resumo-emendas', 'cidadao'].includes(state.view);
+  nb.hidden = ['agendadia', 'agendas', 'conta', 'etiquetas', 'relatorios', 'importar', 'mapa', 'resumo-emendas', 'cidadao'].includes(state.view);
   nb.textContent = '+ ' + (state.view === 'painel' ? MODS.demandas.novo : MODS[state.view]?.novo || 'Novo');
   $('#btn-export').hidden = !MODS[state.view];
   $('#btn-import').hidden = !MODS[state.view];
@@ -452,7 +452,7 @@ function renderPainel() {
   const mun = Object.entries(porMun).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([s, n]) => ({ s, n, v: n, c: 'var(--accent)' }));
   const munHtml = mun.length ? bars(mun, Math.max(...mun.map(x => x.v)), v => v) : `<div class="empty"><b>Sem demandas em aberto</b></div>`;
 
-  return `${banner()}<div class="eyebrow">${fmtDay(t)}</div><div class="ola"><h2 class="sec">Olá${myName() ? ', ' + esc(primeiroNome(myName())) : ''}</h2><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" type="button" data-meudia="">✅ Minha lista do dia${(() => { const n = myName() ? pendenciasDe(myName()).total : 0; return n ? ' (' + n + ')' : ''; })()}</button><button class="btn" type="button" data-semana>📋 Resumo da semana</button><button class="btn primary" type="button" data-novo="agenda">+ Compromisso</button></div></div>
+  return `${banner()}<div class="eyebrow">${fmtDay(t)}</div><div class="ola"><h2 class="sec">Olá${myName() ? ', ' + esc(primeiroNome(myName())) : ''}</h2><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" type="button" data-meudia="">✅ Minha lista do dia${(() => { const n = myName() ? pendenciasDe(myName()).total : 0; return n ? ' (' + n + ')' : ''; })()}</button><button class="btn" type="button" data-go="agendadia">📅 Agenda do dia</button><button class="btn" type="button" data-semana>📋 Resumo da semana</button><button class="btn primary" type="button" data-novo="agenda">+ Compromisso</button></div></div>
     <div class="kpis">${kpis}</div>${(() => { const n = data.demandas.filter(r => isUrgente('demandas', r)).length; return n ? `<div class="urg-aviso"><span>🚨 <b>${n}</b> demanda${n === 1 ? '' : 's'} urgente${n === 1 ? '' : 's'} em aberto.</span><button class="btn mini" type="button" data-ver-urgentes>Ver quais</button></div>` : ''; })()}${(() => { const n = data.demandas.filter(r => diasParada(r)).length; return n ? `<div class="parada-aviso"><span>⏳ <b>${n}</b> demanda${n === 1 ? '' : 's'} sem novidade há mais de ${DIAS_PARADA} dias. Dê um retorno antes de o cidadão cobrar.</span><button class="btn mini" type="button" data-ver-paradas>Ver quais</button></div>` : ''; })()}
     <div class="cols">
       <div style="display:flex;flex-direction:column;gap:18px;min-width:0">
@@ -541,7 +541,7 @@ function renderList(m) {
   if (m === 'agenda') {
     chips = [['proximos', 'Próximos'], ['mes', 'Calendário do mês'], ['passados', 'Passados'], ['todos', 'Todos']].map(([k, l]) => chip('data-win', k, l, state.agendaWin === k)).join('');
     carregarExternas();
-    if (store.configured) extra = `<div class="no-print" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px"><button class="btn mini primary" data-go="agendas">🔗 Ligar com Gmail e outras agendas</button><span class="gstat">${extResumo()}</span></div>`;
+    if (store.configured) extra = `<div class="no-print" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px"><button class="btn mini primary" data-go="agendadia">📅 Agenda do dia</button><button class="btn mini" data-go="agendas">🔗 Ligar com Gmail e outras agendas</button><span class="gstat">${extResumo()}</span></div>`;
     if (gcal.googleAvailable) extra += `<div class="no-print" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px"><button class="btn mini" id="g-sync">${gcal.isConnected() ? 'Sincronizar com Google Agenda' : 'Conectar Google Agenda'}</button><span class="gstat" id="g-stat">${gcal.isConnected() ? 'Conectado · calendário: ' + esc(gcal.calendarId()) : 'Compromissos salvos aqui vão para o Google Agenda do parlamentar.'}</span></div>`;
   } else if (m === 'pessoas') {
     chips = [['abertos', 'Ativos'], ['pedidos', 'Fizeram pedidos'], ['tipo:Liderança', 'Lideranças'], ['tipo:Entidade / associação', 'Entidades'], ['aniv', 'Aniversariantes do mês'], ['todos', 'Todos']].map(([k, l]) => chip('data-filter', k, l, state.filter === k)).join('');
@@ -650,7 +650,7 @@ function render() {
   const hadFocus = document.activeElement && document.activeElement.id === 'q'; const pos = hadFocus ? document.activeElement.selectionStart : 0;
   if (state.view !== 'etiquetas') $('#page-css').textContent = '';
   if (state.view === 'admin') setTimeout(async () => { const b = $('#modelos-box'); if (b) b.innerHTML = await modelosHtml(); carregarAdmin(); }, 0);
-  main.innerHTML = state.view === 'painel' ? renderPainel() : state.view === 'semana' ? renderSemana() : state.view === 'meudia' ? renderMeuDia() : state.view === 'agendas' ? renderAgendas() : state.view === 'etiquetas' ? renderEtiquetas() : state.view === 'conta' ? renderConta() : state.view === 'admin' ? renderAdmin() : state.view === 'graficos' ? renderGraficos() : state.view === 'relatorios' ? renderRelatorios() : state.view === 'importar' ? renderImportar() : state.view === 'mapa' ? renderMapa() : state.view === 'resumo-emendas' ? renderResumoEmendas() : state.view === 'cidadao' ? renderCidadao() : state.view === 'disparo' ? renderDisparo() : renderList(state.view);
+  main.innerHTML = state.view === 'painel' ? renderPainel() : state.view === 'semana' ? renderSemana() : state.view === 'meudia' ? renderMeuDia() : state.view === 'agendas' ? renderAgendas() : state.view === 'agendadia' ? renderAgendaDia() : state.view === 'etiquetas' ? renderEtiquetas() : state.view === 'conta' ? renderConta() : state.view === 'admin' ? renderAdmin() : state.view === 'graficos' ? renderGraficos() : state.view === 'relatorios' ? renderRelatorios() : state.view === 'importar' ? renderImportar() : state.view === 'mapa' ? renderMapa() : state.view === 'resumo-emendas' ? renderResumoEmendas() : state.view === 'cidadao' ? renderCidadao() : state.view === 'disparo' ? renderDisparo() : renderList(state.view);
   if (state.view === 'mapa') setTimeout(desenharMapa, 0); else mapaLib.destruir();
   if (hadFocus) { const q = $('#q'); if (q) { q.focus(); try { q.setSelectionRange(pos, pos); } catch { /* ok */ } } }
   if (drawer.open) refreshDatalists();
@@ -2208,6 +2208,51 @@ function agendasClique(e) {
   return false;
 }
 
+/* ---------- agenda do dia (sistema + outras agendas) para ver, mandar e imprimir ---------- */
+state.dia = '';
+function itensDoDia(d) {
+  const sis = data.agenda.filter(r => r.data === d && r.status !== 'Cancelado');
+  const ext = extEventos().filter(r => r.data === d);
+  return sis.concat(ext).sort((a, b) => (hhmm(a.inicio) || '00:00').localeCompare(hhmm(b.inicio) || '00:00'));
+}
+function horaTxt(r) { return hhmm(r.inicio) ? hhmm(r.inicio) + (hhmm(r.fim) ? '–' + hhmm(r.fim) : '') : 'Dia todo'; }
+function textoAgendaDia(d) {
+  const it = itensDoDia(d); const dt = new Date(d + 'T12:00:00');
+  const cab = `*Agenda do ${DEP().replace(/^./, c => c.toUpperCase())}*\n📅 ${['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'][dt.getDay()]}, ${dt.toLocaleDateString('pt-BR')}`;
+  if (!it.length) return cab + '\n\nNenhum compromisso marcado.';
+  return cab + '\n\n' + it.map(r => {
+    const loc = r.ext ? r.local : [r.local, r.municipio].filter(Boolean).join(' – ');
+    return `🕘 *${horaTxt(r)}* – ${r.titulo || 'Compromisso'}${r.status === 'A confirmar' ? ' _(a confirmar)_' : ''}${loc ? '\n📍 ' + loc : ''}`;
+  }).join('\n\n');
+}
+function renderAgendaDia() {
+  carregarExternas();
+  const t = todayStr(); const d = state.dia || t; const it = itensDoDia(d);
+  const lista = it.length ? it.map(r => r.ext
+    ? `<div class="dia-item ext-row" style="--cor:${esc(r.cor)}" data-ext="${esc(extTitulo(r))}"><div class="dia-hora">${esc(horaTxt(r))}</div><div style="min-width:0"><div class="t">${esc(r.titulo)}</div><div class="m">${esc(r.local || '')}</div></div><span class="pill ext-pill no-print">${esc(r.agenda)}</span></div>`
+    : `<div class="dia-item" data-open="agenda:${r.id}"><div class="dia-hora">${esc(horaTxt(r))}</div><div style="min-width:0"><div class="t">${esc(r.titulo)}</div><div class="m">${esc([r.local, r.municipio].filter(Boolean).join(' · '))}${r.contato ? ' · ' + esc(r.contato) : ''}</div></div><span class="pill ${STATUS_KIND[kindOf('agenda', r.status)]} no-print">${esc(r.status)}</span></div>`).join('')
+    : `<div class="empty"><b>Nenhum compromisso neste dia</b>${state.ext.carregando ? 'Carregando as outras agendas…' : 'Toque em “+ Compromisso” para marcar.'}</div>`;
+  return `${banner()}<div class="no-print"><a class="linkbtn" data-go="agenda">← Agenda</a></div>
+    <div class="dia-top no-print"><button class="btn mini" data-dia-nav="-1" aria-label="Dia anterior">‹</button><input type="date" id="dia-data" value="${esc(d)}"><button class="btn mini" data-dia-nav="1" aria-label="Próximo dia">›</button>${d !== t ? '<button class="btn mini ghost" data-dia-nav="0">Hoje</button>' : ''}</div>
+    <div class="eyebrow" style="margin-top:10px">${d === t ? 'Hoje' : d === addDays(t, 1) ? 'Amanhã' : ''}</div>
+    <h2 class="sec" style="margin:2px 0 4px">${esc(['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'][new Date(d + 'T12:00:00').getDay()])}, ${esc(new Date(d + 'T12:00:00').toLocaleDateString('pt-BR', { day: 'numeric', month: 'long' }))}</h2>
+    <div class="m">${it.length} compromisso(s)${state.ext.lista.length ? ', junto com ' + state.ext.lista.map(g => esc(g.nome)).join(', ') : ''}</div>
+    <div class="list dia-lista" style="margin-top:12px">${lista}</div>
+    <div class="no-print" style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
+      <a class="btn wa" href="${esc('https://wa.me/?text=' + encodeURIComponent(textoAgendaDia(d)))}" target="_blank" rel="noopener">📲 Mandar no WhatsApp</a>
+      <button class="btn" type="button" data-dia-copiar>Copiar texto</button>
+      <button class="btn" type="button" data-dia-print>Imprimir / salvar PDF</button>
+      <button class="btn primary" type="button" data-cal-dia="${esc(d)}">+ Compromisso neste dia</button>
+    </div>`;
+}
+function agendaDiaClique(e) {
+  const n = e.target.closest('[data-dia-nav]'); if (n) { const v = +n.dataset.diaNav; state.dia = v === 0 ? '' : addDays(state.dia || todayStr(), v); render(); return true; }
+  if (e.target.closest('[data-dia-copiar]')) { const txt = textoAgendaDia(state.dia || todayStr()).replace(/[*_]/g, ''); try { navigator.clipboard.writeText(txt).then(() => toast('Texto copiado')); } catch { toast('Não foi possível copiar'); } return true; }
+  if (e.target.closest('[data-dia-print]')) { window.print(); return true; }
+  return false;
+}
+document.addEventListener('change', e => { if (e.target.id === 'dia-data' && e.target.value) { state.dia = e.target.value === todayStr() ? '' : e.target.value; render(); } });
+
 /* ---------- calendário do mês (agenda) ---------- */
 function calendarioHtml() {
   const t = todayStr(); const ym = state.cal || t.slice(0, 7); const [y, mo] = ym.split('-').map(Number);
@@ -2422,6 +2467,7 @@ document.addEventListener('click', e => {
   const gp = e.target.closest('[data-graf-p]'); if (gp) { state.graf.p = gp.dataset.grafP; render(); return; }
   const xe = e.target.closest('[data-ext]'); if (xe) { toast(xe.dataset.ext); return; }
   if (agendasClique(e)) return;
+  if (agendaDiaClique(e)) return;
   const cd = e.target.closest('[data-cal-dia]'); if (cd) { openDrawer('agenda', null, { data: cd.dataset.calDia }); return; }
   const cn = e.target.closest('[data-cal-nav]'); if (cn) { const [y, mo] = (state.cal || todayStr().slice(0, 7)).split('-').map(Number); const n = +cn.dataset.calNav; state.cal = n === 0 ? '' : ymd(new Date(y, mo - 1 + n, 1)).slice(0, 7); render(); return; }
   const cpv = e.target.closest('#overlay [data-comprovante]'); if (cpv) { baixarComprovante(cpv.dataset.comprovante, cpv); return; }
