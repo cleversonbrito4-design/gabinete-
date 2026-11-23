@@ -152,7 +152,7 @@ const state = { rota: [], cal: '', disp: null, rem: { ano: '', municipio: '' }, 
 const drawer = { open: false, mod: null, id: null, geo: null };
 let geoMini = null; // mapinha aberto dentro do registro
 let pedidoInstalar = null; // convite do navegador para instalar o app
-const VIEWS = ['semana', 'agendas', 'graficos', 'admin', 'disparo', 'painel', 'etiquetas', 'conta', 'relatorios', 'importar', 'mapa', 'resumo-emendas', 'cidadao', ...ORDER];
+const VIEWS = ['meudia', 'semana', 'agendas', 'graficos', 'admin', 'disparo', 'painel', 'etiquetas', 'conta', 'relatorios', 'importar', 'mapa', 'resumo-emendas', 'cidadao', ...ORDER];
 
 function readHash() { const h = location.hash.slice(1); if (VIEWS.includes(h)) state.view = h; }
 window.addEventListener('hashchange', () => { readHash(); state.q = state.qNext || ''; state.filter = state.filterNext || (state.qNext ? 'todos' : 'abertos'); state.filterNext = ''; state.qNext = ''; render(); });
@@ -314,6 +314,49 @@ function renderSemana() {
     ${lista('Agenda dos próximos 7 dias', ag, r => item('agenda', r, [r.data === t ? 'Hoje' : fmtDate(r.data), hhmm(r.inicio), r.local].filter(Boolean).join(' · ')), 'Nada marcado.')}
     <div class="no-print" style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="rel-print" type="button">Imprimir / salvar PDF</button></div>`;
 }
+/* ---------- minha lista do dia e pendências da equipe ---------- */
+const mesmoNome = (a, b) => !!a && !!b && semAcento(a).trim() === semAcento(b).trim();
+function nomesEquipe() {
+  const s = new Map();
+  [...state.profiles.map(p => p.nome), ...['demandas', 'servicos', 'tarefas'].flatMap(m => data[m].filter(r => isOpen(m, r)).map(r => r.responsavel))].forEach(n => { n = String(n || '').trim(); if (n && !s.has(semAcento(n))) s.set(semAcento(n), n); });
+  return [...s.values()].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+}
+function atrasado(m, r) { return isLate(m, r) || (m === 'demandas' && !!diasParada(r)) || (m === 'servicos' && diasSemResposta(r) >= DIAS_REITERAR); }
+function pendenciasDe(nome) {
+  const t = todayStr();
+  const dem = data.demandas.filter(r => isOpen('demandas', r) && mesmoNome(r.responsavel, nome));
+  const ofs = data.servicos.filter(r => isOpen('servicos', r) && mesmoNome(r.responsavel, nome));
+  const tar = data.tarefas.filter(r => isOpen('tarefas', r) && mesmoNome(r.responsavel, nome));
+  const ag = data.agenda.filter(r => r.status !== 'Cancelado' && (r.data === t || r.data === addDays(t, 1)) && (mesmoNome(r.acompanha, nome) || (!r.acompanha && mesmoNome(nome, cfg.deputado_nome))));
+  const atr = [...dem.map(r => ['demandas', r]), ...ofs.map(r => ['servicos', r]), ...tar.map(r => ['tarefas', r])].filter(([m, r]) => atrasado(m, r));
+  return { dem, ofs, tar, ag, atr, total: dem.length + ofs.length + tar.length };
+}
+function equipePendHtml() {
+  const linhas = nomesEquipe().map(n => [n, pendenciasDe(n)]).filter(([, p]) => p.total).sort((a, b) => b[1].atr.length - a[1].atr.length || b[1].total - a[1].total);
+  const semDono = ['demandas', 'servicos', 'tarefas'].reduce((s, m) => s + data[m].filter(r => isOpen(m, r) && !String(r.responsavel || '').trim()).length, 0);
+  if (!linhas.length && !semDono) return `<div class="empty"><b>Nada pendente</b>Quando uma demanda, ofício ou tarefa tiver responsável, aparece aqui.</div>`;
+  return `<div class="eq-pend">${linhas.map(([n, p]) => `<button class="eq-linha" type="button" data-meudia="${esc(n)}"><span class="t">${esc(n)}</span><span class="m">${p.total} pendente${p.total === 1 ? '' : 's'}</span>${p.atr.length ? `<span class="rk-alerta">${p.atr.length} atrasada${p.atr.length === 1 ? '' : 's'}</span>` : '<span class="eq-ok">em dia</span>'}</button>`).join('')}</div>${semDono ? `<p class="m" style="margin:8px 0 0">${semDono} sem responsável. Defina quem cuida para não ficar esquecido.</p>` : ''}`;
+}
+function renderMeuDia() {
+  const eu = myName(), nome = state.meuDiaDe || eu, t = todayStr();
+  const p = pendenciasDe(nome);
+  const ordem = (m, a) => a.slice().sort((x, y) => (isUrgente(m, y) ? 1 : 0) - (isUrgente(m, x) ? 1 : 0) || (atrasado(m, y) ? 1 : 0) - (atrasado(m, x) ? 1 : 0) || String(x.prazo || '9999').localeCompare(String(y.prazo || '9999')));
+  const motivo = (m, r) => [isUrgente(m, r) && '🚨 urgente', isLate(m, r) && 'prazo vencido em ' + fmtDate(r.prazo), m === 'demandas' && diasParada(r) && diasParada(r) + ' dias sem novidade', m === 'servicos' && diasSemResposta(r) >= DIAS_REITERAR && diasSemResposta(r) + ' dias sem resposta'].filter(Boolean);
+  const item = (m, r, extra) => { const mot = motivo(m, r); return `<div class="ag-item sem-item${mot.length ? ' row-urg' : ''}" data-open="${m}:${r.id}"><div style="min-width:0"><div class="t">${esc(MODS[m].title(r) || '')}</div><div class="m">${esc([...mot, ...extra].filter(Boolean).join(' · '))}</div></div></div>`; };
+  const bloco = (titulo, m, a, extra, vazio) => `<section class="panel" style="margin-top:12px"><h3>${titulo} <span class="m">(${a.length})</span></h3>${a.length ? ordem(m, a).slice(0, 12).map(r => item(m, r, extra(r))).join('') + (a.length > 12 ? `<div class="m" style="margin-top:6px">e mais ${a.length - 12}…</div>` : '') : `<div class="m">${vazio}</div>`}</section>`;
+  const nomes = nomesEquipe(); if (nome && !nomes.some(n => mesmoNome(n, nome))) nomes.unshift(nome);
+  const ag = p.ag.sort((a, b) => (a.data + hhmm(a.inicio)).localeCompare(b.data + hhmm(b.inicio)));
+  return `<div class="no-print"><a class="linkbtn" data-go="painel">← Painel</a></div>
+    <div class="eyebrow" style="margin-top:6px">${fmtDay(t)}</div><h2 class="sec" style="margin:2px 0 8px">${mesmoNome(nome, eu) ? 'Minha lista do dia' : 'Lista de ' + esc(primeiroNome(nome))}</h2>
+    <div class="f" style="max-width:340px"><label for="md-quem">Ver a lista de</label><select id="md-quem">${nomes.map(n => `<option ${mesmoNome(n, nome) ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></div>
+    <div class="kpis semana-kpis" style="margin-top:12px"><div class="kpi"><span class="big">${p.total}</span><span class="sub">pendências</span></div><div class="kpi"><span class="big" style="${p.atr.length ? 'color:var(--danger,#e74c3c)' : ''}">${p.atr.length}</span><span class="sub">atrasadas</span></div><div class="kpi"><span class="big">${ag.length}</span><span class="sub">compromissos hoje e amanhã</span></div></div>
+    ${ag.length ? `<section class="panel" style="margin-top:12px"><h3>Agenda de hoje e amanhã</h3>${ag.map(r => `<div class="ag-item sem-item" data-open="agenda:${r.id}"><div style="min-width:0"><div class="t">${esc(r.titulo || '')}</div><div class="m">${esc([r.data === t ? 'Hoje' : 'Amanhã', hhmm(r.inicio), r.local].filter(Boolean).join(' · '))}</div></div></div>`).join('')}</section>` : ''}
+    ${bloco('Tarefas', 'tarefas', p.tar, r => [r.prazo && !isLate('tarefas', r) ? 'prazo ' + (r.prazo === t ? 'hoje' : fmtDate(r.prazo)) : ''], 'Nenhuma tarefa pendente.')}
+    ${bloco('Demandas', 'demandas', p.dem, r => [r.bairro, r.status, r.protocolo && 'Prot. ' + r.protocolo], 'Nenhuma demanda com esta pessoa.')}
+    ${bloco('Ofícios para acompanhar', 'servicos', p.ofs, r => [r.protocolo && 'Ofício ' + r.protocolo, r.orgao, r.status], 'Nenhum ofício com esta pessoa.')}
+    <section class="panel" style="margin-top:12px"><h3>Pendências da equipe</h3>${equipePendHtml()}</section>
+    <div class="no-print" style="margin-top:14px"><button class="btn" id="rel-print" type="button">Imprimir / salvar PDF</button></div>`;
+}
 function renderPainel() {
   const t = todayStr(), w = addDays(t, 7);
   const kpi = (m, big, sub, extra = '') => `<button class="kpi" data-go="${m}"><span class="eyebrow">${MODS[m].label}</span><span class="big">${big}</span><span class="sub">${sub}</span>${extra}</button>`;
@@ -367,7 +410,7 @@ function renderPainel() {
   const mun = Object.entries(porMun).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([s, n]) => ({ s, n, v: n, c: 'var(--accent)' }));
   const munHtml = mun.length ? bars(mun, Math.max(...mun.map(x => x.v)), v => v) : `<div class="empty"><b>Sem demandas em aberto</b></div>`;
 
-  return `${banner()}<div class="eyebrow">${fmtDay(t)}</div><div class="ola"><h2 class="sec">Olá${myName() ? ', ' + esc(primeiroNome(myName())) : ''}</h2><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" type="button" data-semana>📋 Resumo da semana</button><button class="btn primary" type="button" data-novo="agenda">+ Compromisso</button></div></div>
+  return `${banner()}<div class="eyebrow">${fmtDay(t)}</div><div class="ola"><h2 class="sec">Olá${myName() ? ', ' + esc(primeiroNome(myName())) : ''}</h2><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" type="button" data-meudia="">✅ Minha lista do dia${(() => { const n = myName() ? pendenciasDe(myName()).total : 0; return n ? ' (' + n + ')' : ''; })()}</button><button class="btn" type="button" data-semana>📋 Resumo da semana</button><button class="btn primary" type="button" data-novo="agenda">+ Compromisso</button></div></div>
     <div class="kpis">${kpis}</div>${(() => { const n = data.demandas.filter(r => isUrgente('demandas', r)).length; return n ? `<div class="urg-aviso"><span>🚨 <b>${n}</b> demanda${n === 1 ? '' : 's'} urgente${n === 1 ? '' : 's'} em aberto.</span><button class="btn mini" type="button" data-ver-urgentes>Ver quais</button></div>` : ''; })()}${(() => { const n = data.demandas.filter(r => diasParada(r)).length; return n ? `<div class="parada-aviso"><span>⏳ <b>${n}</b> demanda${n === 1 ? '' : 's'} sem novidade há mais de ${DIAS_PARADA} dias. Dê um retorno antes de o cidadão cobrar.</span><button class="btn mini" type="button" data-ver-paradas>Ver quais</button></div>` : ''; })()}
     <div class="cols">
       <div style="display:flex;flex-direction:column;gap:18px;min-width:0">
@@ -376,6 +419,7 @@ function renderPainel() {
         <section class="panel"><h3>Aniversariantes da semana <a data-go="pessoas">ver pessoas</a></h3>${anivHtml}${anivBtn}</section>
       </div>
       <div style="display:flex;flex-direction:column;gap:18px;min-width:0">
+        <section class="panel"><h3>Pendências da equipe</h3>${equipePendHtml()}</section>
         <section class="panel"><h3>Prazos a cobrar</h3>${pendHtml}</section>
         <section class="panel"><h3>Emendas por situação <a data-go="emendas">ver emendas</a></h3>${emHtml}</section>
         <section class="panel"><h3>Satisfação do cidadão</h3>${satHtml}</section>
@@ -564,7 +608,7 @@ function render() {
   const hadFocus = document.activeElement && document.activeElement.id === 'q'; const pos = hadFocus ? document.activeElement.selectionStart : 0;
   if (state.view !== 'etiquetas') $('#page-css').textContent = '';
   if (state.view === 'admin') setTimeout(async () => { const b = $('#modelos-box'); if (b) b.innerHTML = await modelosHtml(); carregarAdmin(); }, 0);
-  main.innerHTML = state.view === 'painel' ? renderPainel() : state.view === 'semana' ? renderSemana() : state.view === 'agendas' ? renderAgendas() : state.view === 'etiquetas' ? renderEtiquetas() : state.view === 'conta' ? renderConta() : state.view === 'admin' ? renderAdmin() : state.view === 'graficos' ? renderGraficos() : state.view === 'relatorios' ? renderRelatorios() : state.view === 'importar' ? renderImportar() : state.view === 'mapa' ? renderMapa() : state.view === 'resumo-emendas' ? renderResumoEmendas() : state.view === 'cidadao' ? renderCidadao() : state.view === 'disparo' ? renderDisparo() : renderList(state.view);
+  main.innerHTML = state.view === 'painel' ? renderPainel() : state.view === 'semana' ? renderSemana() : state.view === 'meudia' ? renderMeuDia() : state.view === 'agendas' ? renderAgendas() : state.view === 'etiquetas' ? renderEtiquetas() : state.view === 'conta' ? renderConta() : state.view === 'admin' ? renderAdmin() : state.view === 'graficos' ? renderGraficos() : state.view === 'relatorios' ? renderRelatorios() : state.view === 'importar' ? renderImportar() : state.view === 'mapa' ? renderMapa() : state.view === 'resumo-emendas' ? renderResumoEmendas() : state.view === 'cidadao' ? renderCidadao() : state.view === 'disparo' ? renderDisparo() : renderList(state.view);
   if (state.view === 'mapa') setTimeout(desenharMapa, 0); else mapaLib.destruir();
   if (hadFocus) { const q = $('#q'); if (q) { q.focus(); try { q.setSelectionRange(pos, pos); } catch { /* ok */ } } }
   if (drawer.open) refreshDatalists();
@@ -614,7 +658,8 @@ function openDrawer(mod, id, preset = {}) {
   if (rec && mod === 'agenda') acts.push(`<button class="btn mini wa" type="button" data-disp-convite>Convidar pessoas pelo WhatsApp</button>`);
   if (rec && mod === 'agenda' && rec.data) acts.push(`<a class="btn mini" href="${esc(ags.linkGoogleEvento(rec))}" target="_blank" rel="noopener">📅 Pôr no Google Agenda</a>`);
   if (rec && mod === 'recepcao') acts.push(`<button class="btn mini primary" type="button" data-recep-demanda>Transformar em demanda</button>`, `<button class="btn mini" type="button" data-cid="${esc(rec.nome)}" data-cid-tel="${esc(rec.telefone || '')}">Histórico de ${esc(primeiroNome(rec.nome))}</button>`);
-  if (rec && mod === 'demandas') acts.push(`<button class="btn mini primary" type="button" data-oficio-de>Gerar ofício de solicitação</button>`);
+  if (rec && mod === 'demandas' && kindOf('demandas', rec.status) === 'ok') acts.push(`<button class="btn mini primary" type="button" data-arte-atendido>📸 Arte "Pedido atendido" para o Instagram</button>`);
+  if (rec && mod === 'demandas') acts.push(`<button class="btn mini${kindOf('demandas', rec.status) === 'ok' ? '' : ' primary'}" type="button" data-oficio-de>Gerar ofício de solicitação</button>`);
   if (rec && ['demandas', 'servicos'].includes(mod) && rec.solicitante) acts.push(`<button class="btn mini" type="button" data-cid="${esc(rec.solicitante)}" data-cid-tel="${esc(rec.telefone || '')}">Histórico de ${esc(primeiroNome(rec.solicitante))}</button>`);
   if (rec && mod !== 'tarefas') acts.push(`<button class="btn mini" type="button" data-tarefa-de>+ Tarefa</button>`);
   if (rec && mod === 'demandas') data.servicos.filter(o => o.demanda_id === rec.id).forEach(o => acts.push(`<button class="btn mini ghost" type="button" data-open="servicos:${o.id}">📄 Ofício ${esc(o.protocolo || '(sem nº)')} · ${esc(o.status)}</button>`));
@@ -778,6 +823,33 @@ async function arteDoMes(btn) {
   } catch (e) { toast('Não foi possível gerar a arte: ' + errMsg(e)); }
   finally { btn.disabled = false; btn.textContent = txt; }
 }
+// arte "Pedido atendido" para o Instagram + legenda pronta (sem nome do cidadão)
+function legendaAtendido(d) {
+  const ofs = data.servicos.filter(o => o.demanda_id === d.id);
+  const org = ofs.map(o => o.orgao).find(Boolean) || '';
+  const tag = t => '#' + semAcento(t).replace(/[^a-z0-9]/g, '');
+  return [`✅ Pedido atendido!`, '',
+    `${d.assunto || 'Pedido da comunidade'}${d.bairro && !semAcento(d.assunto).includes(semAcento(d.bairro)) ? ' no bairro ' + d.bairro : ''}.`,
+    `O pedido chegou ao gabinete pelo Fala Cascavel${ofs.length ? `, foi encaminhado por ofício${org ? ' à ' + org : ''}` : ''} e agora está resolvido. 💪`, '',
+    'Trabalho sério se faz ouvindo a população. Tem algum problema no seu bairro? Faça seu pedido em falacascavel.com.br ou pelo link da bio.', '',
+    ['#Cascavel', '#FalaCascavel', '#PedidoAtendido', d.bairro && tag(d.bairro), cfg.deputado_nome && tag(cfg.deputado_nome)].filter(Boolean).join(' ')].join('\n');
+}
+async function arteAtendido(btn) {
+  const d = data.demandas.find(x => x.id === drawer.id); if (!d) return;
+  const txt = btn.textContent; btn.disabled = true; btn.textContent = 'Gerando arte…';
+  try {
+    const anexos = [...data.servicos.filter(o => o.demanda_id === d.id).flatMap(o => o.anexos || []), ...(d.anexos || [])].filter(a => tipoMidia(a) === 'foto');
+    // a foto mais recente costuma ser a do serviço pronto
+    const ult = anexos.sort((a, b) => String(b.em || '').localeCompare(String(a.em || '')))[0];
+    let foto = null; if (ult) { try { foto = (await store.linksAnexos([ult.path]))[ult.path] || null; } catch { /* sem foto */ } }
+    const { baixarArte, gerarArteAtendido } = await import('./arte.js');
+    const leg = legendaAtendido(d);
+    try { await navigator.clipboard.writeText(leg); } catch { /* sem área de transferência */ }
+    const res = await baixarArte({ assunto: d.assunto || 'Pedido da comunidade', bairro: d.bairro, cidade: d.municipio || cfg.cidade_gabinete, foto, vereador: cfg.deputado_nome || '', cargo: cfg.deputado_cargo || '' }, 'pedido-atendido-' + (d.protocolo || d.id) + '.png', gerarArteAtendido);
+    if (res !== 'cancelado') toast((res === 'baixado' ? 'Arte baixada. ' : '') + 'A legenda foi copiada: é só colar no Instagram.' + (ult ? '' : ' Dica: anexe uma foto do serviço pronto na demanda para a arte sair com ela.'));
+  } catch (e) { toast('Não foi possível gerar a arte: ' + errMsg(e)); }
+  finally { btn.disabled = false; btn.textContent = txt; }
+}
 /** Dias desde o envio de um ofício que ainda não teve resposta; 0 se respondeu, não foi enviado ou está fechado. */
 function diasSemResposta(r) {
   if (!isOpen('servicos', r)) return 0;
@@ -902,15 +974,33 @@ function blocoDestinatario(r, tipo) {
   const uf = UF_GAB() || 'PR';
   return { destinatario: (fem ? 'À ' : 'Ao ') + orgao, orgao: cidade ? cidade + (uf && !cidade.includes(uf) ? ' – ' + uf : '') : '' };
 }
+// moções: texto e justificativa conforme o tipo (aplauso, congratulações, pesar)
+function textoMocao(r) {
+  const quem = (r.destinatario || '').trim() || '(nome do homenageado)';
+  const motivo = String(r.ementa || '').replace(/\s*\n+\s*/g, ' ').trim().replace(/\.$/, '');
+  const mot = motivo ? (/^(a|à|ao|aos|às|as|pel[oa]s?|por|em|no|na|pela)\b/i.test(motivo) ? motivo.charAt(0).toLowerCase() + motivo.slice(1) : 'pelo seguinte motivo: ' + motivo.charAt(0).toLowerCase() + motivo.slice(1)) : '';
+  const cidade = cfg.cidade_gabinete || 'Cascavel';
+  const fecho = 'Diante do exposto, conto com o apoio dos nobres Pares para a aprovação desta Moção.';
+  if (/Pesar/.test(r.tipo)) return {
+    titulo: 'MOÇÃO DE PESAR',
+    texto: `O Vereador que esta subscreve, na forma regimental, requer à Mesa que seja aprovada e consignada nos anais desta Casa a presente MOÇÃO DE PESAR pelo falecimento de ${quem}${motivo ? ', ' + motivo.charAt(0).toLowerCase() + motivo.slice(1) : ''}, manifestando aos familiares e amigos as mais sinceras condolências desta Casa de Leis.\nRequer, ainda, que seja dada ciência desta Moção aos familiares.`,
+    justificativa: [`${quem} deixa um legado de dedicação e de convivência fraterna que marcou a vida de familiares, amigos e da comunidade de ${cidade}.`, 'Neste momento de dor, esta Casa de Leis se solidariza com a família e presta a devida homenagem, registrando em seus anais o reconhecimento por sua trajetória.', fecho] };
+  const cong = /Congratula/.test(r.tipo);
+  const titulo = cong ? 'MOÇÃO DE CONGRATULAÇÕES' : 'MOÇÃO DE APLAUSO';
+  return {
+    titulo,
+    texto: `O Vereador que esta subscreve, na forma regimental, requer à Mesa que seja aprovada e consignada nos anais desta Casa a presente ${titulo} em favor de ${quem}, ${mot || (cong ? 'pelo importante trabalho realizado em benefício da população' : 'em reconhecimento aos relevantes serviços prestados à comunidade')}.\nRequer, ainda, que seja dada ciência desta Moção ao(à) homenageado(a).`,
+    justificativa: [`A presente Moção tem por objetivo reconhecer publicamente o trabalho de ${quem}, cuja atuação contribui de forma significativa para a comunidade de ${cidade}.`, 'Iniciativas como esta merecem ser valorizadas e servem de exemplo para toda a sociedade, sendo justo que esta Casa de Leis registre em seus anais o devido reconhecimento.', fecho] };
+}
 function docTipo(mod, r) {
   if (mod === 'servicos') return r.tipo_doc === 'Indicação' ? 'indicacao' : r.tipo_doc === 'Requerimento' ? 'requerimento' : (!r.tipo_doc || r.tipo_doc === 'Ofício') ? 'oficio' : null;
-  if (mod === 'proposituras') return r.tipo === 'Indicação' ? 'indicacao' : r.tipo === 'Requerimento' ? 'requerimento' : null;
+  if (mod === 'proposituras') return r.tipo === 'Indicação' ? 'indicacao' : r.tipo === 'Requerimento' ? 'requerimento' : /^Moção/.test(r.tipo || '') ? 'mocao' : null;
   return null;
 }
 function proximoNumero(mod, r, ano) {
   let nums;
   if (mod === 'servicos') nums = data.servicos.filter(x => x.tipo_doc === r.tipo_doc || (!x.tipo_doc && !r.tipo_doc)).map(x => /^(\d+)\s*\/\s*(\d{4})$/.exec(x.protocolo || '')).filter(m => m && m[2] === String(ano)).map(m => +m[1]);
-  else nums = data.proposituras.filter(x => x.tipo === r.tipo && String(x.ano) === String(ano)).map(x => parseInt(x.numero, 10)).filter(n => !isNaN(n));
+  else nums = data.proposituras.filter(x => (x.tipo === r.tipo || (/^Moção/.test(x.tipo || '') && /^Moção/.test(r.tipo || ''))) && String(x.ano) === String(ano)).map(x => parseInt(x.numero, 10)).filter(n => !isNaN(n));
   if (String(ano) === String(new Date().getFullYear()) && +cfg.ultimo_oficio) nums.push(+cfg.ultimo_oficio);
   return String((nums.length ? Math.max(...nums) : 0) + 1).padStart(3, '0');
 }
@@ -959,10 +1049,11 @@ async function gerarDocumento() {
       OF_RETORNO,
       OF_FECHO,
     ];
-    const texto = r.texto || (tipo === 'indicacao'
+    const moc = tipo === 'mocao' ? textoMocao(r) : null;
+    const texto = r.texto || (moc ? moc.texto : tipo === 'indicacao'
       ? `INDICO à Mesa, na forma regimental, que seja encaminhado expediente ao(à) ${destOrg}, solicitando, por intermédio do setor competente, ${minusc(assunto)}${localTxt}.`
       : `REQUEIRO à Mesa, na forma regimental, ${minusc(assunto)}.`);
-    const justificativa = tipo === 'oficio' ? [] : (linhas(r.corpo).length ? linhas(r.corpo) : [`A presente proposição atende à demanda apresentada a este gabinete por ${r.solicitante || 'munícipes da região'}${protDemanda ? ' (protocolo nº ' + protDemanda + ')' : ''}.`, tipoPedido(assunto)?.[2] || 'A medida é de interesse público, pois contribui para a segurança, o bem-estar e a qualidade de vida da população atendida.', 'Diante da relevância do pedido, conto com o apoio dos nobres Pares para a aprovação desta proposição.']);
+    const justificativa = tipo === 'oficio' ? [] : (linhas(r.corpo).length ? linhas(r.corpo) : moc ? moc.justificativa : [`A presente proposição atende à demanda apresentada a este gabinete por ${r.solicitante || 'munícipes da região'}${protDemanda ? ' (protocolo nº ' + protDemanda + ')' : ''}.`, tipoPedido(assunto)?.[2] || 'A medida é de interesse público, pois contribui para a segurança, o bem-estar e a qualidade de vida da população atendida.', 'Diante da relevância do pedido, conto com o apoio dos nobres Pares para a aprovação desta proposição.']);
     // fotos e mapa do local vão numa página de anexo no fim do documento
     if (btn) btn.textContent = 'Juntando fotos e mapa…';
     const anexoImgs = await imagensDoDocumento(mod, r);
@@ -978,7 +1069,7 @@ async function gerarDocumento() {
       destinatario_orgao: [r.destinatario, r.orgao].filter(Boolean).join(', ') || 'órgão competente', municipio_uf: munUf, assunto, local_texto: localTxt, texto, paragrafos, justificativa,
       numero_doc: tipo === 'oficio' ? numero : (numero ? String(numero).split('/')[0] : ''),
       vocativo: r.vocativo || (!r.destinatario && /^secretaria/i.test(r.orgao || '') ? 'Senhor(a) Secretário(a)' : 'Senhor(a)'), solicitante: r.solicitante || '',
-      gabinete_maiusculo: (cfg.gabinete || '').toLocaleUpperCase('pt-BR'),
+      gabinete_maiusculo: (cfg.gabinete || '').toLocaleUpperCase('pt-BR'), titulo_doc: moc ? moc.titulo : '',
       proponente: [cargo1 && cargo1.trim(), cfg.deputado_nome].filter(Boolean).join(' ') + (partido ? '/' + partido.trim() : ''),
     };
     let blob = await docs.gerarDocx(tipo, valores);
@@ -2257,6 +2348,7 @@ document.addEventListener('click', e => {
   if (e.target.closest('[data-ranking]')) { Object.assign(state.rel, { mod: 'servicos', municipio: '', bairro: '', status: '' }); go('relatorios'); setTimeout(() => document.querySelector('.rk-titulo')?.scrollIntoView({ behavior: 'smooth' }), 300); return; }
   if (e.target.closest('[data-ver-urgentes]')) { state.filterNext = 'urgentes'; go('demandas'); return; }
   if (e.target.closest('[data-semana]')) { go('semana'); return; }
+  const md = e.target.closest('[data-meudia]'); if (md) { state.meuDiaDe = md.dataset.meudia || ''; if (state.view === 'meudia') render(); else go('meudia'); return; }
   if (e.target.closest('[data-ver-paradas]')) { state.filterNext = 'paradas'; go('demandas'); return; }
   const f = e.target.closest('[data-filter]'); if (f) { state.filter = f.dataset.filter; render(); return; }
   const w = e.target.closest('[data-win]'); if (w) { state.agendaWin = w.dataset.win; render(); return; }
@@ -2264,6 +2356,7 @@ document.addEventListener('click', e => {
   const sr = e.target.closest('[data-search]'); if (sr) { const q = sr.dataset.search; closeDrawer(); go('demandas'); state.q = q; state.filter = 'todos'; render(); return; }
   if (e.target.closest('[data-oficio-de]')) { oficioDaDemanda(); return; }
   if (e.target.closest('[data-reiterar]')) { reiterarOficio(); return; }
+  if (e.target.closest('[data-arte-atendido]')) { arteAtendido(e.target.closest('[data-arte-atendido]')); return; }
   if (e.target.closest('[data-arte-mes]')) { arteDoMes(e.target.closest('[data-arte-mes]')); return; }
   const bcel = e.target.closest('[data-busca-cel]'); if (bcel) { const regs = registrosDoCidadao('', bcel.dataset.buscaCel); const r0 = regs.find(([m]) => m !== 'pessoas'); const nome = r0 ? (r0[1].solicitante || r0[1].nome || '') : ''; state.q = ''; abrirCidadao(nome || 'Celular ' + mascaraTel(bcel.dataset.buscaCel), mascaraTel(bcel.dataset.buscaCel)); return; }
   const gp = e.target.closest('[data-graf-p]'); if (gp) { state.graf.p = gp.dataset.grafP; render(); return; }
@@ -2335,6 +2428,7 @@ document.addEventListener('click', e => {
   if (e.target.closest('#pf-senha')) { renderSetPassword(); return; }
 });
 document.addEventListener('change', async e => {
+  if (e.target.id === 'md-quem') { state.meuDiaDe = e.target.value; render(); window.scrollTo(0, 0); return; }
   if (e.target.id === 'adm-quem') { carregarHistorico(); return; }
   if (e.target.id === 'mapa-per' || e.target.id === 'mapa-org') { state.mapa[e.target.id === 'mapa-per' ? 'per' : 'org'] = e.target.value; render(); return; }
   if (e.target.id === 'gf-de' || e.target.id === 'gf-ate') { state.graf[e.target.id === 'gf-de' ? 'de' : 'ate'] = e.target.value; render(); return; }

@@ -662,3 +662,9 @@ body.mapa-cheio{overflow:hidden}
 .parecido-aviso{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:12px 14px;border-radius:16px;border:1px solid rgba(241,196,15,.55);background:rgba(241,196,15,.12);font-size:14px;color:inherit}
 .parecido-aviso>span{flex-basis:100%}
 .parecido-aviso .btn{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.eq-pend{display:flex;flex-direction:column;gap:6px}
+.eq-linha{display:flex;align-items:center;gap:10px;width:100%;padding:10px 12px;border-radius:12px;border:1px solid var(--line,rgba(255,255,255,.12));background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.eq-linha:hover{background:rgba(255,255,255,.05)}
+.eq-linha .t{flex:1;min-width:0;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.eq-linha .m{white-space:nowrap}
+.eq-ok{font-size:12px;font-weight:700;color:#72a83b;white-space:nowrap}

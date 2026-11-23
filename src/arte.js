@@ -44,8 +44,50 @@ export async function gerarArte(n) {
   return new Promise(ok => c.toBlob(ok, 'image/png'));
 }
 
-export async function baixarArte(n, nomeArquivo) {
-  const blob = await gerarArte(n);
+function quebrar(x, texto, larg, max) {
+  const pal = String(texto || '').split(/\s+/).filter(Boolean); const out = []; let l = '';
+  for (const p of pal) { const t = l ? l + ' ' + p : p; if (x.measureText(t).width > larg && l) { out.push(l); l = p; } else l = t; }
+  if (l) out.push(l);
+  if (out.length > max) { out.length = max; let u = out[max - 1]; while (x.measureText(u + '…').width > larg && u.length > 3) u = u.slice(0, -1); out[max - 1] = u + '…'; }
+  return out;
+}
+/** Arte "Pedido atendido" (1080x1350). p: { assunto, bairro, cidade, foto (url ou null), vereador, cargo } */
+export async function gerarArteAtendido(p) {
+  const W = 1080, H = 1350, c = document.createElement('canvas'); c.width = W; c.height = H;
+  const x = c.getContext('2d');
+  try { await document.fonts?.load('800 80px Archivo'); } catch { /* usa a padrão */ }
+  const F = (peso, tam) => `${peso} ${tam}px Archivo, Arial, sans-serif`;
+  const g = x.createLinearGradient(0, 0, W, H); g.addColorStop(0, '#0d2236'); g.addColorStop(1, '#07111c');
+  x.fillStyle = g; x.fillRect(0, 0, W, H);
+  x.fillStyle = 'rgba(114,168,59,.18)'; x.beginPath(); x.arc(W - 40, 60, 300, 0, Math.PI * 2); x.fill();
+  try { const logo = await img(new URL('marca/fala-cascavel-branca.svg', document.baseURI).href); const lh = 84; x.drawImage(logo, 70, 56, logo.width / logo.height * lh || 240, lh); } catch { /* sem logo */ }
+  // foto (ou um grande ✓)
+  const FX = 70, FY = 180, FW = W - 140, FH = 640;
+  let foto = null;
+  if (p.foto) { try { const r = await fetch(p.foto); const b = await r.blob(); foto = await img(URL.createObjectURL(b)); } catch { foto = null; } }
+  x.save(); caixa(x, FX, FY, FW, FH, 40); x.clip();
+  if (foto) { const esc = Math.max(FW / foto.width, FH / foto.height); const w = foto.width * esc, h = foto.height * esc; x.drawImage(foto, FX + (FW - w) / 2, FY + (FH - h) / 2, w, h); }
+  else { const gg = x.createLinearGradient(FX, FY, FX + FW, FY + FH); gg.addColorStop(0, '#1d4f78'); gg.addColorStop(1, '#2f6b2a'); x.fillStyle = gg; x.fillRect(FX, FY, FW, FH);
+    x.strokeStyle = '#fff'; x.lineWidth = 46; x.lineCap = 'round'; x.lineJoin = 'round'; x.beginPath(); x.moveTo(W / 2 - 150, FY + FH / 2 + 10); x.lineTo(W / 2 - 40, FY + FH / 2 + 120); x.lineTo(W / 2 + 170, FY + FH / 2 - 110); x.stroke(); }
+  x.restore();
+  // selo
+  x.font = F(800, 40); const selo = '✓ PEDIDO ATENDIDO'; const sw = x.measureText(selo).width + 64;
+  x.fillStyle = '#72a83b'; caixa(x, FX + 30, FY + FH - 96, sw, 72, 36); x.fill();
+  x.fillStyle = '#fff'; x.fillText(selo, FX + 62, FY + FH - 46);
+  // assunto e bairro
+  let y = FY + FH + 96;
+  x.fillStyle = '#fff'; x.font = F(800, 58);
+  quebrar(x, p.assunto, W - 140, 3).forEach(l => { x.fillText(l, 70, y); y += 68; });
+  const lugar = [p.bairro, p.cidade].filter(Boolean).join(' · ');
+  if (lugar) { x.fillStyle = '#8cc8f2'; x.font = F(700, 36); x.fillText(lugar.toLocaleUpperCase('pt-BR'), 70, y + 6); }
+  x.textAlign = 'center';
+  x.fillStyle = 'rgba(255,255,255,.88)'; x.font = F(700, 32); x.fillText('Pedido levado pelo ' + [p.cargo ? p.cargo.split('/')[0].trim().toLowerCase() : 'vereador', p.vereador].filter(Boolean).join(' '), W / 2, H - 112);
+  x.fillStyle = 'rgba(255,255,255,.6)'; x.font = F(600, 28); x.fillText('Faça seu pedido: falacascavel.com.br', W / 2, H - 66);
+  return new Promise(ok => c.toBlob(ok, 'image/png'));
+}
+
+export async function baixarArte(n, nomeArquivo, gerar = gerarArte) {
+  const blob = await gerar(n);
   const file = new File([blob], nomeArquivo, { type: 'image/png' });
   if (navigator.canShare && navigator.canShare({ files: [file] }) && /Android|iPhone|iPad/i.test(navigator.userAgent)) {
     try { await navigator.share({ files: [file], title: 'Resultados do mês' }); return 'compartilhado'; } catch (e) { if (e && e.name === 'AbortError') return 'cancelado'; }
