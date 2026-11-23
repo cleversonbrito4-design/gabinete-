@@ -380,7 +380,7 @@ function equipePendHtml() {
   return `<button class="btn wa mini" type="button" data-resumo-equipe style="margin-bottom:10px">📲 Mandar resumo no grupo do WhatsApp</button><div class="eq-pend">${linhas.map(([n, p]) => `<button class="eq-linha" type="button" data-meudia="${esc(n)}"><span class="t">${esc(n)}</span><span class="m">${p.total} pendente${p.total === 1 ? '' : 's'}</span>${p.atr.length ? `<span class="rk-alerta">${p.atr.length} atrasada${p.atr.length === 1 ? '' : 's'}</span>` : '<span class="eq-ok">em dia</span>'}</button>`).join('')}</div>${semDono ? `<p class="m" style="margin:8px 0 0">${semDono} sem responsável. Defina quem cuida para não ficar esquecido.</p>` : ''}`;
 }
 function renderMeuDia() {
-  const eu = myName(), nome = state.meuDiaDe || eu, t = todayStr();
+  const eu = myName(), nome = (state.admin && state.meuDiaDe) || eu, t = todayStr();
   const p = pendenciasDe(nome);
   const ordem = (m, a) => a.slice().sort((x, y) => (isUrgente(m, y) ? 1 : 0) - (isUrgente(m, x) ? 1 : 0) || (atrasado(m, y) ? 1 : 0) - (atrasado(m, x) ? 1 : 0) || String(x.prazo || '9999').localeCompare(String(y.prazo || '9999')));
   const motivo = (m, r) => [isUrgente(m, r) && '🚨 urgente', isLate(m, r) && 'prazo vencido em ' + fmtDate(r.prazo), m === 'demandas' && diasParada(r) && diasParada(r) + ' dias sem novidade', m === 'servicos' && diasSemResposta(r) >= DIAS_REITERAR && diasSemResposta(r) + ' dias sem resposta'].filter(Boolean);
@@ -390,13 +390,13 @@ function renderMeuDia() {
   const ag = p.ag.sort((a, b) => (a.data + hhmm(a.inicio)).localeCompare(b.data + hhmm(b.inicio)));
   return `<div class="no-print"><a class="linkbtn" data-go="painel">← Painel</a></div>
     <div class="eyebrow" style="margin-top:6px">${fmtDay(t)}</div><h2 class="sec" style="margin:2px 0 8px">${mesmoNome(nome, eu) ? 'Minha lista do dia' : 'Lista de ' + esc(primeiroNome(nome))}</h2>
-    <div class="f" style="max-width:340px"><label for="md-quem">Ver a lista de</label><select id="md-quem">${nomes.map(n => `<option ${mesmoNome(n, nome) ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></div>
+    ${state.admin ? `<div class="f" style="max-width:340px"><label for="md-quem">Ver a lista de</label><select id="md-quem">${nomes.map(n => `<option ${mesmoNome(n, nome) ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></div>` : ''}
     <div class="kpis semana-kpis" style="margin-top:12px"><div class="kpi"><span class="big">${p.total}</span><span class="sub">pendências</span></div><div class="kpi"><span class="big" style="${p.atr.length ? 'color:var(--danger,#e74c3c)' : ''}">${p.atr.length}</span><span class="sub">atrasadas</span></div><div class="kpi"><span class="big">${ag.length}</span><span class="sub">compromissos hoje e amanhã</span></div></div>
     ${ag.length ? `<section class="panel" style="margin-top:12px"><h3>Agenda de hoje e amanhã</h3>${ag.map(r => `<div class="ag-item sem-item" data-open="agenda:${r.id}"><div style="min-width:0"><div class="t">${esc(r.titulo || '')}</div><div class="m">${esc([r.data === t ? 'Hoje' : 'Amanhã', hhmm(r.inicio), r.local].filter(Boolean).join(' · '))}</div></div></div>`).join('')}</section>` : ''}
     ${bloco('Tarefas', 'tarefas', p.tar, r => [r.prazo && !isLate('tarefas', r) ? 'prazo ' + (r.prazo === t ? 'hoje' : fmtDate(r.prazo)) : ''], 'Nenhuma tarefa pendente.')}
     ${bloco('Demandas', 'demandas', p.dem, r => [r.bairro, r.status, r.protocolo && 'Prot. ' + r.protocolo], 'Nenhuma demanda com esta pessoa.')}
     ${bloco('Ofícios para acompanhar', 'servicos', p.ofs, r => [r.protocolo && 'Ofício ' + r.protocolo, r.orgao, r.status], 'Nenhum ofício com esta pessoa.')}
-    <section class="panel" style="margin-top:12px"><h3>Pendências da equipe</h3>${equipePendHtml()}</section>
+    ${state.admin ? `<section class="panel" style="margin-top:12px"><h3>Pendências da equipe</h3>${equipePendHtml()}</section>` : ''}
     <div class="no-print" style="margin-top:14px"><button class="btn" id="rel-print" type="button">Imprimir / salvar PDF</button></div>`;
 }
 function renderPainel() {
@@ -461,7 +461,7 @@ function renderPainel() {
         <section class="panel"><h3>Aniversariantes da semana <a data-go="pessoas">ver pessoas</a></h3>${anivHtml}${anivBtn}</section>
       </div>
       <div style="display:flex;flex-direction:column;gap:18px;min-width:0">
-        <section class="panel"><h3>Pendências da equipe</h3>${equipePendHtml()}</section>
+        ${state.admin ? `<section class="panel"><h3>Pendências da equipe</h3>${equipePendHtml()}</section>` : ''}
         <section class="panel"><h3>Prazos a cobrar</h3>${pendHtml}</section>
         <section class="panel"><h3>Emendas por situação <a data-go="emendas">ver emendas</a></h3>${emHtml}</section>
         <section class="panel"><h3>Satisfação do cidadão</h3>${satHtml}</section>
@@ -2406,7 +2406,7 @@ document.addEventListener('click', e => {
   if (e.target.closest('[data-ranking]')) { Object.assign(state.rel, { mod: 'servicos', municipio: '', bairro: '', status: '' }); go('relatorios'); setTimeout(() => document.querySelector('.rk-titulo')?.scrollIntoView({ behavior: 'smooth' }), 300); return; }
   if (e.target.closest('[data-ver-urgentes]')) { state.filterNext = 'urgentes'; go('demandas'); return; }
   if (e.target.closest('[data-semana]')) { go('semana'); return; }
-  const md = e.target.closest('[data-meudia]'); if (md) { state.meuDiaDe = md.dataset.meudia || ''; if (state.view === 'meudia') render(); else go('meudia'); return; }
+  const md = e.target.closest('[data-meudia]'); if (md) { state.meuDiaDe = state.admin ? md.dataset.meudia || '' : ''; if (state.view === 'meudia') render(); else go('meudia'); return; }
   if (e.target.closest('[data-ver-paradas]')) { state.filterNext = 'paradas'; go('demandas'); return; }
   const f = e.target.closest('[data-filter]'); if (f) { state.filter = f.dataset.filter; render(); return; }
   const w = e.target.closest('[data-win]'); if (w) { state.agendaWin = w.dataset.win; render(); return; }
@@ -2415,7 +2415,7 @@ document.addEventListener('click', e => {
   if (e.target.closest('[data-oficio-de]')) { oficioDaDemanda(); return; }
   if (e.target.closest('[data-reiterar]')) { reiterarOficio(); return; }
   if (e.target.closest('[data-arte-agenda]')) { arteAgenda(e.target.closest('[data-arte-agenda]')); return; }
-  if (e.target.closest('[data-resumo-equipe]')) { resumoEquipe(); return; }
+  if (e.target.closest('[data-resumo-equipe]')) { if (state.admin) resumoEquipe(); return; }
   if (e.target.closest('[data-arte-atendido]')) { arteAtendido(e.target.closest('[data-arte-atendido]')); return; }
   if (e.target.closest('[data-arte-mes]')) { arteDoMes(e.target.closest('[data-arte-mes]')); return; }
   const bcel = e.target.closest('[data-busca-cel]'); if (bcel) { const regs = registrosDoCidadao('', bcel.dataset.buscaCel); const r0 = regs.find(([m]) => m !== 'pessoas'); const nome = r0 ? (r0[1].solicitante || r0[1].nome || '') : ''; state.q = ''; abrirCidadao(nome || 'Celular ' + mascaraTel(bcel.dataset.buscaCel), mascaraTel(bcel.dataset.buscaCel)); return; }
