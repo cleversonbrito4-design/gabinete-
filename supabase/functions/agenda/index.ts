@@ -34,12 +34,14 @@ async function setConfig(id: string, valor: unknown) {
 
 async function quemE(req: Request) {
   const jwt = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
-  if (!jwt) return null;
-  const { data } = await admin.auth.getUser(jwt);
+  const falha = async (motivo: string) => { await setConfig('agenda_auth_falha', { em: new Date().toISOString(), motivo, jwt: jwt.split('.').length === 3 ? 'jwt' : jwt.slice(0, 14) }).catch(() => {}); return null; };
+  if (!jwt) return falha('sem Authorization');
+  const { data, error } = await admin.auth.getUser(jwt);
   const email = data?.user?.email?.toLowerCase();
-  if (!email) return null;
-  const { data: e } = await admin.from('equipe').select('email, admin').eq('email', email).maybeSingle();
-  return e ? { email, admin: !!e.admin } : null;
+  if (!email) return falha('getUser: ' + (error?.message || 'sem e-mail'));
+  const { data: e, error: e2 } = await admin.from('equipe').select('email, admin').eq('email', email).maybeSingle();
+  if (!e) return falha('equipe: ' + (e2?.message || 'e-mail fora da equipe'));
+  return { email, admin: !!e.admin };
 }
 
 async function linkAtual(req: Request, trocar = false) {
