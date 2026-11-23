@@ -529,12 +529,27 @@ begin
   end if;
   return jsonb_build_object('protocolo', d.protocolo, 'assunto', d.assunto, 'status', d.status, 'bairro', d.bairro, 'municipio', d.municipio,
     'aberto_em', d.criado_em, 'atualizado_em', d.atualizado_em,
-    'linha', coalesce((select jsonb_agg(jsonb_build_object('em', h->>'em',
-        'txt', case when h->>'txt' like 'Situação:%' then 'Situação: ' || trim(split_part(h->>'txt', '→', 2))
-                    when h->>'txt' like 'Cadastrado como%' or h->>'txt' like 'Recebida%' then 'Pedido registrado no gabinete'
-                    else 'Ofício enviado ao órgão responsável' end) order by h->>'em')
-      from jsonb_array_elements(coalesce(d.historico, '[]'::jsonb)) h
-      where h->>'txt' like 'Situação:%' or h->>'txt' like 'Cadastrado como%' or h->>'txt' like 'Recebida pelo formulário%' or h->>'txt' like 'Ofício de solicitação criado%'), '[]'::jsonb),
+    -- linha do tempo para o cidadão: só etapas, sem nomes da equipe nem observações internas
+    'linha', coalesce((select jsonb_agg(jsonb_build_object('em', x.em, 'txt', x.txt) order by x.em) from (
+        select h->>'em' em,
+          case when h->>'txt' like 'Situação:%' then 'Situação: ' || trim(split_part(h->>'txt', '→', 2))
+               when h->>'txt' like 'Cadastrado como%' or h->>'txt' like 'Recebida%' then 'Pedido registrado no gabinete'
+               when h->>'txt' like 'Ofício de solicitação criado para %' then 'Gabinete preparou ofício para ' || regexp_replace(h->>'txt', '^Ofício de solicitação criado para ', '')
+               else 'Gabinete preparou ofício ao órgão responsável' end txt
+          from jsonb_array_elements(coalesce(d.historico, '[]'::jsonb)) h
+          where h->>'txt' like 'Situação:%' or h->>'txt' like 'Cadastrado como%' or h->>'txt' like 'Recebida pelo formulário%' or h->>'txt' like 'Ofício de solicitação criado%'
+        union all
+        select h->>'em',
+          case when h->>'txt' like 'Resposta do órgão%' then coalesce(nullif(s.orgao, ''), 'O órgão responsável') || ' respondeu ao ofício' else
+          case trim(split_part(h->>'txt', '→', 2))
+               when 'Ofício enviado' then 'Ofício' || coalesce(' nº ' || nullif(s.protocolo, ''), '') || ' enviado para ' || coalesce(nullif(s.orgao, ''), 'o órgão responsável')
+               when 'Em execução' then coalesce(nullif(s.orgao, ''), 'O órgão responsável') || ' está executando o serviço'
+               when 'Atendida' then coalesce(nullif(s.orgao, ''), 'O órgão responsável') || ' atendeu o pedido'
+               when 'Não atendida' then coalesce(nullif(s.orgao, ''), 'O órgão responsável') || ' não atendeu o pedido'
+               else null end end
+          from public.servicos s, jsonb_array_elements(coalesce(s.historico, '[]'::jsonb)) h
+          where s.demanda_id = d.id and (h->>'txt' like 'Situação:%' or h->>'txt' like 'Resposta do órgão%')
+      ) x where x.txt is not null), '[]'::jsonb),
     'gabinete', (select jsonb_build_object('gabinete', valor->>'gabinete', 'deputado_nome', valor->>'deputado_nome', 'deputado_cargo', valor->>'deputado_cargo') from public.config where id = 'gabinete'));
 end $$;
 revoke all on function public.consultar_protocolo(text, text) from public;

@@ -42,6 +42,17 @@ function parseMoney(s) { if (s == null || s === '') return null; const n = parse
 const kindOf = (mod, st) => { const f = MODS[mod].statuses.find(x => x[0] === st); return f ? f[1] : 'novo'; };
 const STATUS_KIND = { novo: 'k-novo', and: 'k-and', ok: 'k-ok', neg: 'k-neg' };
 const isOpen = (mod, r) => mod === 'pessoas' ? r.status !== 'Inativo' : mod === 'agenda' ? (r.data >= todayStr() && r.status !== 'Cancelado') : ['novo', 'and'].includes(kindOf(mod, r.status));
+/** Demanda em aberto sem nenhuma novidade (nela ou no ofício ligado) há 15 dias ou mais: devolve os dias, senão 0. */
+const DIAS_PARADA = 15;
+function diasParada(r) {
+  if (!isOpen('demandas', r)) return 0;
+  let ult = String(r.atualizado_em || r.criado_em || '');
+  (r.historico || []).forEach(h => { if (String(h.em || '') > ult) ult = String(h.em); });
+  data.servicos.forEach(o => { if (o.demanda_id === r.id && String(o.atualizado_em || '') > ult) ult = String(o.atualizado_em); });
+  if (!ult) return 0;
+  const d = Math.floor((Date.now() - new Date(ult).getTime()) / 86400000);
+  return d >= DIAS_PARADA ? d : 0;
+}
 const isLate = (mod, r) => { const f = MODS[mod].deadline; return f && r[f] && isOpen(mod, r) && r[f] < todayStr(); };
 function toastAcao(msg, href, label) {
   document.querySelectorAll('.toast.acao').forEach(t => t.remove());
@@ -90,18 +101,28 @@ function protocoloBox(r, grande) {
   const wa = r.telefone ? waLink(r.telefone, msg('registrado', { nome: primeiroNome(r.solicitante), assunto: r.assunto, protocolo: r.protocolo, link_consulta: link })) : '';
   return `<div class="prot-box prot-int${grande ? ' grande' : ''}"><span class="m">Número de protocolo</span><b class="num">${esc(r.protocolo)}</b>
     <span class="m">Link para a pessoa acompanhar (ela digita o celular para ver):</span><input class="prot-link" readonly value="${esc(link)}" aria-label="Link de acompanhamento">
-    <div class="prot-acts"><button class="btn mini" type="button" data-copiar="${esc(r.protocolo)}" data-copiar-msg="Protocolo copiado">Copiar protocolo</button><button class="btn mini" type="button" data-copiar="${esc(link)}" data-copiar-msg="Link copiado">Copiar link</button>${wa ? `<a class="btn mini wa" href="${esc(wa)}" target="_blank" rel="noopener">Mandar no WhatsApp</a>` : ''}</div></div>`;
+    <div class="prot-acts"><button class="btn mini" type="button" data-copiar="${esc(r.protocolo)}" data-copiar-msg="Protocolo copiado">Copiar protocolo</button><button class="btn mini" type="button" data-copiar="${esc(link)}" data-copiar-msg="Link copiado">Copiar link</button><button class="btn mini" type="button" data-comprovante="${esc(r.id)}">🧾 Comprovante com QR</button>${wa ? `<a class="btn mini wa" href="${esc(wa)}" target="_blank" rel="noopener">Mandar no WhatsApp</a>` : ''}</div></div>`;
 }
 function copiarTexto(t, ok) {
   const fb = () => { const i = document.createElement('textarea'); i.value = t; document.body.appendChild(i); i.select(); try { document.execCommand('copy'); toast(ok); } catch { toast(t); } i.remove(); };
   try { navigator.clipboard.writeText(t).then(() => toast(ok), fb); } catch { fb(); }
+}
+async function baixarComprovante(id, btn) {
+  const r = data.demandas.find(x => x.id === id); if (!r || !r.protocolo) return;
+  const txt = btn ? btn.textContent : ''; if (btn) { btn.disabled = true; btn.textContent = 'Gerando…'; }
+  try {
+    const { enviarComprovante } = await import('./comprovante.js');
+    const res = await enviarComprovante({ protocolo: r.protocolo, assunto: r.assunto, nome: r.solicitante, data: fmtDate(String(r.criado_em || todayStr()).slice(0, 10)), link: linkConsulta(r.protocolo), gabinete: NOME_GAB() });
+    if (res === 'baixado') toast('Comprovante baixado. Mande a imagem no WhatsApp ou imprima.');
+  } catch (e) { toast('Não foi possível gerar o comprovante: ' + errMsg(e)); }
+  finally { if (btn) { btn.disabled = false; btn.textContent = txt; } }
 }
 /** Depois de cadastrar uma demanda: janela com o protocolo bem visível. */
 function mostrarProtocolo(r) {
   document.querySelectorAll('.prot-modal').forEach(x => x.remove());
   const w = document.createElement('div'); w.className = 'prot-modal';
   w.innerHTML = `<div class="scrim" data-fechar-prot></div><div class="prot-card" role="dialog" aria-modal="true" aria-label="Demanda registrada"><h3>Demanda registrada ✅</h3><p class="m">Passe este número para ${esc(primeiroNome(r.solicitante) || 'a pessoa')}.</p>${protocoloBox(r, true)}<button class="btn primary" type="button" data-fechar-prot style="justify-content:center">Pronto</button></div>`;
-  w.addEventListener('click', e => { const c = e.target.closest('[data-copiar]'); if (c) { copiarTexto(c.dataset.copiar, c.dataset.copiarMsg || 'Copiado'); return; } if (e.target.closest('[data-fechar-prot]')) w.remove(); });
+  w.addEventListener('click', e => { const cp = e.target.closest('[data-comprovante]'); if (cp) { baixarComprovante(cp.dataset.comprovante, cp); return; } const c = e.target.closest('[data-copiar]'); if (c) { copiarTexto(c.dataset.copiar, c.dataset.copiarMsg || 'Copiado'); return; } if (e.target.closest('[data-fechar-prot]')) w.remove(); });
   document.body.appendChild(w);
 }
 const linkAvaliacao = r => { const tk = r && (r.avaliacao_token || (!store.configured && r.id)); return tk ? location.origin + location.pathname + '?avaliar=' + tk : ''; };
@@ -133,7 +154,7 @@ let pedidoInstalar = null; // convite do navegador para instalar o app
 const VIEWS = ['agendas', 'graficos', 'admin', 'disparo', 'painel', 'etiquetas', 'conta', 'relatorios', 'importar', 'mapa', 'resumo-emendas', 'cidadao', ...ORDER];
 
 function readHash() { const h = location.hash.slice(1); if (VIEWS.includes(h)) state.view = h; }
-window.addEventListener('hashchange', () => { readHash(); state.q = state.qNext || ''; state.filter = state.qNext ? 'todos' : 'abertos'; state.qNext = ''; render(); });
+window.addEventListener('hashchange', () => { readHash(); state.q = state.qNext || ''; state.filter = state.filterNext || (state.qNext ? 'todos' : 'abertos'); state.filterNext = ''; state.qNext = ''; render(); });
 function go(v) { if (location.hash !== '#' + v) location.hash = v; else { state.view = v; render(); } window.scrollTo(0, 0); }
 
 /* ---------- login ---------- */
@@ -317,7 +338,7 @@ function renderPainel() {
   const munHtml = mun.length ? bars(mun, Math.max(...mun.map(x => x.v)), v => v) : `<div class="empty"><b>Sem demandas em aberto</b></div>`;
 
   return `${banner()}<div class="eyebrow">${fmtDay(t)}</div><div class="ola"><h2 class="sec">Olá${myName() ? ', ' + esc(primeiroNome(myName())) : ''}</h2><button class="btn primary" type="button" data-novo="agenda">+ Compromisso</button></div>
-    <div class="kpis">${kpis}</div>
+    <div class="kpis">${kpis}</div>${(() => { const n = data.demandas.filter(r => diasParada(r)).length; return n ? `<div class="parada-aviso"><span>⏳ <b>${n}</b> demanda${n === 1 ? '' : 's'} sem novidade há mais de ${DIAS_PARADA} dias. Dê um retorno antes de o cidadão cobrar.</span><button class="btn mini" type="button" data-ver-paradas>Ver quais</button></div>` : ''; })()}
     <div class="cols">
       <div style="display:flex;flex-direction:column;gap:18px;min-width:0">
         <section class="panel"><h3>Próximos 7 dias na agenda <a data-go="agenda">ver agenda</a></h3>${agHtml}<button class="btn primary mini-full" type="button" data-novo="agenda">+ Compromisso</button></section>
@@ -358,6 +379,7 @@ function filtered(m) {
   } else {
     if (state.filter === 'abertos') a = a.filter(r => isOpen(m, r));
     else if (state.filter === 'atrasados') a = a.filter(r => isLate(m, r));
+    else if (state.filter === 'paradas') a = a.filter(r => m === 'demandas' && diasParada(r)).sort((x, y) => diasParada(y) - diasParada(x));
     else if (state.filter === 'meus') a = a.filter(r => r.responsavel && r.responsavel === myName());
     else if (state.filter !== 'todos') a = a.filter(r => r.status === state.filter);
     if (m === 'recepcao') { // fila: quem chegou primeiro aparece primeiro
@@ -408,10 +430,11 @@ function renderList(m) {
     const novos = quemPediuSemCadastro();
     if (novos.length) extra += `<div class="no-print aviso-contatos" style="margin:6px 0;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span class="m"><b>${novos.length}</b> pessoa(s) que fizeram pedidos ainda não estão na lista.</span><button class="btn mini primary" data-trazer-pedidos>Colocar na lista</button></div>`;
   } else {
-    const opts = [['abertos', 'Em aberto']].concat(M.deadline ? [['atrasados', 'Atrasados']] : []).concat(M.fields.some(f => f.k === 'responsavel') ? [['meus', 'Comigo']] : []).concat([['todos', 'Todos']], M.statuses.map(s => [s[0], s[0]]));
+    const opts = [['abertos', 'Em aberto']].concat(M.deadline ? [['atrasados', 'Atrasados']] : []).concat(m === 'demandas' ? [['paradas', 'Sem retorno ' + DIAS_PARADA + '+ dias']] : []).concat(M.fields.some(f => f.k === 'responsavel') ? [['meus', 'Comigo']] : []).concat([['todos', 'Todos']], M.statuses.map(s => [s[0], s[0]]));
     chips = opts.map(([k, l]) => chip('data-filter', k, l, state.filter === k)).join('');
     if (['demandas', 'servicos'].includes(m)) extra = `<div class="no-print" style="margin-bottom:4px"><button class="btn mini" data-mapa-de="${m}">Ver no mapa</button></div>`;
     if (m === 'recepcao') { chips = chip('data-filter', 'abertos', 'Fila agora', state.filter === 'abertos') + chip('data-filter', 'hoje', 'Hoje', state.filter === 'hoje') + chip('data-filter', 'todos', 'Todos', state.filter === 'todos'); const n = data.recepcao.filter(r => r.status === 'Aguardando').length; extra = `<div class="m" style="margin-bottom:4px">${n ? `<b>${n}</b> pessoa(s) aguardando.` : 'Ninguém aguardando agora.'}</div>`; }
+    if (m === 'servicos') extra = `<div class="no-print" style="margin-bottom:4px"><button class="btn mini primary" type="button" data-ranking>⏱️ Secretarias que mais demoram</button></div>`;
     if (m === 'emendas') extra = `<div class="no-print" style="margin-bottom:4px"><button class="btn mini primary" data-go="resumo-emendas">Painel de emendas (indicado, empenhado, pago)</button></div>`;
   }
   let body;
@@ -562,6 +585,7 @@ function openDrawer(mod, id, preset = {}) {
   if (rec && ['demandas', 'servicos'].includes(mod) && rec.solicitante) acts.push(`<button class="btn mini" type="button" data-cid="${esc(rec.solicitante)}" data-cid-tel="${esc(rec.telefone || '')}">Histórico de ${esc(primeiroNome(rec.solicitante))}</button>`);
   if (rec && mod !== 'tarefas') acts.push(`<button class="btn mini" type="button" data-tarefa-de>+ Tarefa</button>`);
   if (rec && mod === 'demandas') data.servicos.filter(o => o.demanda_id === rec.id).forEach(o => acts.push(`<button class="btn mini ghost" type="button" data-open="servicos:${o.id}">📄 Ofício ${esc(o.protocolo || '(sem nº)')} · ${esc(o.status)}</button>`));
+  if (rec && mod === 'servicos' && store.anexosDisponiveis) acts.push(`<label class="btn mini" style="cursor:pointer">📨 Anexar resposta do órgão<input type="file" multiple accept="image/*,application/pdf,.doc,.docx" data-anx-resposta hidden></label>`);
   if (rec && mod === 'servicos' && rec.demanda_id && data.demandas.some(d => d.id === rec.demanda_id)) acts.push(`<button class="btn mini ghost" type="button" data-open="demandas:${rec.demanda_id}">↩ Demanda de origem</button>`);
   const dt = rec && docTipo(mod, rec);
   if (dt) acts.push(`<button class="btn mini" type="button" id="btn-doc">Gerar ${docs.TIPOS[dt]} (Word)</button>`);
@@ -659,7 +683,22 @@ async function saveDrawer() {
     closeDrawer();
     if (!old && mod === 'demandas' && row.protocolo) mostrarProtocolo(row); else toast(old ? 'Alterações salvas' : 'Registro criado');
     if (!old && mod === 'demandas') cadastrarQuemPediu([row]).catch(() => {});
-    if (old && old.status !== st && M.phone && row[M.phone] && ['demandas', 'servicos'].includes(mod)) {
+    // ofício atendido: a demanda de origem é concluída junto e o aviso ao cidadão sai com o texto da demanda
+    let demFechada = null;
+    if (mod === 'servicos' && old && old.status !== st && kindOf('servicos', st) === 'ok' && row.demanda_id) {
+      const dem = data.demandas.find(x => x.id === row.demanda_id);
+      if (dem && isOpen('demandas', dem)) {
+        try {
+          const h = (dem.historico || []).concat({ em: new Date().toISOString(), txt: 'Situação: ' + dem.status + ' → Concluída', por }, { em: new Date().toISOString(), txt: 'Concluída porque o ofício ' + (row.protocolo || '') + ' foi atendido', por });
+          demFechada = await store.saveRow('demandas', dem.id, { status: 'Concluída', historico: h.slice(-100) }); upsertLocal('demandas', demFechada);
+        } catch (e) { toast('Ofício salvo, mas a demanda não foi concluída: ' + errMsg(e)); }
+      }
+    }
+    if (demFechada) {
+      const wa = demFechada.telefone && waLink(demFechada.telefone, waStatus('demandas', demFechada));
+      if (wa) setTimeout(() => toastAcao('A demanda também foi concluída. Avisar ' + (primeiroNome(demFechada.solicitante) || 'o cidadão') + '?', wa, 'Avisar no WhatsApp'), 400);
+      else toast('A demanda “' + demFechada.assunto + '” também foi concluída');
+    } else if (old && old.status !== st && M.phone && row[M.phone] && ['demandas', 'servicos'].includes(mod)) {
       const wa = waLink(row[M.phone], waStatus(mod, row));
       if (wa) setTimeout(() => toastAcao('Avisar ' + (primeiroNome(row.solicitante) || 'o cidadão') + ' da nova situação?', wa, 'Avisar no WhatsApp'), 400);
     }
@@ -693,7 +732,7 @@ async function oficioDaDemanda() {
     const linhas = [`Solicito a Vossa Senhoria ${d.assunto ? d.assunto.charAt(0).toLowerCase() + d.assunto.slice(1) : 'providências'}${d.bairro ? ', no bairro ' + d.bairro : ''}${d.municipio ? ', no município de ' + d.municipio : ''}.`];
     if (d.descricao) linhas.push(d.descricao.replace(/\s*\n+\s*/g, ' '));
     if (d.lat != null) linhas.push('Localização exata: ' + linkMaps([+d.lat, +d.lng]));
-    linhas.push(`A solicitação atende à demanda encaminhada a este gabinete por ${d.solicitante || 'munícipe'}, que aguarda providências.`);
+    linhas.push(`A solicitação atende à demanda encaminhada a este gabinete por ${d.solicitante || 'munícipe'}${d.protocolo ? ' (protocolo nº ' + d.protocolo + ')' : ''}, que aguarda providências.`);
     linhas.push('Solicito, ainda, retorno a este gabinete sobre as providências adotadas e a previsão de atendimento.');
     const of = {
       servico: d.assunto, solicitante: d.solicitante, telefone: d.telefone, municipio: d.municipio, local: d.bairro,
@@ -772,9 +811,10 @@ async function gerarDocumento() {
     const linhas = t => String(t || '').split(/\n+/).map(x => x.trim()).filter(Boolean);
     const destOrg = [r.destinatario, r.orgao].filter(Boolean).join(', ') || 'órgão competente';
     const minusc = t => t ? t.charAt(0).toLowerCase() + t.slice(1) : t;
+    const protDemanda = mod === 'servicos' && r.demanda_id ? (data.demandas.find(x => x.id === r.demanda_id)?.protocolo || '') : '';
     const paragrafos = linhas(r.corpo).length && tipo === 'oficio' ? linhas(r.corpo) : [
       `Solicito ${minusc(assunto)}${localTxt}.`,
-      r.solicitante ? `A solicitação atende à demanda encaminhada ao gabinete por ${r.solicitante}.` : 'A solicitação atende à demanda encaminhada ao gabinete.',
+      (r.solicitante ? `A solicitação atende à demanda encaminhada ao gabinete por ${r.solicitante}` : 'A solicitação atende à demanda encaminhada ao gabinete') + (protDemanda ? ` (protocolo nº ${protDemanda})` : '') + '.',
       'Solicito, ainda, retorno a este gabinete sobre as providências adotadas e a previsão de atendimento.',
     ];
     const texto = r.texto || (tipo === 'indicacao'
@@ -970,6 +1010,9 @@ function avisos() {
   }));
   data.tarefas.forEach(r => { if (isOpen('tarefas', r) && r.prazo && r.prazo <= t && (!r.responsavel || r.responsavel === myName())) itens.push({ m: 'tarefas', r, nivel: r.prazo < t ? 'late' : 'and', txt: r.prazo < t ? 'Tarefa atrasada desde ' + fmtDate(r.prazo) : 'Tarefa para hoje', urg: 1 }); });
   data.demandas.forEach(r => { if (r.status === 'Nova' && r.origem === 'Site do gabinete') itens.push({ m: 'demandas', r, nivel: 'novo', txt: 'Pedido novo pelo site', urg: 1 }); });
+  // demandas paradas: as 5 mais antigas, para a equipe dar retorno antes de o cidadão cobrar
+  data.demandas.map(r => [r, diasParada(r)]).filter(x => x[1] && !itens.some(i => i.r === x[0])).sort((a, b) => b[1] - a[1]).slice(0, 5)
+    .forEach(([r, d]) => itens.push({ m: 'demandas', r, nivel: 'and', txt: 'Sem novidade há ' + d + ' dias', urg: 0 }));
   data.agenda.forEach(r => { if (r.data === t && r.status !== 'Cancelado') itens.push({ m: 'agenda', r, nivel: 'and', txt: 'Hoje ' + (hhmm(r.inicio) || ''), urg: 0 }); });
   data.pessoas.forEach(r => { if (r.nascimento && r.status !== 'Inativo' && r.nascimento.slice(5) === md) itens.push({ m: 'pessoas', r, nivel: 'ok', txt: 'Faz aniversário hoje', urg: 1, wa: waLink(r.telefone, waAniversario(r)) }); });
   const ordem = { late: 0, novo: 1, and: 2, ok: 3 };
@@ -1066,7 +1109,7 @@ async function reduzirFoto(f) {
   } catch { return f; }
 }
 const nomeSeguro = n => n.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\w.-]+/g, '-').slice(-80);
-async function anexarArquivos(mod, id, files) {
+async function anexarArquivos(mod, id, files, resposta = false) {
   let r = data[mod].find(x => x.id === id); if (!r) return;
   const novos = [];
   const box0 = $('#anx'); const aviso = document.createElement('div'); aviso.className = 'm anx-prog'; if (box0) box0.appendChild(aviso);
@@ -1082,11 +1125,13 @@ async function anexarArquivos(mod, id, files) {
   aviso.remove();
   if (!novos.length) return;
   r = data[mod].find(x => x.id === id);
-  const hist = (r.historico || []).concat(novos.map(n => ({ em: n.em, txt: 'Anexo incluído: ' + n.nome, por: n.por }))).slice(-100);
+  const hist = (r.historico || []).concat(novos.map(n => ({ em: n.em, txt: (resposta ? 'Resposta do órgão anexada: ' : 'Anexo incluído: ') + n.nome, por: n.por }))).slice(-100);
+  if (resposta) novos.forEach(n => { n.resposta = true; });
   const row = await store.saveRow(mod, id, { anexos: (r.anexos || []).concat(novos), historico: hist });
   upsertLocal(mod, row);
   const box = $('#anx'); if (box && drawer.id === id) { box.innerHTML = anexosHtml(row); carregarMiniaturas(); }
-  toast(novos.length === 1 ? 'Arquivo anexado' : novos.length + ' arquivos anexados');
+  toast(resposta ? 'Resposta do órgão registrada. Ela aparece na consulta do cidadão.' : novos.length === 1 ? 'Arquivo anexado' : novos.length + ' arquivos anexados');
+  if (resposta && mod === 'servicos' && ['Recebida', 'Ofício enviado'].includes(row.status)) setTimeout(() => toast('Se o órgão já resolveu, mude a situação para “Atendida” ou “Em execução”.'), 2700);
 }
 async function removerAnexo(mod, id, i) {
   const r = data[mod].find(x => x.id === id); const a = (r?.anexos || []).slice(); const x = a[i]; if (!x) return;
@@ -1107,6 +1152,33 @@ function relFiltrados() {
     const d = String(DATA_REL[m](r) || '').slice(0, 10);
     return (!f.de || d >= f.de) && (!f.ate || d <= f.ate) && (!f.municipio || r.municipio === f.municipio) && (!f.bairro || r.bairro === f.bairro) && (!f.status || r.status === f.status);
   }).sort((a, b) => String(DATA_REL[m](a) || '').localeCompare(String(DATA_REL[m](b) || '')));
+}
+/** Tempo de resposta por órgão: ofícios enviados, respondidos, sem resposta e média de dias. */
+function rankingOrgaos() {
+  const dia = v => v ? new Date(String(v).length <= 10 ? v + 'T12:00:00' : v).getTime() : NaN;
+  const por = {};
+  data.servicos.forEach(r => {
+    const h = r.historico || [];
+    const env = h.find(x => /→ Ofício enviado$/.test(x.txt || ''));
+    const envio = dia(r.data_envio) || dia(env && env.em);
+    if (!envio) return; // ainda não foi enviado
+    const org = (r.orgao || 'Sem órgão').trim();
+    const o = por[org] || (por[org] = { org, enviados: 0, resp: 0, dias: 0, abertos: 0, maisVelho: 0 });
+    o.enviados++;
+    const resp = h.find(x => /^Resposta do órgão anexada|→ (Em execução|Atendida|Não atendida)$/.test(x.txt || '') && dia(x.em) >= envio - 86400000);
+    if (resp) { o.resp++; o.dias += Math.max(0, (dia(resp.em) - envio) / 86400000); }
+    else if (isOpen('servicos', r)) { o.abertos++; o.maisVelho = Math.max(o.maisVelho, Math.floor((Date.now() - envio) / 86400000)); }
+  });
+  return Object.values(por).map(o => ({ ...o, media: o.resp ? Math.round(o.dias / o.resp) : null }))
+    .sort((a, b) => (b.abertos ? b.maisVelho : -1) - (a.abertos ? a.maisVelho : -1) || (b.media ?? -1) - (a.media ?? -1));
+}
+function rankingHtml() {
+  const lista = rankingOrgaos(); if (!lista.length) return '';
+  return `<section class="panel" style="margin-top:14px"><h3 class="rk-titulo">Tempo de resposta das secretarias</h3>
+    <p class="m" style="margin-top:0">Conta a partir do envio do ofício até a primeira resposta (resposta anexada ou situação “Em execução”, “Atendida” ou “Não atendida”). As que estão há mais tempo sem responder aparecem primeiro.</p>
+    <table class="rtab"><thead><tr><th>Órgão</th><th class="num">Responde em</th><th class="num">Sem resposta</th></tr></thead><tbody>
+    ${lista.map(o => `<tr><td>${esc(o.org)}<div class="m" style="font-size:11.5px">${o.enviados} enviado${o.enviados === 1 ? '' : 's'} · ${o.resp} respondido${o.resp === 1 ? '' : 's'}</div></td><td class="num">${o.media == null ? '—' : o.media + ' dia' + (o.media === 1 ? '' : 's')}</td><td class="num">${o.abertos ? `<b class="rk-alerta">${o.abertos}</b><div class="m" style="font-size:11.5px">há ${o.maisVelho} dias</div>` : '0'}</td></tr>`).join('')}
+    </tbody></table></section>`;
 }
 function renderRelatorios() {
   const f = state.rel, m = f.mod, M = MODS[m];
@@ -1148,6 +1220,7 @@ function renderRelatorios() {
         ${M.fields.some(x => x.k === 'tipo') ? tabela('Por tipo', conta('tipo', 'Sem tipo')) : ''}
         ${M.fields.some(x => x.k === 'responsavel') ? tabela('Por responsável', conta('responsavel', 'Sem responsável')) : ''}
       </div>
+      ${m === 'servicos' ? rankingHtml() : ''}
       <section class="panel" style="margin-top:14px"><h3>Lista (${rows.length})</h3><div class="rtab-wrap"><table class="rtab det"><thead><tr>${colsDet.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>${rows.map(linha).join('')}</tbody></table></div></section>`
       : '<div class="empty"><b>Nenhum registro nesse filtro</b>Mude o período ou os filtros acima.</div>'}
     </div>`;
@@ -1900,9 +1973,11 @@ function renderConsulta(prot = '', msgErro = '', tel = '', res = null) {
         <div class="m">Protocolo <b class="num">${esc(res.protocolo)}</b></div>
         <div class="t" style="font-weight:700;font-size:16px">${esc(res.assunto || '')}</div>
         <div><span class="pill ${STATUS_KIND[sit] || ''}">${esc(res.status)}</span></div>
+        ${(() => { const passo = { novo: 0, and: 1, ok: 2, neg: 2 }[sit] ?? 0; const nomes = ['Recebido', 'Em andamento', sit === 'neg' ? 'Arquivado' : 'Concluído'];
+          return `<ol class="etapas${sit === 'neg' ? ' neg' : ''}" aria-label="Etapas do pedido">${nomes.map((n, i) => `<li class="${i < passo ? 'feito' : i === passo ? 'atual' : ''}"${i === passo ? ' aria-current="step"' : ''}><span class="bola">${i < passo || (i === passo && passo === 2) ? '✓' : i + 1}</span><span>${n}</span></li>`).join('')}</ol>`; })()}
         <p class="m" style="margin:0">${esc(frase)}</p>
         <div class="m">Aberto em ${esc(fmtDate(String(res.aberto_em).slice(0, 10)))}${res.atualizado_em ? ' · última atualização em ' + esc(fmtDate(String(res.atualizado_em).slice(0, 10))) : ''}</div>
-        ${(res.linha || []).length ? `<ol class="consulta-linha">${res.linha.map(h => `<li><time>${esc(fmtDate(String(h.em).slice(0, 10)))}</time> ${esc(h.txt)}</li>`).join('')}</ol>` : ''}
+        ${(res.linha || []).length ? `<div class="eyebrow" style="margin-top:6px">O que já aconteceu</div><ol class="consulta-linha">${res.linha.slice().reverse().map((h, i) => `<li class="${i === 0 ? 'ult' : ''}"><time>${esc(fmtDate(String(h.em).slice(0, 10)))}</time><span>${esc(h.txt)}</span></li>`).join('')}</ol>` : ''}
       </div><button class="btn" id="cs-outra" type="button" style="justify-content:center">Consultar outro protocolo</button>`
     : `<p class="pt-sub">Digite o número do protocolo que você recebeu e o celular informado no pedido.</p>
       <form id="fcons" style="display:flex;flex-direction:column;gap:12px" novalidate>
@@ -2006,6 +2081,8 @@ document.addEventListener('click', e => {
   const g = e.target.closest('[data-go]'); if (g) { e.preventDefault(); go(g.dataset.go); return; }
   const o = e.target.closest('[data-open]'); if (o) { const [m, id] = o.dataset.open.split(':'); openDrawer(m, id); return; }
   if (e.target.closest('[data-close]')) { closeDrawer(); return; }
+  if (e.target.closest('[data-ranking]')) { Object.assign(state.rel, { mod: 'servicos', municipio: '', bairro: '', status: '' }); go('relatorios'); setTimeout(() => document.querySelector('.rk-titulo')?.scrollIntoView({ behavior: 'smooth' }), 300); return; }
+  if (e.target.closest('[data-ver-paradas]')) { state.filterNext = 'paradas'; go('demandas'); return; }
   const f = e.target.closest('[data-filter]'); if (f) { state.filter = f.dataset.filter; render(); return; }
   const w = e.target.closest('[data-win]'); if (w) { state.agendaWin = w.dataset.win; render(); return; }
   const nf = e.target.closest('[data-new-for]'); if (nf) { const p = data.pessoas.find(x => x.id === drawer.id); closeDrawer(); go(nf.dataset.newFor); openDrawer(nf.dataset.newFor, null, { solicitante: p?.nome, telefone: p?.telefone, municipio: p?.municipio, bairro: p?.bairro }); return; }
@@ -2016,6 +2093,7 @@ document.addEventListener('click', e => {
   if (agendasClique(e)) return;
   const cd = e.target.closest('[data-cal-dia]'); if (cd) { openDrawer('agenda', null, { data: cd.dataset.calDia }); return; }
   const cn = e.target.closest('[data-cal-nav]'); if (cn) { const [y, mo] = (state.cal || todayStr().slice(0, 7)).split('-').map(Number); const n = +cn.dataset.calNav; state.cal = n === 0 ? '' : ymd(new Date(y, mo - 1 + n, 1)).slice(0, 7); render(); return; }
+  const cpv = e.target.closest('#overlay [data-comprovante]'); if (cpv) { baixarComprovante(cpv.dataset.comprovante, cpv); return; }
   const cpy = e.target.closest('#overlay [data-copiar]'); if (cpy) { copiarTexto(cpy.dataset.copiar, cpy.dataset.copiarMsg || 'Copiado'); return; }
   const rdel = e.target.closest('[data-rota-del]'); if (rdel) { state.rota.splice(+rdel.dataset.rotaDel, 1); atualizarRota(); return; }
   if (e.target.closest('[data-rota-ordenar]')) { state.rota = ordenarRota(state.rota); atualizarRota(); toast('Paradas em ordem pelo caminho mais curto'); return; }
@@ -2083,6 +2161,7 @@ document.addEventListener('change', async e => {
   if (e.target.id === 'mapa-per' || e.target.id === 'mapa-org') { state.mapa[e.target.id === 'mapa-per' ? 'per' : 'org'] = e.target.value; render(); return; }
   if (e.target.id === 'gf-de' || e.target.id === 'gf-ate') { state.graf[e.target.id === 'gf-de' ? 'de' : 'ate'] = e.target.value; render(); return; }
   const el = e.target;
+  if (el.dataset && 'anxResposta' in el.dataset) { const files = [...el.files]; el.value = ''; if (files.length) anexarArquivos(drawer.mod, drawer.id, files, true).catch(err => toast('Não foi possível anexar: ' + errMsg(err))); return; }
   if (el.dataset && 'anxAdd' in el.dataset) { const files = [...el.files]; el.value = ''; if (files.length) anexarArquivos(drawer.mod, drawer.id, files).catch(err => toast('Não foi possível anexar: ' + errMsg(err))); return; }
   if (el.dataset && el.dataset.rel) { state.rel[el.dataset.rel] = el.value; if (el.dataset.rel === 'mod') Object.assign(state.rel, { municipio: '', bairro: '', status: '' }); render(); return; }
   if (el.dataset && el.dataset.rem) { state.rem[el.dataset.rem] = el.value; render(); return; }
