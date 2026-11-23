@@ -659,3 +659,6 @@ body.mapa-cheio{overflow:hidden}
 .urg-aviso{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;margin-top:12px;padding:12px 16px;border-radius:16px;border:1px solid rgba(231,76,60,.6);background:rgba(231,76,60,.14);font-size:14px}
 .semana-kpis .kpi .big{font-size:40px}
 .ag-item.sem-item{display:block;cursor:pointer}
+.parecido-aviso{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:12px 14px;border-radius:16px;border:1px solid rgba(241,196,15,.55);background:rgba(241,196,15,.12);font-size:14px;color:inherit}
+.parecido-aviso>span{flex-basis:100%}
+.parecido-aviso .btn{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
