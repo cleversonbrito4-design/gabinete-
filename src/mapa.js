@@ -4,7 +4,7 @@
 let L = null;
 let mapa = null, camada = null;
 
-const chave = (bairro, mun) => (bairro + '|' + mun).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+export const chave = (bairro, mun) => (bairro + '|' + mun).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
 
 async function carregarLeaflet() {
   if (L) return L;
@@ -13,24 +13,114 @@ async function carregarLeaflet() {
   return L;
 }
 
-/** Procura o centro do bairro no OpenStreetMap (no máximo 1 pedido por segundo). */
-async function geocodificar(bairro, mun, uf) { return buscarEndereco([bairro, mun, uf].filter(Boolean).join(', ')); }
-/** Procura um endereço livre (rua, nº, bairro, cidade). Devolve [lat, lon] ou null. */
-export async function buscarEndereco(texto) {
-  const q = new URLSearchParams({ format: 'jsonv2', limit: '1', countrycodes: 'br', 'accept-language': 'pt-BR', q: texto + ', Brasil' });
+/* ================= busca de endereços e bairros =================
+   1º OpenStreetMap (Nominatim), sempre preso à área do município, para não
+   cair em outra cidade com o mesmo nome (ex.: Cascavel–CE).
+   2º Photon (também OpenStreetMap, mas aceita erros de digitação).
+   Um pedido por segundo no Nominatim, como ele exige. */
+const UF_NOME = { AC: 'Acre', AL: 'Alagoas', AP: 'Amapá', AM: 'Amazonas', BA: 'Bahia', CE: 'Ceará', DF: 'Distrito Federal', ES: 'Espírito Santo', GO: 'Goiás', MA: 'Maranhão', MT: 'Mato Grosso', MS: 'Mato Grosso do Sul', MG: 'Minas Gerais', PA: 'Pará', PB: 'Paraíba', PR: 'Paraná', PE: 'Pernambuco', PI: 'Piauí', RJ: 'Rio de Janeiro', RN: 'Rio Grande do Norte', RS: 'Rio Grande do Sul', RO: 'Rondônia', RR: 'Roraima', SC: 'Santa Catarina', SP: 'São Paulo', SE: 'Sergipe', TO: 'Tocantins' };
+const semAc = t => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+const espera = ms => new Promise(r => setTimeout(r, ms));
+let proximoNomi = 0;
+async function nominatim(params) {
+  const agora = Date.now(); const d = proximoNomi - agora; proximoNomi = Math.max(agora, proximoNomi) + 1100;
+  if (d > 0) await espera(d);
+  const q = new URLSearchParams({ format: 'jsonv2', countrycodes: 'br', 'accept-language': 'pt-BR', addressdetails: '1', limit: '8', ...params });
   const r = await fetch('https://nominatim.openstreetmap.org/search?' + q.toString(), { headers: { Accept: 'application/json' } });
-  if (!r.ok) throw new Error('Serviço de mapas indisponível agora (' + r.status + ').');
+  if (!r.ok) throw new Error('Serviço de mapas indisponível agora (' + r.status + '). Tente de novo em 1 minuto.');
+  return (await r.json()).map(x => ({ lat: +x.lat, lon: +x.lon, tipo: x.addresstype || x.type, classe: x.category || x.class, nome: x.name || '', end: { ...(x.address || {}), housenumber: (x.address || {}).house_number }, bb: x.boundingbox ? x.boundingbox.map(Number) : null }));
+}
+async function photon(texto, area) {
+  const q = new URLSearchParams({ q: texto, limit: '10' });
+  if (area) { const [s, n, w, e] = area.bb; q.set('bbox', [w, s, e, n].join(',')); q.set('lat', area.centro[0]); q.set('lon', area.centro[1]); }
+  const r = await fetch('https://photon.komoot.io/api/?' + q.toString(), { headers: { Accept: 'application/json' } });
+  if (!r.ok) return [];
   const j = await r.json();
-  return j[0] ? [+j[0].lat, +j[0].lon] : null;
+  return (j.features || []).filter(f => !f.properties.countrycode || f.properties.countrycode === 'BR').map(f => ({ lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0], tipo: f.properties.osm_value, classe: f.properties.osm_key, nome: f.properties.name || f.properties.street || '', end: { city: f.properties.city, suburb: f.properties.district || f.properties.locality, road: f.properties.street || (f.properties.osm_key === 'highway' ? f.properties.name : ''), housenumber: f.properties.housenumber } }));
+}
+
+/* área (retângulo) de cada município; guardada no aparelho */
+const AREAS_CONHECIDAS = { 'cascavel|pr': { bb: [-25.30, -24.65, -53.82, -53.10], centro: [-24.9555, -53.4552] } };
+const areas = {};
+export async function areaMunicipio(mun, uf) {
+  if (!mun) return null;
+  const k = semAc(mun) + '|' + semAc(uf);
+  if (areas[k]) return areas[k];
+  try { const g = JSON.parse(localStorage.getItem('fc-area-' + k) || 'null'); if (g) return (areas[k] = g); } catch { /* ok */ }
+  let a = null;
+  try {
+    const r = await nominatim({ q: [mun, UF_NOME[(uf || '').toUpperCase()] || uf, 'Brasil'].filter(Boolean).join(', '), limit: '5', addressdetails: '0' });
+    const c = r.find(x => ['city', 'town', 'municipality', 'village', 'administrative'].includes(x.tipo) && semAc(x.nome) === semAc(mun)) || r.find(x => semAc(x.nome) === semAc(mun));
+    if (c && c.bb) a = { bb: c.bb, centro: [c.lat, c.lon] };
+  } catch { /* usa o conhecido */ }
+  if (!a) a = AREAS_CONHECIDAS[k] || null;
+  if (a) { areas[k] = a; try { localStorage.setItem('fc-area-' + k, JSON.stringify(a)); } catch { /* ok */ } }
+  return a;
+}
+export const dentro = (p, a, folga = 0.02) => !a || (p[0] >= a.bb[0] - folga && p[0] <= a.bb[1] + folga && p[1] >= a.bb[2] - folga && p[1] <= a.bb[3] + folga);
+const vbox = a => a ? { viewbox: [a.bb[2], a.bb[1], a.bb[3], a.bb[0]].join(','), bounded: '1' } : {};
+
+const TIPOS_BAIRRO = ['suburb', 'neighbourhood', 'quarter', 'residential', 'city_district', 'borough', 'hamlet', 'village', 'locality', 'isolated_dwelling', 'allotments', 'farm', 'farmyard'];
+const PREFIXOS = /^(jardim|jd\.?|parque|pq\.?|vila|vl\.?|conjunto|conj\.?|residencial|res\.?|loteamento|lot\.?|bairro|condominio|condomínio)\s+/i;
+const parecido = (a, b) => { a = semAc(a); b = semAc(b); return !!a && !!b && (a === b || a.includes(b) || b.includes(a)); };
+function melhorBairro(lista, nome, area) {
+  const ok = lista.filter(x => dentro([x.lat, x.lon], area));
+  const base = nome.replace(PREFIXOS, '');
+  const nota = x => (TIPOS_BAIRRO.includes(x.tipo) ? 2 : 0) + (parecido(x.nome, nome) || parecido(x.nome, base) || parecido(x.end.suburb, nome) || parecido(x.end.suburb, base) ? 3 : 0);
+  const b = ok.map(x => [nota(x), x]).filter(([n]) => n >= 3).sort((p, q) => q[0] - p[0])[0];
+  return b ? [b[1].lat, b[1].lon] : null;
+}
+/** Acha o centro de um bairro dentro do município. Devolve [lat, lon] ou null. */
+export async function localizarBairro(bairro, mun, uf) {
+  const area = await areaMunicipio(mun, uf);
+  const nome = String(bairro).replace(/\bjd\.?\s/i, 'Jardim ').replace(/\bpq\.?\s/i, 'Parque ').replace(/\bvl\.?\s/i, 'Vila ').trim();
+  const sem = nome.replace(PREFIXOS, '');
+  const variantes = [...new Set([nome, sem].filter(v => v.length > 2))];
+  for (const v of variantes) {
+    const r = await nominatim({ q: [v, area ? '' : mun].filter(Boolean).join(', '), ...vbox(area) });
+    const p = melhorBairro(r, nome, area); if (p) return p;
+  }
+  try { const p = melhorBairro(await photon(nome + ' ' + mun, area), nome, area); if (p) return p; } catch { /* sem Photon */ }
+  return null;
+}
+/**
+ * Procura um endereço digitado (rua, nº, bairro). Tenta várias formas e devolve
+ * [lat, lon] (com .aviso quando achou só a rua ou o bairro) ou null.
+ */
+export async function buscarEndereco(texto, { mun = '', uf = '' } = {}) {
+  const area = await areaMunicipio(mun, uf);
+  const partes = String(texto).split(/[,–-]/).map(x => x.trim()).filter(Boolean).filter(x => !mun || semAc(x) !== semAc(mun)).filter(x => !uf || semAc(x) !== semAc(uf));
+  const numero = (partes.find((x, i) => i > 0 && /^(n[º°o.]?\s*)?\d+[a-z]?$/i.test(x)) || (/\b(\d{1,5})\s*$/.exec(partes[0] || '') || [])[1] || '').replace(/\D+/g, '');
+  const rua = (partes[0] || '').replace(/\s*(n[º°o.]?\s*)?\d{1,5}\s*$/i, '').trim();
+  const resto = partes.slice(1).filter(x => !/^(n[º°o.]?\s*)?\d+[a-z]?$/i.test(x) && !/^\d{5}-?\d{3}$/.test(x));
+  const cidade = mun || '';
+  const estado = UF_NOME[(uf || '').toUpperCase()] || uf || '';
+  const pegar = (r, exigeRua) => { const x = r.find(y => dentro([y.lat, y.lon], area) && (!exigeRua || !rua || parecido(y.end.road || y.nome, rua.replace(/^(rua|r\.|avenida|av\.?|travessa|tv\.?|rodovia|estrada)\s+/i, '')))); return x ? [x.lat, x.lon] : null; };
+  const tentativas = [];
+  // 1. como foi digitado, preso ao município
+  tentativas.push(() => nominatim({ q: [texto, area ? '' : cidade].filter(Boolean).join(', '), ...vbox(area) }).then(r => pegar(r, false)));
+  if (rua) {
+    // 2. busca por campos (rua + número + cidade)
+    if (numero) tentativas.push(() => nominatim({ street: numero + ' ' + rua, city: cidade, state: estado, country: 'Brasil', ...vbox(area) }).then(r => pegar(r, true)));
+    // 3. só a rua
+    tentativas.push(() => nominatim({ street: rua, city: cidade, state: estado, country: 'Brasil', ...vbox(area) }).then(r => { const p = pegar(r, true); if (p && numero) p.aviso = 'Achei a rua, mas não o número. Arraste o alfinete até a casa.'; return p; }));
+    // 4. Photon (aceita erro de digitação)
+    tentativas.push(() => photon([rua, numero, cidade].filter(Boolean).join(' '), area).then(r => { const p = pegar(r, false); if (p && numero && !r.some(x => x.end.housenumber)) p.aviso = 'Posição aproximada. Confira e arraste o alfinete se precisar.'; return p; }).catch(() => null));
+  }
+  // 5. só o bairro
+  for (const b of resto.slice(0, 1)) tentativas.push(() => localizarBairro(b, cidade, uf).then(p => { if (p) p.aviso = 'Achei só o bairro. Arraste o alfinete até o local exato.'; return p; }));
+  for (const t of tentativas) { const p = await t(); if (p) return p; }
+  return null;
 }
 
 /**
  * grupos: [{ bairro, municipio, total, abertos, atrasados, itens: [{titulo, status}] }]
- * cache: objeto { chave: [lat, lon] | 0 } (0 = não encontrado)
+ * cache: objeto { chave: [lat, lon] | { n: quando não achou } }
+ * pinsBairro: { chave: [lat, lon] } média dos pontos exatos de cada bairro
  * salvarCache(cache) grava o cache no banco.
  * onClique(grupo) ao tocar num círculo.
  */
-export async function desenhar(el, grupos, { cache, salvarCache, uf, cidadePadrao, onProgresso, onClique, esc, pontosExatos = [], onAbrir, onRota, onAviso }) {
+export async function desenhar(el, grupos, { cache, salvarCache, uf, cidadePadrao, onProgresso, onClique, esc, pontosExatos = [], pinsBairro = {}, onAbrir, onRota, onAviso }) {
   await carregarLeaflet();
   if (onAviso) avisar = onAviso;
   if (mapa && mapa.getContainer() !== el) { mapa.remove(); mapa = null; }
@@ -39,15 +129,26 @@ export async function desenhar(el, grupos, { cache, salvarCache, uf, cidadePadra
   camada = L.layerGroup().addTo(mapa);
   indice = {};
 
-  // posições que ainda não conhecemos
-  const faltam = grupos.filter(g => !(chave(g.bairro, g.municipio) in cache));
+  // posição de cada bairro: 1º a média dos pedidos com ponto exato marcado nele;
+  // 2º o que já foi achado antes (se estiver dentro do município); 3º procura agora.
+  const posDe = {};
+  const areaDe = {};
+  for (const g of grupos) { const m = g.municipio || cidadePadrao; if (!(m in areaDe)) areaDe[m] = null; }
+  for (const m in areaDe) { try { areaDe[m] = await areaMunicipio(m, uf); } catch { /* sem área */ } }
+  const precisaProcurar = g => {
+    const k = chave(g.bairro, g.municipio), c = cache[k];
+    if (pinsBairro[k]) { posDe[k] = pinsBairro[k]; return false; }
+    if (Array.isArray(c) && dentro(c, areaDe[g.municipio || cidadePadrao])) { posDe[k] = c; return false; }
+    if (c && c.n && Date.now() - c.n < 3 * 864e5) return false; // não achou há menos de 3 dias
+    return true;
+  };
+  const faltam = grupos.filter(precisaProcurar);
   let mudou = false;
   for (let i = 0; i < faltam.length; i++) {
-    const g = faltam[i];
+    const g = faltam[i], k = chave(g.bairro, g.municipio);
     if (onProgresso) onProgresso(i + 1, faltam.length);
-    try { cache[chave(g.bairro, g.municipio)] = (await geocodificar(g.bairro, g.municipio || cidadePadrao, uf)) || 0; mudou = true; }
+    try { const p = await localizarBairro(g.bairro, g.municipio || cidadePadrao, uf); cache[k] = p ? [p[0], p[1]] : { n: Date.now() }; if (p) posDe[k] = cache[k]; mudou = true; }
     catch { break; }
-    if (i < faltam.length - 1) await new Promise(r => setTimeout(r, 1100));
   }
   if (mudou && salvarCache) { try { await salvarCache(cache); } catch { /* segue sem guardar */ } }
   if (onProgresso) onProgresso(0, 0);
@@ -57,7 +158,7 @@ export async function desenhar(el, grupos, { cache, salvarCache, uf, cidadePadra
   const pontos = []; const semLocal = [];
   const idx = (bairro, mun) => { const k = chave(bairro || '', mun || ''); return indice[k] || (indice[k] = { pts: [], circulo: null }); };
   for (const g of grupos) {
-    const pos = cache[chave(g.bairro, g.municipio)];
+    const pos = posDe[chave(g.bairro, g.municipio)];
     if (!pos) { semLocal.push(g); continue; }
     pontos.push(pos);
     const cor = corDe(g.atrasados, g.abertos);
