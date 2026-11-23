@@ -32,16 +32,20 @@ async function setConfig(id: string, valor: unknown) {
   if (error) throw error;
 }
 
+// Confere a equipe pelo próprio banco (PostgREST valida a assinatura do token), sem
+// depender da sessão ainda existir no Auth (o celular/computador pode ter um token
+// válido de uma sessão já encerrada, e aí auth.getUser falha com "session missing").
 async function quemE(req: Request) {
   const jwt = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
-  const falha = async (motivo: string) => { await setConfig('agenda_auth_falha', { em: new Date().toISOString(), motivo, jwt: jwt.split('.').length === 3 ? 'jwt' : jwt.slice(0, 14) }).catch(() => {}); return null; };
-  if (!jwt) return falha('sem Authorization');
-  const { data, error } = await admin.auth.getUser(jwt);
-  const email = data?.user?.email?.toLowerCase();
-  if (!email) return falha('getUser: ' + (error?.message || 'sem e-mail'));
-  const { data: e, error: e2 } = await admin.from('equipe').select('email, admin').eq('email', email).maybeSingle();
-  if (!e) return falha('equipe: ' + (e2?.message || 'e-mail fora da equipe'));
-  return { email, admin: !!e.admin };
+  if (jwt.split('.').length !== 3) return null;
+  const comoUsuario = createClient(Deno.env.get('SUPABASE_URL')!, (Deno.env.get('SUPABASE_ANON_KEY') || Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'))!, {
+    auth: { persistSession: false }, global: { headers: { Authorization: 'Bearer ' + jwt } },
+  });
+  const [eq, ad] = await Promise.all([comoUsuario.rpc('is_equipe'), comoUsuario.rpc('is_admin')]);
+  if (eq.error || eq.data !== true) return null;
+  let email = '';
+  try { email = String(JSON.parse(atob(((p: string) => p + '='.repeat((4 - p.length % 4) % 4))(jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))).email || '').toLowerCase(); } catch { /* ok */ }
+  return { email, admin: ad.data === true };
 }
 
 async function linkAtual(req: Request, trocar = false) {
