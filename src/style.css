@@ -653,3 +653,4 @@ body.mapa-cheio{overflow:hidden}
 .consulta-linha li:last-child{padding-bottom:0}
 .consulta-linha time{font-size:12px}
 .rk-alerta{color:#f0b43c}
+.cel-aviso{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;margin:-4px 0 12px;padding:10px 14px;border-radius:14px;border:1px solid rgba(75,163,227,.4);background:rgba(75,163,227,.12);font-size:14px}
