@@ -654,3 +654,8 @@ body.mapa-cheio{overflow:hidden}
 .consulta-linha time{font-size:12px}
 .rk-alerta{color:#f0b43c}
 .cel-aviso{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;margin:-4px 0 12px;padding:10px 14px;border-radius:14px;border:1px solid rgba(75,163,227,.4);background:rgba(75,163,227,.12);font-size:14px}
+.prio.urgente{color:#fff;background:#c0392b;padding:2px 7px;border-radius:999px}
+.row.row-urg{border-color:rgba(231,76,60,.65)!important;box-shadow:inset 4px 0 0 #e74c3c}
+.urg-aviso{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;margin-top:12px;padding:12px 16px;border-radius:16px;border:1px solid rgba(231,76,60,.6);background:rgba(231,76,60,.14);font-size:14px}
+.semana-kpis .kpi .big{font-size:40px}
+.ag-item.sem-item{display:block;cursor:pointer}

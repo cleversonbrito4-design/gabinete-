@@ -42,6 +42,7 @@ function parseMoney(s) { if (s == null || s === '') return null; const n = parse
 const kindOf = (mod, st) => { const f = MODS[mod].statuses.find(x => x[0] === st); return f ? f[1] : 'novo'; };
 const STATUS_KIND = { novo: 'k-novo', and: 'k-and', ok: 'k-ok', neg: 'k-neg' };
 const isOpen = (mod, r) => mod === 'pessoas' ? r.status !== 'Inativo' : mod === 'agenda' ? (r.data >= todayStr() && r.status !== 'Cancelado') : ['novo', 'and'].includes(kindOf(mod, r.status));
+const isUrgente = (mod, r) => mod === 'demandas' && r.prioridade === 'Urgente' && isOpen(mod, r);
 /** Demanda em aberto sem nenhuma novidade (nela ou no ofício ligado) há 15 dias ou mais: devolve os dias, senão 0. */
 const DIAS_PARADA = 15;
 function diasParada(r) {
@@ -151,7 +152,7 @@ const state = { rota: [], cal: '', disp: null, rem: { ano: '', municipio: '' }, 
 const drawer = { open: false, mod: null, id: null, geo: null };
 let geoMini = null; // mapinha aberto dentro do registro
 let pedidoInstalar = null; // convite do navegador para instalar o app
-const VIEWS = ['agendas', 'graficos', 'admin', 'disparo', 'painel', 'etiquetas', 'conta', 'relatorios', 'importar', 'mapa', 'resumo-emendas', 'cidadao', ...ORDER];
+const VIEWS = ['semana', 'agendas', 'graficos', 'admin', 'disparo', 'painel', 'etiquetas', 'conta', 'relatorios', 'importar', 'mapa', 'resumo-emendas', 'cidadao', ...ORDER];
 
 function readHash() { const h = location.hash.slice(1); if (VIEWS.includes(h)) state.view = h; }
 window.addEventListener('hashchange', () => { readHash(); state.q = state.qNext || ''; state.filter = state.filterNext || (state.qNext ? 'todos' : 'abertos'); state.filterNext = ''; state.qNext = ''; render(); });
@@ -286,6 +287,33 @@ function banner() {
 }
 
 /* ---------- painel ---------- */
+/** Resumo dos últimos 7 dias, pensado para o vereador ler no celular. */
+function renderSemana() {
+  const t = todayStr(), ini = addDays(t, -6), fimAg = addDays(t, 7);
+  const naSemana = v => { const d = String(v || '').slice(0, 10); return d >= ini && d <= t; };
+  const novas = data.demandas.filter(r => naSemana(r.criado_em));
+  const atendidas = data.demandas.filter(r => kindOf('demandas', r.status) === 'ok' && (r.historico || []).some(h => /→ Concluída$|^Cadastrado como “Concluída”/.test(h.txt || '') && naSemana(h.em)));
+  const enviados = data.servicos.filter(r => naSemana(r.data_envio) || (r.historico || []).some(h => /→ Ofício enviado$/.test(h.txt || '') && naSemana(h.em)));
+  const respostas = data.servicos.filter(r => (r.historico || []).some(h => /^Resposta do órgão anexada|→ (Em execução|Atendida|Não atendida)$/.test(h.txt || '') && naSemana(h.em)));
+  const urg = data.demandas.filter(r => isUrgente('demandas', r));
+  const semResp = data.servicos.filter(r => diasSemResposta(r) >= DIAS_REITERAR).sort((a, b) => diasSemResposta(b) - diasSemResposta(a));
+  const paradas = data.demandas.filter(r => diasParada(r));
+  const ag = data.agenda.filter(r => r.data >= t && r.data <= fimAg && r.status !== 'Cancelado').sort((a, b) => (a.data + hhmm(a.inicio)).localeCompare(b.data + hhmm(b.inicio)));
+  const bairros = {}; novas.forEach(r => { if (r.bairro) bairros[r.bairro.trim()] = (bairros[r.bairro.trim()] || 0) + 1; });
+  const topB = Object.entries(bairros).sort((a, b) => b[1] - a[1]).slice(0, 3);
+  const num = (n, rot, cls = '') => `<div class="kpi ${cls}"><span class="big">${n}</span><span class="sub">${rot}</span></div>`;
+  const lista = (titulo, itens, linha, vazio) => `<section class="panel" style="margin-top:12px"><h3>${titulo}</h3>${itens.length ? itens.slice(0, 6).map(linha).join('') + (itens.length > 6 ? `<div class="m" style="margin-top:6px">e mais ${itens.length - 6}…</div>` : '') : `<div class="m">${vazio}</div>`}</section>`;
+  const item = (m, r, txt) => `<div class="ag-item sem-item" data-open="${m}:${r.id}"><div style="min-width:0"><div class="t">${esc(MODS[m].title(r) || '')}</div><div class="m">${esc(txt)}</div></div></div>`;
+  return `<div class="no-print"><a class="linkbtn" data-go="painel">← Painel</a></div>
+    <div class="eyebrow" style="margin-top:6px">${fmtDate(ini)} a ${fmtDate(t)}</div><h2 class="sec" style="margin:2px 0 12px">Resumo da semana</h2>
+    <div class="kpis semana-kpis">${num(novas.length, 'pedidos novos')}${num(atendidas.length, 'pedidos atendidos')}${num(enviados.length, 'ofícios enviados')}${num(respostas.length, 'respostas de secretarias')}</div>
+    ${topB.length ? `<p class="m" style="margin:10px 0 0">Bairros que mais pediram: <b>${topB.map(([b, n]) => esc(b) + ' (' + n + ')').join(', ')}</b></p>` : ''}
+    ${lista('🚨 Urgentes em aberto', urg, r => item('demandas', r, [r.bairro, r.status].filter(Boolean).join(' · ')), 'Nenhuma demanda urgente.')}
+    ${lista('Ofícios sem resposta há 30 dias ou mais', semResp, r => item('servicos', r, [r.orgao, diasSemResposta(r) + ' dias'].filter(Boolean).join(' · ')), 'Todas as secretarias responderam.')}
+    ${lista('Demandas sem novidade há ' + DIAS_PARADA + ' dias ou mais', paradas.sort((a, b) => diasParada(b) - diasParada(a)), r => item('demandas', r, [r.bairro, diasParada(r) + ' dias'].filter(Boolean).join(' · ')), 'Nenhuma demanda parada.')}
+    ${lista('Agenda dos próximos 7 dias', ag, r => item('agenda', r, [r.data === t ? 'Hoje' : fmtDate(r.data), hhmm(r.inicio), r.local].filter(Boolean).join(' · ')), 'Nada marcado.')}
+    <div class="no-print" style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="rel-print" type="button">Imprimir / salvar PDF</button></div>`;
+}
 function renderPainel() {
   const t = todayStr(), w = addDays(t, 7);
   const kpi = (m, big, sub, extra = '') => `<button class="kpi" data-go="${m}"><span class="eyebrow">${MODS[m].label}</span><span class="big">${big}</span><span class="sub">${sub}</span>${extra}</button>`;
@@ -337,8 +365,8 @@ function renderPainel() {
   const mun = Object.entries(porMun).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([s, n]) => ({ s, n, v: n, c: 'var(--accent)' }));
   const munHtml = mun.length ? bars(mun, Math.max(...mun.map(x => x.v)), v => v) : `<div class="empty"><b>Sem demandas em aberto</b></div>`;
 
-  return `${banner()}<div class="eyebrow">${fmtDay(t)}</div><div class="ola"><h2 class="sec">Olá${myName() ? ', ' + esc(primeiroNome(myName())) : ''}</h2><button class="btn primary" type="button" data-novo="agenda">+ Compromisso</button></div>
-    <div class="kpis">${kpis}</div>${(() => { const n = data.demandas.filter(r => diasParada(r)).length; return n ? `<div class="parada-aviso"><span>⏳ <b>${n}</b> demanda${n === 1 ? '' : 's'} sem novidade há mais de ${DIAS_PARADA} dias. Dê um retorno antes de o cidadão cobrar.</span><button class="btn mini" type="button" data-ver-paradas>Ver quais</button></div>` : ''; })()}
+  return `${banner()}<div class="eyebrow">${fmtDay(t)}</div><div class="ola"><h2 class="sec">Olá${myName() ? ', ' + esc(primeiroNome(myName())) : ''}</h2><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" type="button" data-semana>📋 Resumo da semana</button><button class="btn primary" type="button" data-novo="agenda">+ Compromisso</button></div></div>
+    <div class="kpis">${kpis}</div>${(() => { const n = data.demandas.filter(r => isUrgente('demandas', r)).length; return n ? `<div class="urg-aviso"><span>🚨 <b>${n}</b> demanda${n === 1 ? '' : 's'} urgente${n === 1 ? '' : 's'} em aberto.</span><button class="btn mini" type="button" data-ver-urgentes>Ver quais</button></div>` : ''; })()}${(() => { const n = data.demandas.filter(r => diasParada(r)).length; return n ? `<div class="parada-aviso"><span>⏳ <b>${n}</b> demanda${n === 1 ? '' : 's'} sem novidade há mais de ${DIAS_PARADA} dias. Dê um retorno antes de o cidadão cobrar.</span><button class="btn mini" type="button" data-ver-paradas>Ver quais</button></div>` : ''; })()}
     <div class="cols">
       <div style="display:flex;flex-direction:column;gap:18px;min-width:0">
         <section class="panel"><h3>Próximos 7 dias na agenda <a data-go="agenda">ver agenda</a></h3>${agHtml}<button class="btn primary mini-full" type="button" data-novo="agenda">+ Compromisso</button></section>
@@ -381,6 +409,7 @@ function filtered(m) {
     if (state.filter === 'abertos') a = a.filter(r => isOpen(m, r));
     else if (state.filter === 'atrasados') a = a.filter(r => isLate(m, r));
     else if (state.filter === 'semresp') a = a.filter(r => m === 'servicos' && diasSemResposta(r) >= DIAS_REITERAR).sort((x, y) => diasSemResposta(y) - diasSemResposta(x));
+    else if (state.filter === 'urgentes') a = a.filter(r => isUrgente(m, r));
     else if (state.filter === 'paradas') a = a.filter(r => m === 'demandas' && diasParada(r)).sort((x, y) => diasParada(y) - diasParada(x));
     else if (state.filter === 'meus') a = a.filter(r => r.responsavel && r.responsavel === myName());
     else if (state.filter !== 'todos') a = a.filter(r => r.status === state.filter);
@@ -390,8 +419,8 @@ function filtered(m) {
       if (q) a = a.filter(r => Object.values(r).some(v => (typeof v === 'string' || typeof v === 'number') && (String(v).toLowerCase().includes(q) || (qd.length >= 4 && String(v).replace(/\D/g, '').includes(qd)))));
       return a;
     }
-    const px = { Alta: 0, 'Média': 1, Baixa: 2 };
-    a.sort((x, y) => { const lx = isLate(m, x) ? 0 : 1, ly = isLate(m, y) ? 0 : 1; if (lx !== ly) return lx - ly; const d = (px[x.prioridade] ?? 1) - (px[y.prioridade] ?? 1); if (d) return d; return String(y.criado_em || '').localeCompare(String(x.criado_em || '')); });
+    const px = { Urgente: -1, Alta: 0, 'Média': 1, Baixa: 2 };
+    a.sort((x, y) => { const ux = isUrgente(m, x) ? 0 : 1, uy = isUrgente(m, y) ? 0 : 1; if (ux !== uy) return ux - uy; const lx = isLate(m, x) ? 0 : 1, ly = isLate(m, y) ? 0 : 1; if (lx !== ly) return lx - ly; const d = (px[x.prioridade] ?? 1) - (px[y.prioridade] ?? 1); if (d) return d; return String(y.criado_em || '').localeCompare(String(x.criado_em || '')); });
   }
   if (q) a = a.filter(r => Object.values(r).some(v => (typeof v === 'string' || typeof v === 'number') && (String(v).toLowerCase().includes(q) || (qd.length >= 4 && String(v).replace(/\D/g, '').includes(qd)))));
   return a;
@@ -412,8 +441,8 @@ function midText(m, r) {
 function rowHtml(m, r) {
   if (m === 'pessoas') return `<button class="row" data-open="pessoas:${r.id}"><div style="min-width:0"><div class="t">${esc(r.nome)}</div><div class="m">${esc(MODS.pessoas.meta(r))}</div></div><div class="mid m">${esc(midText(m, r))}</div><div class="right">${r.status === 'Inativo' ? '<span class="pill k-neg">Inativo</span>' : r.tipo === 'Liderança' ? '<span class="pill k-novo">Liderança</span>' : ''}</div></button>`;
   const late = isLate(m, r);
-  const pr = r.prioridade ? `<span class="prio ${r.prioridade === 'Alta' ? 'alta' : r.prioridade === 'Média' ? 'media' : 'baixa'}">${esc(r.prioridade)}</span> ` : '';
-  return `<button class="row" data-open="${m}:${r.id}"><div style="min-width:0"><div class="t">${esc(MODS[m].title(r))}</div><div class="m">${pr}${esc(MODS[m].meta(r))}</div></div><div class="mid m ${m === 'emendas' ? 'num' : ''}">${esc(midText(m, r))}</div><div class="right"><span class="pill ${late ? 'k-late' : STATUS_KIND[kindOf(m, r.status)]}">${late ? 'Atrasado' : esc(r.status)}</span></div></button>`;
+  const pr = r.prioridade ? `<span class="prio ${r.prioridade === 'Urgente' ? 'urgente' : r.prioridade === 'Alta' ? 'alta' : r.prioridade === 'Média' ? 'media' : 'baixa'}">${r.prioridade === 'Urgente' ? '🚨 ' : ''}${esc(r.prioridade)}</span> ` : '';
+  return `<button class="row${isUrgente(m, r) ? ' row-urg' : ''}" data-open="${m}:${r.id}"><div style="min-width:0"><div class="t">${esc(MODS[m].title(r))}</div><div class="m">${pr}${esc(MODS[m].meta(r))}</div></div><div class="mid m ${m === 'emendas' ? 'num' : ''}">${esc(midText(m, r))}</div><div class="right"><span class="pill ${late ? 'k-late' : STATUS_KIND[kindOf(m, r.status)]}">${late ? 'Atrasado' : esc(r.status)}</span></div></button>`;
 }
 
 function chip(attr, k, l, on) { return `<button class="chip" ${attr}="${esc(k)}" aria-pressed="${on}">${esc(l)}</button>`; }
@@ -432,7 +461,7 @@ function renderList(m) {
     const novos = quemPediuSemCadastro();
     if (novos.length) extra += `<div class="no-print aviso-contatos" style="margin:6px 0;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span class="m"><b>${novos.length}</b> pessoa(s) que fizeram pedidos ainda não estão na lista.</span><button class="btn mini primary" data-trazer-pedidos>Colocar na lista</button></div>`;
   } else {
-    const opts = [['abertos', 'Em aberto']].concat(M.deadline ? [['atrasados', 'Atrasados']] : []).concat(m === 'demandas' ? [['paradas', 'Sem retorno ' + DIAS_PARADA + '+ dias']] : []).concat(m === 'servicos' ? [['semresp', 'Sem resposta ' + DIAS_REITERAR + '+ dias']] : []).concat(M.fields.some(f => f.k === 'responsavel') ? [['meus', 'Comigo']] : []).concat([['todos', 'Todos']], M.statuses.map(s => [s[0], s[0]]));
+    const opts = [['abertos', 'Em aberto']].concat(M.deadline ? [['atrasados', 'Atrasados']] : []).concat(m === 'demandas' ? [['urgentes', '🚨 Urgentes'], ['paradas', 'Sem retorno ' + DIAS_PARADA + '+ dias']] : []).concat(m === 'servicos' ? [['semresp', 'Sem resposta ' + DIAS_REITERAR + '+ dias']] : []).concat(M.fields.some(f => f.k === 'responsavel') ? [['meus', 'Comigo']] : []).concat([['todos', 'Todos']], M.statuses.map(s => [s[0], s[0]]));
     chips = opts.map(([k, l]) => chip('data-filter', k, l, state.filter === k)).join('');
     if (['demandas', 'servicos'].includes(m)) extra = `<div class="no-print" style="margin-bottom:4px"><button class="btn mini" data-mapa-de="${m}">Ver no mapa</button></div>`;
     if (m === 'recepcao') { chips = chip('data-filter', 'abertos', 'Fila agora', state.filter === 'abertos') + chip('data-filter', 'hoje', 'Hoje', state.filter === 'hoje') + chip('data-filter', 'todos', 'Todos', state.filter === 'todos'); const n = data.recepcao.filter(r => r.status === 'Aguardando').length; extra = `<div class="m" style="margin-bottom:4px">${n ? `<b>${n}</b> pessoa(s) aguardando.` : 'Ninguém aguardando agora.'}</div>`; }
@@ -533,7 +562,7 @@ function render() {
   const hadFocus = document.activeElement && document.activeElement.id === 'q'; const pos = hadFocus ? document.activeElement.selectionStart : 0;
   if (state.view !== 'etiquetas') $('#page-css').textContent = '';
   if (state.view === 'admin') setTimeout(async () => { const b = $('#modelos-box'); if (b) b.innerHTML = await modelosHtml(); carregarAdmin(); }, 0);
-  main.innerHTML = state.view === 'painel' ? renderPainel() : state.view === 'agendas' ? renderAgendas() : state.view === 'etiquetas' ? renderEtiquetas() : state.view === 'conta' ? renderConta() : state.view === 'admin' ? renderAdmin() : state.view === 'graficos' ? renderGraficos() : state.view === 'relatorios' ? renderRelatorios() : state.view === 'importar' ? renderImportar() : state.view === 'mapa' ? renderMapa() : state.view === 'resumo-emendas' ? renderResumoEmendas() : state.view === 'cidadao' ? renderCidadao() : state.view === 'disparo' ? renderDisparo() : renderList(state.view);
+  main.innerHTML = state.view === 'painel' ? renderPainel() : state.view === 'semana' ? renderSemana() : state.view === 'agendas' ? renderAgendas() : state.view === 'etiquetas' ? renderEtiquetas() : state.view === 'conta' ? renderConta() : state.view === 'admin' ? renderAdmin() : state.view === 'graficos' ? renderGraficos() : state.view === 'relatorios' ? renderRelatorios() : state.view === 'importar' ? renderImportar() : state.view === 'mapa' ? renderMapa() : state.view === 'resumo-emendas' ? renderResumoEmendas() : state.view === 'cidadao' ? renderCidadao() : state.view === 'disparo' ? renderDisparo() : renderList(state.view);
   if (state.view === 'mapa') setTimeout(desenharMapa, 0); else mapaLib.destruir();
   if (hadFocus) { const q = $('#q'); if (q) { q.focus(); try { q.setSelectionRange(pos, pos); } catch { /* ok */ } } }
   if (drawer.open) refreshDatalists();
@@ -1066,6 +1095,7 @@ function avisos() {
   }));
   data.tarefas.forEach(r => { if (isOpen('tarefas', r) && r.prazo && r.prazo <= t && (!r.responsavel || r.responsavel === myName())) itens.push({ m: 'tarefas', r, nivel: r.prazo < t ? 'late' : 'and', txt: r.prazo < t ? 'Tarefa atrasada desde ' + fmtDate(r.prazo) : 'Tarefa para hoje', urg: 1 }); });
   data.demandas.forEach(r => { if (r.status === 'Nova' && r.origem === 'Site do gabinete') itens.push({ m: 'demandas', r, nivel: 'novo', txt: 'Pedido novo pelo site', urg: 1 }); });
+  data.demandas.forEach(r => { if (isUrgente('demandas', r) && !itens.some(i => i.r === r)) itens.push({ m: 'demandas', r, nivel: 'late', txt: '🚨 Urgente · ' + (r.status || ''), urg: 1 }); });
   // demandas paradas: as 5 mais antigas, para a equipe dar retorno antes de o cidadão cobrar
   data.demandas.map(r => [r, diasParada(r)]).filter(x => x[1] && !itens.some(i => i.r === x[0])).sort((a, b) => b[1] - a[1]).slice(0, 5)
     .forEach(([r, d]) => itens.push({ m: 'demandas', r, nivel: 'and', txt: 'Sem novidade há ' + d + ' dias', urg: 0 }));
@@ -1310,6 +1340,31 @@ function gruposMapa(regs) {
   }
   return Object.values(por).sort((a, b) => b.total - a.total);
 }
+// Bairros de Cascavel (lista de referência para "onde o gabinete ainda não chegou"; ajuste se faltar algum).
+const BAIRROS_CASCAVEL = ['Alto Alegre', 'Brasília', 'Brasmadeira', 'Canadá', 'Cancelli', 'Cascavel Velho', 'Cataratas', 'Centro', 'Claudete', 'Coqueiral', 'Country', 'Esmeralda', 'Floresta', 'Florais do Paraná', 'Guarujá', 'Interlagos', 'Maria Luiza', 'Morumbi', 'Neva', 'Nova Cidade', 'Pacaembu', 'Parque São Paulo', 'Parque Verde', 'Periolo', 'Pioneiros Catarinenses', 'Recanto Tropical', 'Riviera', 'Santa Cruz', 'Santa Felicidade', 'Santo Onofre', 'São Cristóvão', 'Tropical', 'Universitário', 'XIV de Novembro'];
+const normBairro = b => String(b || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/^(bairro|jardim|jd\.?|vila|vl\.?|conjunto|residencial)\s+/, '').replace(/\s+/g, ' ').trim();
+/** Bairros da cidade do gabinete: com pedidos e nenhum atendido, e (em Cascavel) sem nenhum pedido. */
+function bairrosSemAtendimento() {
+  const cid = normBairro(cfg.cidade_gabinete || 'Cascavel');
+  const daCidade = r => !r.municipio || normBairro(r.municipio) === cid;
+  const por = {};
+  data.demandas.filter(daCidade).forEach(r => { if (!r.bairro) return; const k = normBairro(r.bairro); const g = por[k] || (por[k] = { bairro: r.bairro.trim(), total: 0, ok: 0 }); g.total++; if (kindOf('demandas', r.status) === 'ok') g.ok++; });
+  data.servicos.filter(daCidade).forEach(r => { const b = r.bairro || ''; if (!b) return; const k = normBairro(b); const g = por[k] || (por[k] = { bairro: b.trim(), total: 0, ok: 0 }); g.total++; if (kindOf('servicos', r.status) === 'ok') g.ok++; });
+  const semAtend = Object.values(por).filter(g => !g.ok).sort((a, b) => b.total - a.total);
+  const semPedido = cid === 'cascavel' ? BAIRROS_CASCAVEL.filter(b => !por[normBairro(b)]) : [];
+  return { semAtend, semPedido };
+}
+function bairrosHtml() {
+  const { semAtend, semPedido } = bairrosSemAtendimento();
+  if (!semAtend.length && !semPedido.length) return '';
+  return `<section class="panel" style="margin-top:14px"><h3>Onde o gabinete ainda não chegou</h3>
+    ${semAtend.length ? `<div class="eyebrow" style="margin-top:4px">Com pedidos, mas nenhum atendido ainda (${semAtend.length})</div>
+      <div class="chips" style="margin:6px 0 12px">${semAtend.map(g => `<button class="chip" data-mapa-foco="${esc(g.bairro)}" data-mapa-foco-mun="${esc(cfg.cidade_gabinete || '')}">${esc(g.bairro)} · ${g.total}</button>`).join('')}</div>` : ''}
+    ${semPedido.length ? `<div class="eyebrow">Sem nenhum pedido registrado (${semPedido.length})</div>
+      <div class="chips" style="margin:6px 0 4px">${semPedido.map(b => `<span class="chip" style="cursor:default">${esc(b)}</span>`).join('')}</div>
+      <div class="m" style="font-size:12px">Bons lugares para uma visita do vereador ou para divulgar o formulário de pedidos.</div>` : ''}
+  </section>`;
+}
 /** Ranking: todos os registros com bairro (com ou sem ponto exato). */
 function rankingMapa(regs) {
   const { mod } = state.mapa; const por = {};
@@ -1350,6 +1405,7 @@ function renderMapa() {
         ${rank.length ? `<ol>${rank.slice(0, 15).map(g => `<li><button data-mapa-foco="${esc(g.bairro)}" data-mapa-foco-mun="${esc(g.municipio)}" title="Ver no mapa"><span class="nm">${esc(g.bairro)}${multi && g.municipio ? ` <small>${esc(g.municipio)}</small>` : ''}</span><span class="nr">${g.total}</span><span class="bar"><i style="width:${Math.round(100 * g.total / maxR)}%;background:${g.atrasados ? '#e5484d' : g.abertos ? '#f0a020' : '#3fb06a'}"></i></span>${mod !== 'pessoas' && (g.abertos || g.atrasados) ? `<span class="sub">${g.abertos} em aberto${g.atrasados ? ' · <b>' + g.atrasados + ' atrasado(s)</b>' : ''}</span>` : ''}</button></li>`).join('')}</ol>${rank.length > 15 ? `<p class="m" style="margin:6px 0 0">e mais ${rank.length - 15} bairro(s)</p>` : ''}` : '<p class="m">Nenhum registro com bairro nesse filtro.</p>'}
       </section>
     </div>
+    ${bairrosHtml()}
     <div id="rota-box">${rotaHtml()}</div>
     <div class="m" id="mapa-info" style="margin-top:8px">${semBairro ? semBairro + ' registro(s) sem bairro preenchido não aparecem no mapa.' : ''}</div>`;
 }
@@ -2138,6 +2194,8 @@ document.addEventListener('click', e => {
   const o = e.target.closest('[data-open]'); if (o) { const [m, id] = o.dataset.open.split(':'); openDrawer(m, id); return; }
   if (e.target.closest('[data-close]')) { closeDrawer(); return; }
   if (e.target.closest('[data-ranking]')) { Object.assign(state.rel, { mod: 'servicos', municipio: '', bairro: '', status: '' }); go('relatorios'); setTimeout(() => document.querySelector('.rk-titulo')?.scrollIntoView({ behavior: 'smooth' }), 300); return; }
+  if (e.target.closest('[data-ver-urgentes]')) { state.filterNext = 'urgentes'; go('demandas'); return; }
+  if (e.target.closest('[data-semana]')) { go('semana'); return; }
   if (e.target.closest('[data-ver-paradas]')) { state.filterNext = 'paradas'; go('demandas'); return; }
   const f = e.target.closest('[data-filter]'); if (f) { state.filter = f.dataset.filter; render(); return; }
   const w = e.target.closest('[data-win]'); if (w) { state.agendaWin = w.dataset.win; render(); return; }
