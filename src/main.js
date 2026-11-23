@@ -364,6 +364,7 @@ function minhasTarefasHtml() {
 /* ---------- listas ---------- */
 function filtered(m) {
   const q = state.q.trim().toLowerCase();
+  const qd = /^[\d\s()+-]+$/.test(q) ? q.replace(/\D/g, '') : '';
   let a = data[m].slice();
   const t = todayStr();
   if (m === 'agenda') {
@@ -379,19 +380,20 @@ function filtered(m) {
   } else {
     if (state.filter === 'abertos') a = a.filter(r => isOpen(m, r));
     else if (state.filter === 'atrasados') a = a.filter(r => isLate(m, r));
+    else if (state.filter === 'semresp') a = a.filter(r => m === 'servicos' && diasSemResposta(r) >= DIAS_REITERAR).sort((x, y) => diasSemResposta(y) - diasSemResposta(x));
     else if (state.filter === 'paradas') a = a.filter(r => m === 'demandas' && diasParada(r)).sort((x, y) => diasParada(y) - diasParada(x));
     else if (state.filter === 'meus') a = a.filter(r => r.responsavel && r.responsavel === myName());
     else if (state.filter !== 'todos') a = a.filter(r => r.status === state.filter);
     if (m === 'recepcao') { // fila: quem chegou primeiro aparece primeiro
       if (state.filter === 'hoje') a = data.recepcao.filter(r => String(r.criado_em || '').slice(0, 10) === t);
       a.sort((x, y) => (isOpen(m, x) ? 0 : 1) - (isOpen(m, y) ? 0 : 1) || String(isOpen(m, x) ? x.criado_em : y.criado_em || '').localeCompare(String(isOpen(m, x) ? y.criado_em : x.criado_em || '')));
-      if (q) a = a.filter(r => Object.values(r).some(v => (typeof v === 'string' || typeof v === 'number') && String(v).toLowerCase().includes(q)));
+      if (q) a = a.filter(r => Object.values(r).some(v => (typeof v === 'string' || typeof v === 'number') && (String(v).toLowerCase().includes(q) || (qd.length >= 4 && String(v).replace(/\D/g, '').includes(qd)))));
       return a;
     }
     const px = { Alta: 0, 'Média': 1, Baixa: 2 };
     a.sort((x, y) => { const lx = isLate(m, x) ? 0 : 1, ly = isLate(m, y) ? 0 : 1; if (lx !== ly) return lx - ly; const d = (px[x.prioridade] ?? 1) - (px[y.prioridade] ?? 1); if (d) return d; return String(y.criado_em || '').localeCompare(String(x.criado_em || '')); });
   }
-  if (q) a = a.filter(r => Object.values(r).some(v => (typeof v === 'string' || typeof v === 'number') && String(v).toLowerCase().includes(q)));
+  if (q) a = a.filter(r => Object.values(r).some(v => (typeof v === 'string' || typeof v === 'number') && (String(v).toLowerCase().includes(q) || (qd.length >= 4 && String(v).replace(/\D/g, '').includes(qd)))));
   return a;
 }
 
@@ -430,7 +432,7 @@ function renderList(m) {
     const novos = quemPediuSemCadastro();
     if (novos.length) extra += `<div class="no-print aviso-contatos" style="margin:6px 0;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span class="m"><b>${novos.length}</b> pessoa(s) que fizeram pedidos ainda não estão na lista.</span><button class="btn mini primary" data-trazer-pedidos>Colocar na lista</button></div>`;
   } else {
-    const opts = [['abertos', 'Em aberto']].concat(M.deadline ? [['atrasados', 'Atrasados']] : []).concat(m === 'demandas' ? [['paradas', 'Sem retorno ' + DIAS_PARADA + '+ dias']] : []).concat(M.fields.some(f => f.k === 'responsavel') ? [['meus', 'Comigo']] : []).concat([['todos', 'Todos']], M.statuses.map(s => [s[0], s[0]]));
+    const opts = [['abertos', 'Em aberto']].concat(M.deadline ? [['atrasados', 'Atrasados']] : []).concat(m === 'demandas' ? [['paradas', 'Sem retorno ' + DIAS_PARADA + '+ dias']] : []).concat(m === 'servicos' ? [['semresp', 'Sem resposta ' + DIAS_REITERAR + '+ dias']] : []).concat(M.fields.some(f => f.k === 'responsavel') ? [['meus', 'Comigo']] : []).concat([['todos', 'Todos']], M.statuses.map(s => [s[0], s[0]]));
     chips = opts.map(([k, l]) => chip('data-filter', k, l, state.filter === k)).join('');
     if (['demandas', 'servicos'].includes(m)) extra = `<div class="no-print" style="margin-bottom:4px"><button class="btn mini" data-mapa-de="${m}">Ver no mapa</button></div>`;
     if (m === 'recepcao') { chips = chip('data-filter', 'abertos', 'Fila agora', state.filter === 'abertos') + chip('data-filter', 'hoje', 'Hoje', state.filter === 'hoje') + chip('data-filter', 'todos', 'Todos', state.filter === 'todos'); const n = data.recepcao.filter(r => r.status === 'Aguardando').length; extra = `<div class="m" style="margin-bottom:4px">${n ? `<b>${n}</b> pessoa(s) aguardando.` : 'Ninguém aguardando agora.'}</div>`; }
@@ -453,7 +455,7 @@ function renderList(m) {
   } else body = a.map(r => rowHtml(m, r)).join('');
   return `${banner()}<h2 class="sec">${M.label}</h2><div class="m" style="margin-top:2px">${M.hint}</div>
     <div class="print-only m">Impresso em ${fmtStamp(new Date().toISOString())} · ${a.length} registro(s)</div>
-    <div class="toolbar"><input class="search" id="q" type="search" placeholder="Buscar por nome, município, assunto, protocolo…" value="${esc(state.q)}"><div class="chips">${chips}</div></div>
+    <div class="toolbar"><input class="search" id="q" type="search" placeholder="Buscar por nome, município, assunto, protocolo, celular…" value="${esc(state.q)}"><div class="chips">${chips}</div></div>${(() => { const d = state.q.replace(/\D/g, ''); if (!/^[\d\s()+-]+$/.test(state.q.trim()) || d.length < 8) return ''; const regs = registrosDoCidadao('', d).filter(([mm]) => ['demandas', 'servicos', 'emendas', 'recepcao'].includes(mm)); if (!regs.length) return `<div class="cel-aviso">Nenhum pedido com esse celular.</div>`; const nome = regs[0][1].solicitante || regs[0][1].nome || ''; return `<div class="cel-aviso"><span>📞 <b>${regs.length}</b> registro(s) com esse celular${nome ? ' · ' + esc(nome) : ''}</span><button class="btn mini primary" type="button" data-busca-cel="${esc(d)}">Ver todos os pedidos</button></div>`; })()}
     ${extra}<div class="no-print so-cel" style="margin-bottom:4px;gap:8px;flex-wrap:wrap"><button class="btn mini" data-importar>Importar planilha</button><button class="btn mini" data-exportar>Exportar planilha</button></div><div class="list" id="list">${body}</div>`;
 }
 
@@ -585,6 +587,7 @@ function openDrawer(mod, id, preset = {}) {
   if (rec && ['demandas', 'servicos'].includes(mod) && rec.solicitante) acts.push(`<button class="btn mini" type="button" data-cid="${esc(rec.solicitante)}" data-cid-tel="${esc(rec.telefone || '')}">Histórico de ${esc(primeiroNome(rec.solicitante))}</button>`);
   if (rec && mod !== 'tarefas') acts.push(`<button class="btn mini" type="button" data-tarefa-de>+ Tarefa</button>`);
   if (rec && mod === 'demandas') data.servicos.filter(o => o.demanda_id === rec.id).forEach(o => acts.push(`<button class="btn mini ghost" type="button" data-open="servicos:${o.id}">📄 Ofício ${esc(o.protocolo || '(sem nº)')} · ${esc(o.status)}</button>`));
+  if (rec && mod === 'servicos' && diasSemResposta(rec) >= DIAS_REITERAR) acts.push(`<button class="btn mini primary" type="button" data-reiterar>⚠️ ${diasSemResposta(rec)} dias sem resposta · Gerar ofício de reiteração</button>`);
   if (rec && mod === 'servicos' && store.anexosDisponiveis) acts.push(`<label class="btn mini" style="cursor:pointer">📨 Anexar resposta do órgão<input type="file" multiple accept="image/*,application/pdf,.doc,.docx" data-anx-resposta hidden></label>`);
   if (rec && mod === 'servicos' && rec.demanda_id && data.demandas.some(d => d.id === rec.demanda_id)) acts.push(`<button class="btn mini ghost" type="button" data-open="demandas:${rec.demanda_id}">↩ Demanda de origem</button>`);
   const dt = rec && docTipo(mod, rec);
@@ -721,6 +724,59 @@ const ORGAO_POR_AREA = {
   'Saúde': 'Secretaria Municipal de Saúde', 'Educação': 'Secretaria Municipal de Educação', 'Assistência social': 'Secretaria Municipal de Assistência Social',
   'Segurança': 'Secretaria Municipal de Segurança Pública e Proteção à Comunidade', 'Emprego e renda': 'Secretaria Municipal de Desenvolvimento Econômico', 'Esporte e cultura': 'Secretaria Municipal de Esporte e Lazer',
 };
+/** Números do mês para a arte do Instagram (sem nomes de cidadãos). */
+async function arteDoMes(btn) {
+  const desloc = +btn.dataset.arteMes || 0; const hoje = new Date();
+  const ini = new Date(hoje.getFullYear(), hoje.getMonth() + desloc, 1), fim = new Date(hoje.getFullYear(), hoje.getMonth() + desloc + 1, 1);
+  const no = v => { const t = v ? new Date(String(v).length <= 10 ? v + 'T12:00:00' : v).getTime() : NaN; return t >= ini.getTime() && t < fim.getTime(); };
+  const recebidos = data.demandas.filter(r => no(r.criado_em)).length;
+  const atendidas = data.demandas.filter(r => kindOf('demandas', r.status) === 'ok' && (r.historico || []).some(h => /→ Concluída$|^Cadastrado como “Concluída”/.test(h.txt || '') && no(h.em)));
+  const oficios = data.servicos.filter(r => no(r.data_envio) || (!r.data_envio && (r.historico || []).some(h => /→ Ofício enviado$/.test(h.txt || '') && no(h.em)))).length;
+  const cont = {}; atendidas.forEach(r => { const b = (r.bairro || '').trim(); if (b) cont[b] = (cont[b] || 0) + 1; });
+  const top = Object.entries(cont).sort((a, b) => b[1] - a[1]);
+  const mes = ini.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }).replace(' de ', ' ').toLocaleUpperCase('pt-BR');
+  const txt = btn.textContent; btn.disabled = true; btn.textContent = 'Gerando…';
+  try {
+    const { baixarArte } = await import('./arte.js');
+    const res = await baixarArte({ mes, recebidos, atendidos: atendidas.length, oficios, bairros: top.length, top, vereador: cfg.deputado_nome || '', cargo: cfg.deputado_cargo || '' }, 'resultados-' + ini.toISOString().slice(0, 7) + '.png');
+    if (res === 'baixado') toast('Arte baixada. É só postar no Instagram.');
+  } catch (e) { toast('Não foi possível gerar a arte: ' + errMsg(e)); }
+  finally { btn.disabled = false; btn.textContent = txt; }
+}
+/** Dias desde o envio de um ofício que ainda não teve resposta; 0 se respondeu, não foi enviado ou está fechado. */
+function diasSemResposta(r) {
+  if (!isOpen('servicos', r)) return 0;
+  const h = r.historico || [];
+  const env = h.find(x => /→ Ofício enviado$/.test(x.txt || ''));
+  const envio = r.data_envio ? new Date(r.data_envio + 'T12:00:00').getTime() : env ? new Date(env.em).getTime() : NaN;
+  if (!envio) return 0;
+  if (h.some(x => /^Resposta do órgão anexada|→ (Em execução|Atendida|Não atendida)$/.test(x.txt || ''))) return 0;
+  return Math.floor((Date.now() - envio) / 86400000);
+}
+const DIAS_REITERAR = 30;
+async function reiterarOficio() {
+  const o = data.servicos.find(x => x.id === drawer.id); if (!o) return;
+  const btn = $('[data-reiterar]'); if (btn) { btn.disabled = true; btn.textContent = 'Criando…'; }
+  try {
+    const dataEnvio = o.data_envio ? fmtDataBR(o.data_envio) : '';
+    const assunto = o.servico ? o.servico.charAt(0).toLowerCase() + o.servico.slice(1) : 'providências';
+    const linhas = [
+      `Reitero o Ofício nº ${o.protocolo || '(sem número)'}${dataEnvio ? ', de ' + dataEnvio : ''}, por meio do qual este gabinete solicitou ${assunto}${o.local && !assunto.toLowerCase().includes(o.local.toLowerCase()) ? ', na ' + o.local : ''}${o.municipio ? ', no município de ' + o.municipio : ''}, até o momento sem resposta.`,
+      ...(o.solicitante ? [`A solicitação atende à demanda de ${o.solicitante}, que segue aguardando providências.`] : []),
+      'Considerando o tempo decorrido, solicito, com urgência, informações sobre as providências adotadas e a previsão de atendimento.',
+    ];
+    const agora = new Date().toISOString(), por = myName();
+    const novo = { servico: 'Reiteração do Ofício nº ' + (o.protocolo || '') + ' – ' + (o.servico || ''), solicitante: o.solicitante, telefone: o.telefone, municipio: o.municipio, local: o.local,
+      orgao: o.orgao, destinatario: o.destinatario, tipo_doc: 'Ofício', prazo: addDays(todayStr(), 15), responsavel: por || o.responsavel, corpo: linhas.join('\n'), status: 'Recebida',
+      ...(o.demanda_id ? { demanda_id: o.demanda_id } : {}), ...(o.lat != null ? { lat: o.lat, lng: o.lng } : {}),
+      historico: [{ em: agora, txt: 'Criado como reiteração do Ofício nº ' + (o.protocolo || ''), por }] };
+    Object.keys(novo).forEach(k => { if (novo[k] == null || novo[k] === '') delete novo[k]; });
+    const row = await store.saveRow('servicos', null, novo); upsertLocal('servicos', row);
+    const o2 = await store.saveRow('servicos', o.id, { historico: (o.historico || []).concat({ em: agora, txt: 'Reiterado (novo ofício criado)', por }).slice(-100) }); upsertLocal('servicos', o2);
+    closeDrawer(); openDrawer('servicos', row.id);
+    toast('Reiteração criada. Confira o texto e toque em "Gerar Ofício (Word)" para numerar.');
+  } catch (e) { toast('Não foi possível criar a reiteração: ' + errMsg(e)); if (btn) { btn.disabled = false; btn.textContent = 'Gerar ofício de reiteração'; } }
+}
 async function oficioDaDemanda() {
   const { id } = drawer; let d = data.demandas.find(x => x.id === id); if (!d) return;
   const btn = $('[data-oficio-de]'); if (btn) { btn.disabled = true; btn.textContent = 'Criando ofício…'; }
@@ -1203,7 +1259,7 @@ function renderRelatorios() {
       ${M.fields.some(x => x.k === 'bairro') ? sel('bairro', 'Bairro', uniq('bairro'), f.bairro) : ''}
       ${sel('status', 'Situação', M.statuses.map(s => s[0]), f.status)}
     </div>
-    <div class="no-print" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px"><button class="btn primary" id="rel-print" ${rows.length ? '' : 'disabled'}>Imprimir / salvar PDF</button>
+    <div class="no-print" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px"><button class="btn primary" id="rel-print" ${rows.length ? '' : 'disabled'}>Imprimir / salvar PDF</button><button class="btn" type="button" data-arte-mes="0">🖼️ Arte do mês (Instagram)</button><button class="btn ghost" type="button" data-arte-mes="-1">Arte do mês passado</button>
       <button class="btn ghost" data-rel-rapido="mes">Este mês</button><button class="btn ghost" data-rel-rapido="ano">Este ano</button><button class="btn ghost" data-rel-rapido="tudo">Tudo</button></div>
     <div class="rel">
       <div class="rel-head"><div class="eyebrow">${esc(NOME_GAB())}</div><h2 class="sec" style="margin:2px 0">Relatório de ${esc(M.label.toLowerCase())}</h2>
@@ -2088,6 +2144,9 @@ document.addEventListener('click', e => {
   const nf = e.target.closest('[data-new-for]'); if (nf) { const p = data.pessoas.find(x => x.id === drawer.id); closeDrawer(); go(nf.dataset.newFor); openDrawer(nf.dataset.newFor, null, { solicitante: p?.nome, telefone: p?.telefone, municipio: p?.municipio, bairro: p?.bairro }); return; }
   const sr = e.target.closest('[data-search]'); if (sr) { const q = sr.dataset.search; closeDrawer(); go('demandas'); state.q = q; state.filter = 'todos'; render(); return; }
   if (e.target.closest('[data-oficio-de]')) { oficioDaDemanda(); return; }
+  if (e.target.closest('[data-reiterar]')) { reiterarOficio(); return; }
+  if (e.target.closest('[data-arte-mes]')) { arteDoMes(e.target.closest('[data-arte-mes]')); return; }
+  const bcel = e.target.closest('[data-busca-cel]'); if (bcel) { const regs = registrosDoCidadao('', bcel.dataset.buscaCel); const r0 = regs.find(([m]) => m !== 'pessoas'); const nome = r0 ? (r0[1].solicitante || r0[1].nome || '') : ''; state.q = ''; abrirCidadao(nome || 'Celular ' + mascaraTel(bcel.dataset.buscaCel), mascaraTel(bcel.dataset.buscaCel)); return; }
   const gp = e.target.closest('[data-graf-p]'); if (gp) { state.graf.p = gp.dataset.grafP; render(); return; }
   const xe = e.target.closest('[data-ext]'); if (xe) { toast(xe.dataset.ext); return; }
   if (agendasClique(e)) return;
