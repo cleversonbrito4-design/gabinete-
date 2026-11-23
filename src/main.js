@@ -585,9 +585,11 @@ async function geoBuscar() {
   const b = $('#geo-buscar'); b.disabled = true; b.textContent = 'Buscando…';
   try {
     const mun = $('#f-municipio')?.value || cfg.cidade_gabinete || '';
-    const p = await mapaLib.buscarEndereco([t, t.toLowerCase().includes(mun.toLowerCase()) ? '' : mun, UF_GAB()].filter(Boolean).join(', '));
-    if (!p) toast('Endereço não encontrado. Tente só a rua e o bairro, ou toque no mapa.');
-    else { drawer.geo = p; geoMini?.marcar(p, true); geoInfo(); }
+    const bairro = ($('#f-bairro')?.value || '').trim();
+    const txt = bairro && !t.toLowerCase().includes(bairro.toLowerCase()) ? t + ', ' + bairro : t;
+    const p = await mapaLib.buscarEndereco(txt, { mun, uf: UF_GAB() || 'PR' });
+    if (!p) toast('Endereço não encontrado. Confira o nome da rua ou toque no mapa no local certo.');
+    else { const aviso = p.aviso; drawer.geo = [p[0], p[1]]; geoMini?.marcar(drawer.geo, true); geoInfo(); if (aviso) toast(aviso); }
   } catch (e) { toast(errMsg(e)); }
   b.disabled = false; b.textContent = '🔎 Buscar';
 }
@@ -1200,6 +1202,18 @@ function renderMapa() {
     <div id="rota-box">${rotaHtml()}</div>
     <div class="m" id="mapa-info" style="margin-top:8px">${semBairro ? semBairro + ' registro(s) sem bairro preenchido não aparecem no mapa.' : ''}</div>`;
 }
+/** Centro de cada bairro pelos pedidos que têm o ponto exato marcado (mediana, para ignorar um ponto fora). */
+function pinsPorBairro() {
+  const por = {};
+  for (const m of ['demandas', 'servicos', 'pessoas']) for (const r of data[m] || []) {
+    if (r.lat == null || r.lng == null || !r.bairro) continue;
+    const k = mapaLib.chave(r.bairro.trim(), r.municipio || cfg.cidade_gabinete || '');
+    (por[k] || (por[k] = [])).push([+r.lat, +r.lng]);
+  }
+  const med = a => { a = a.slice().sort((x, y) => x - y); const i = a.length >> 1; return a.length % 2 ? a[i] : (a[i - 1] + a[i]) / 2; };
+  const out = {}; for (const k in por) out[k] = [med(por[k].map(p => p[0])), med(por[k].map(p => p[1]))];
+  return out;
+}
 async function desenharMapa() {
   const el = $('#mapa-el'); if (!el) return;
   if (mapaOcupado) { mapaDeNovo = true; return; }
@@ -1209,10 +1223,11 @@ async function desenharMapa() {
     const mod = state.mapa.mod, regs = regsMapa();
     const grupos = gruposMapa(regs);
     const semLocal = await mapaLib.desenhar(el, grupos, {
-      cache: geoCache, uf: UF_GAB(), cidadePadrao: cfg.cidade_gabinete, esc,
+      cache: geoCache, uf: UF_GAB() || 'PR', cidadePadrao: cfg.cidade_gabinete, esc,
       salvarCache: c => store.setConfig('geo', c),
       onProgresso: (i, n) => { const p = $('#mapa-prog'); if (!p) return; p.hidden = !n; p.textContent = n ? `Localizando bairros no mapa… ${i} de ${n} (só na primeira vez)` : ''; },
       onClique: g => { mapaLib.destruir(); state.qNext = g.bairro; go(mod); },
+      pinsBairro: pinsPorBairro(),
       pontosExatos: regs.filter(r => r.lat != null && r.lng != null).map(r => ({ id: r.id, lat: +r.lat, lng: +r.lng, titulo: MODS[mod].title(r) || '', status: r.status, sub: [r.bairro, r.solicitante].filter(Boolean).join(' · '), bairro: (r.bairro || '').trim(), municipio: r.municipio || cfg.cidade_gabinete || '', aberto: isOpen(mod, r), atrasado: isLate(mod, r) })),
       onAbrir: p => { mapaLib.sairTelaCheia(); openDrawer(mod, p.id); },
       onAviso: toast,
