@@ -83,6 +83,27 @@ function msg(tipo, vars) {
   return t.replace(/\{(\w+)\}/g, (_, k) => v[k] == null ? '' : String(v[k])).replace(/ {2,}/g, ' ').trim();
 }
 const linkConsulta = p => location.origin + location.pathname + '?consulta' + (p ? '=' + encodeURIComponent(p) : '');
+/** Caixa com o protocolo da demanda + link de acompanhamento (copiar / mandar no WhatsApp). */
+function protocoloBox(r, grande) {
+  if (!r || !r.protocolo) return '';
+  const link = linkConsulta(r.protocolo);
+  const wa = r.telefone ? waLink(r.telefone, msg('registrado', { nome: primeiroNome(r.solicitante), assunto: r.assunto, protocolo: r.protocolo, link_consulta: link })) : '';
+  return `<div class="prot-box prot-int${grande ? ' grande' : ''}"><span class="m">Número de protocolo</span><b class="num">${esc(r.protocolo)}</b>
+    <span class="m">Link para a pessoa acompanhar (ela digita o celular para ver):</span><input class="prot-link" readonly value="${esc(link)}" aria-label="Link de acompanhamento">
+    <div class="prot-acts"><button class="btn mini" type="button" data-copiar="${esc(r.protocolo)}" data-copiar-msg="Protocolo copiado">Copiar protocolo</button><button class="btn mini" type="button" data-copiar="${esc(link)}" data-copiar-msg="Link copiado">Copiar link</button>${wa ? `<a class="btn mini wa" href="${esc(wa)}" target="_blank" rel="noopener">Mandar no WhatsApp</a>` : ''}</div></div>`;
+}
+function copiarTexto(t, ok) {
+  const fb = () => { const i = document.createElement('textarea'); i.value = t; document.body.appendChild(i); i.select(); try { document.execCommand('copy'); toast(ok); } catch { toast(t); } i.remove(); };
+  try { navigator.clipboard.writeText(t).then(() => toast(ok), fb); } catch { fb(); }
+}
+/** Depois de cadastrar uma demanda: janela com o protocolo bem visível. */
+function mostrarProtocolo(r) {
+  document.querySelectorAll('.prot-modal').forEach(x => x.remove());
+  const w = document.createElement('div'); w.className = 'prot-modal';
+  w.innerHTML = `<div class="scrim" data-fechar-prot></div><div class="prot-card" role="dialog" aria-modal="true" aria-label="Demanda registrada"><h3>Demanda registrada ✅</h3><p class="m">Passe este número para ${esc(primeiroNome(r.solicitante) || 'a pessoa')}.</p>${protocoloBox(r, true)}<button class="btn primary" type="button" data-fechar-prot style="justify-content:center">Pronto</button></div>`;
+  w.addEventListener('click', e => { const c = e.target.closest('[data-copiar]'); if (c) { copiarTexto(c.dataset.copiar, c.dataset.copiarMsg || 'Copiado'); return; } if (e.target.closest('[data-fechar-prot]')) w.remove(); });
+  document.body.appendChild(w);
+}
 const linkAvaliacao = r => { const tk = r && (r.avaliacao_token || (!store.configured && r.id)); return tk ? location.origin + location.pathname + '?avaliar=' + tk : ''; };
 /** Troca {nome}, {evento}… num texto livre. Campos desconhecidos ficam como estão. */
 const preencher = (t, v) => String(t || '').replace(/\{(\w+)\}/g, (m, k) => k in v ? String(v[k] ?? '') : m);
@@ -547,7 +568,7 @@ function openDrawer(mod, id, preset = {}) {
   if (rec && mod === 'proposituras' && rec.link) acts.push(`<a class="btn mini" href="${esc(rec.link)}" target="_blank" rel="noopener">Abrir tramitação</a>`);
   $('#overlay').innerHTML = `<div class="scrim" data-close></div><aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="dr-t">
     <div class="dr-head"><div style="min-width:0"><div class="eyebrow">${esc(M.label)}${rec && rec.protocolo ? ' · Protocolo ' + esc(rec.protocolo) : ''}</div><h3 id="dr-t">${rec ? esc(M.title(rec)) : esc(M.novo)}</h3></div><button class="btn ghost" data-close aria-label="Fechar">✕</button></div>
-    <form class="dr-body" id="frm" novalidate>${acts.length ? `<div class="dr-actions">${acts.join('')}</div>` : ''}${statusSel}<div class="f"></div>${fields}
+    <form class="dr-body" id="frm" novalidate>${mod === 'demandas' ? protocoloBox(rec) : ''}${acts.length ? `<div class="dr-actions">${acts.join('')}</div>` : ''}${statusSel}<div class="f"></div>${fields}
       <datalist id="dl-munis"></datalist><datalist id="dl-pessoas"></datalist><datalist id="dl-equipe"></datalist><datalist id="dl-orgaos">${AREAS_DEMANDA.map(o => `<option value="${esc(o)}">`).join('')}</datalist><div class="err" id="frm-err" hidden></div>
       ${M.geo ? `<div class="geo" id="geo"><span class="eyebrow">Localização exata</span>
         <div class="geo-busca"><input id="geo-end" placeholder="Rua, número, bairro" value="${esc(r.local || [r.bairro, r.municipio].filter(Boolean).join(', '))}" autocomplete="off"><button class="btn mini" type="button" id="geo-buscar">🔎 Buscar</button><button class="btn mini" type="button" id="geo-gps">📍 Estou no local</button></div>
@@ -635,7 +656,8 @@ async function saveDrawer() {
   try {
     let row = await store.saveRow(mod, id, rec);
     upsertLocal(mod, row);
-    closeDrawer(); toast(old ? 'Alterações salvas' : 'Registro criado');
+    closeDrawer();
+    if (!old && mod === 'demandas' && row.protocolo) mostrarProtocolo(row); else toast(old ? 'Alterações salvas' : 'Registro criado');
     if (!old && mod === 'demandas') cadastrarQuemPediu([row]).catch(() => {});
     if (old && old.status !== st && M.phone && row[M.phone] && ['demandas', 'servicos'].includes(mod)) {
       const wa = waLink(row[M.phone], waStatus(mod, row));
@@ -1994,6 +2016,7 @@ document.addEventListener('click', e => {
   if (agendasClique(e)) return;
   const cd = e.target.closest('[data-cal-dia]'); if (cd) { openDrawer('agenda', null, { data: cd.dataset.calDia }); return; }
   const cn = e.target.closest('[data-cal-nav]'); if (cn) { const [y, mo] = (state.cal || todayStr().slice(0, 7)).split('-').map(Number); const n = +cn.dataset.calNav; state.cal = n === 0 ? '' : ymd(new Date(y, mo - 1 + n, 1)).slice(0, 7); render(); return; }
+  const cpy = e.target.closest('#overlay [data-copiar]'); if (cpy) { copiarTexto(cpy.dataset.copiar, cpy.dataset.copiarMsg || 'Copiado'); return; }
   const rdel = e.target.closest('[data-rota-del]'); if (rdel) { state.rota.splice(+rdel.dataset.rotaDel, 1); atualizarRota(); return; }
   if (e.target.closest('[data-rota-ordenar]')) { state.rota = ordenarRota(state.rota); atualizarRota(); toast('Paradas em ordem pelo caminho mais curto'); return; }
   if (e.target.closest('[data-rota-limpar]')) { state.rota = []; atualizarRota(); return; }
