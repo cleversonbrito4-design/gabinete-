@@ -95,17 +95,20 @@ export async function buscarEndereco(texto, { mun = '', uf = '' } = {}) {
   const resto = partes.slice(1).filter(x => !/^(n[º°o.]?\s*)?\d+[a-z]?$/i.test(x) && !/^\d{5}-?\d{3}$/.test(x));
   const cidade = mun || '';
   const estado = UF_NOME[(uf || '').toUpperCase()] || uf || '';
-  const pegar = (r, exigeRua) => { const x = r.find(y => dentro([y.lat, y.lon], area) && (!exigeRua || !rua || parecido(y.end.road || y.nome, rua.replace(/^(rua|r\.|avenida|av\.?|travessa|tv\.?|rodovia|estrada)\s+/i, '')))); return x ? [x.lat, x.lon] : null; };
+  const ruaBase = rua.replace(/^(rua|r\.|avenida|av\.?|travessa|tv\.?|rodovia|rod\.?|estrada|alameda|al\.?)\s+/i, '');
+  const AMPLOS = ['city', 'town', 'municipality', 'village', 'administrative', 'state', 'county', 'country', 'postcode', 'region', 'state_district'];
+  // só aceita resultado dentro do município, que não seja a cidade inteira e que tenha a rua (ou o lugar) digitado
+  const pegar = (r, exigeRua = true) => { const x = r.find(y => dentro([y.lat, y.lon], area) && !AMPLOS.includes(y.tipo) && (!exigeRua || !rua || parecido(y.end.road, ruaBase) || parecido(y.nome, ruaBase) || parecido(y.nome, partes[0] || ''))); return x ? [x.lat, x.lon] : null; };
   const tentativas = [];
   // 1. como foi digitado, preso ao município
-  tentativas.push(() => nominatim({ q: [texto, area ? '' : cidade].filter(Boolean).join(', '), ...vbox(area) }).then(r => pegar(r, false)));
+  tentativas.push(() => nominatim({ q: [texto, area ? '' : cidade].filter(Boolean).join(', '), ...vbox(area) }).then(r => pegar(r)));
   if (rua) {
     // 2. busca por campos (rua + número + cidade)
     if (numero) tentativas.push(() => nominatim({ street: numero + ' ' + rua, city: cidade, state: estado, country: 'Brasil', ...vbox(area) }).then(r => pegar(r, true)));
     // 3. só a rua
     tentativas.push(() => nominatim({ street: rua, city: cidade, state: estado, country: 'Brasil', ...vbox(area) }).then(r => { const p = pegar(r, true); if (p && numero) p.aviso = 'Achei a rua, mas não o número. Arraste o alfinete até a casa.'; return p; }));
     // 4. Photon (aceita erro de digitação)
-    tentativas.push(() => photon([rua, numero, cidade].filter(Boolean).join(' '), area).then(r => { const p = pegar(r, false); if (p && numero && !r.some(x => x.end.housenumber)) p.aviso = 'Posição aproximada. Confira e arraste o alfinete se precisar.'; return p; }).catch(() => null));
+    tentativas.push(() => photon([rua, numero, cidade].filter(Boolean).join(' '), area).then(r => { const p = pegar(r); if (p && numero && !r.some(x => x.end.housenumber)) p.aviso = 'Posição aproximada. Confira e arraste o alfinete se precisar.'; return p; }).catch(() => null));
   }
   // 5. só o bairro
   for (const b of resto.slice(0, 1)) tentativas.push(() => localizarBairro(b, cidade, uf).then(p => { if (p) p.aviso = 'Achei só o bairro. Arraste o alfinete até o local exato.'; return p; }));
