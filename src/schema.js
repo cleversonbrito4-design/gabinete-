@@ -50,7 +50,7 @@ export const MODS = {
       { k:'municipio', l:'Município', list:1 },
       { k:'bairro', l:'Bairro / Localidade' },
       { k:'area', l:'Órgão destinatário', type:'select', opts:AREAS_DEMANDA },
-      { k:'prioridade', l:'Prioridade', type:'select', opts:['Baixa','Média','Alta'] },
+      { k:'prioridade', l:'Prioridade', type:'select', opts:['Baixa','Média','Alta','Urgente'] },
       { k:'responsavel', l:'Responsável no gabinete', team:1 },
       { k:'prazo', l:'Prazo de retorno', type:'date' },
       { k:'origem', l:'Como chegou', type:'select', opts:['Presencial','WhatsApp','Telefone','E-mail','Redes sociais','Liderança local','Visita do parlamentar','Site do gabinete'] },
