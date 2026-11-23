@@ -331,11 +331,53 @@ function pendenciasDe(nome) {
   const atr = [...dem.map(r => ['demandas', r]), ...ofs.map(r => ['servicos', r]), ...tar.map(r => ['tarefas', r])].filter(([m, r]) => atrasado(m, r));
   return { dem, ofs, tar, ag, atr, total: dem.length + ofs.length + tar.length };
 }
+// arte da agenda da semana (stories) — deixa de fora reuniões e viagens, que costumam ser internas
+const AGENDA_INTERNA = ['Reunião', 'Viagem'];
+async function arteAgenda(btn) {
+  const t = todayStr(), fim = addDays(t, 6);
+  const ag = data.agenda.filter(r => r.data >= t && r.data <= fim && r.status !== 'Cancelado' && !AGENDA_INTERNA.includes(r.tipo)).sort((a, b) => (a.data + hhmm(a.inicio)).localeCompare(b.data + hhmm(b.inicio)));
+  if (!ag.length) { toast('Nenhum compromisso público nos próximos 7 dias (reuniões e viagens ficam de fora da arte).'); return; }
+  const dia = d => new Date(d + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '').toLocaleUpperCase('pt-BR') + ' ' + d.slice(8, 10) + '/' + d.slice(5, 7);
+  const itens = ag.map(r => ({ dia: dia(r.data), hora: hhmm(r.inicio), titulo: r.titulo || r.tipo || 'Compromisso', local: [r.local, r.municipio].filter(Boolean).join(' · ') }));
+  const periodo = fmtDate(t).slice(0, 5) + ' a ' + fmtDate(fim).slice(0, 5);
+  const leg = [`📅 Agenda da semana (${periodo})`, '', ...ag.map((r, i) => `• ${itens[i].dia}${itens[i].hora ? ' às ' + itens[i].hora : ''}: ${itens[i].titulo}${itens[i].local ? ' (' + itens[i].local + ')' : ''}`), '', 'Trabalhando todos os dias por Cascavel. Tem um pedido? Faça em falacascavel.com.br', '', '#Cascavel #FalaCascavel' + (cfg.deputado_nome ? ' #' + semAcento(cfg.deputado_nome).replace(/[^a-z0-9]/g, '') : '')].join('\n');
+  const txt = btn.textContent; btn.disabled = true; btn.textContent = 'Gerando…';
+  try {
+    try { await navigator.clipboard.writeText(leg); } catch { /* sem área de transferência */ }
+    const { baixarArte, gerarArteAgenda } = await import('./arte.js');
+    const res = await baixarArte({ periodo, itens, vereador: cfg.deputado_nome || '', cargo: cfg.deputado_cargo || '' }, 'agenda-semana-' + t + '.png', gerarArteAgenda);
+    if (res !== 'cancelado') toast((res === 'baixado' ? 'Arte baixada. ' : '') + 'Legenda copiada. Reuniões e viagens ficaram de fora; confira antes de postar.');
+  } catch (e) { toast('Não foi possível gerar a arte: ' + errMsg(e)); }
+  finally { btn.disabled = false; btn.textContent = txt; }
+}
+// resumo do dia para o grupo de WhatsApp da equipe
+function resumoEquipeTexto() {
+  const t = todayStr();
+  const ag = data.agenda.filter(r => r.data === t && r.status !== 'Cancelado').sort((a, b) => hhmm(a.inicio).localeCompare(hhmm(b.inicio)));
+  const urg = data.demandas.filter(r => isUrgente('demandas', r));
+  const semResp = data.servicos.filter(r => diasSemResposta(r) >= DIAS_REITERAR).length;
+  const pess = nomesEquipe().map(n => [n, pendenciasDe(n)]).filter(([, p]) => p.total).sort((a, b) => b[1].atr.length - a[1].atr.length || b[1].total - a[1].total);
+  const semDono = ['demandas', 'servicos', 'tarefas'].reduce((s, m) => s + data[m].filter(r => isOpen(m, r) && !String(r.responsavel || '').trim()).length, 0);
+  const l = [`*Bom dia, equipe!* 📋 Resumo de ${fmtDay(t).toLowerCase()}`, ''];
+  l.push('*Agenda de hoje*'); if (ag.length) ag.forEach(r => l.push(`• ${hhmm(r.inicio) || '--:--'} ${r.titulo || r.tipo || ''}${r.local ? ' (' + r.local + ')' : ''}${r.acompanha ? ' · ' + primeiroNome(r.acompanha) : ''}`)); else l.push('• Nada marcado');
+  if (urg.length) { l.push('', `*🚨 Urgentes (${urg.length})*`); urg.slice(0, 5).forEach(r => l.push(`• ${r.assunto || ''}${r.bairro ? ' · ' + r.bairro : ''}${r.responsavel ? ' · ' + primeiroNome(r.responsavel) : ' · sem responsável'}`)); }
+  l.push('', '*Pendências de cada um*'); if (pess.length) pess.forEach(([n, p]) => l.push(`• ${n}: ${p.total}${p.atr.length ? ` (⚠️ ${p.atr.length} atrasada${p.atr.length === 1 ? '' : 's'})` : ' ✅'}`)); else l.push('• Ninguém com pendências');
+  if (semDono) l.push(`• Sem responsável: ${semDono}`);
+  if (semResp) l.push('', `📄 ${semResp} ofício${semResp === 1 ? '' : 's'} sem resposta há ${DIAS_REITERAR}+ dias. Vale reiterar.`);
+  l.push('', 'Veja a sua lista em falacascavel.com.br → Minha lista do dia');
+  return l.join('\n');
+}
+async function resumoEquipe() {
+  const txt = resumoEquipeTexto();
+  try { await navigator.clipboard.writeText(txt); } catch { /* ok */ }
+  window.open('https://wa.me/?text=' + encodeURIComponent(txt), '_blank', 'noopener');
+  toast('Resumo copiado. Escolha o grupo da equipe no WhatsApp.');
+}
 function equipePendHtml() {
   const linhas = nomesEquipe().map(n => [n, pendenciasDe(n)]).filter(([, p]) => p.total).sort((a, b) => b[1].atr.length - a[1].atr.length || b[1].total - a[1].total);
   const semDono = ['demandas', 'servicos', 'tarefas'].reduce((s, m) => s + data[m].filter(r => isOpen(m, r) && !String(r.responsavel || '').trim()).length, 0);
   if (!linhas.length && !semDono) return `<div class="empty"><b>Nada pendente</b>Quando uma demanda, ofício ou tarefa tiver responsável, aparece aqui.</div>`;
-  return `<div class="eq-pend">${linhas.map(([n, p]) => `<button class="eq-linha" type="button" data-meudia="${esc(n)}"><span class="t">${esc(n)}</span><span class="m">${p.total} pendente${p.total === 1 ? '' : 's'}</span>${p.atr.length ? `<span class="rk-alerta">${p.atr.length} atrasada${p.atr.length === 1 ? '' : 's'}</span>` : '<span class="eq-ok">em dia</span>'}</button>`).join('')}</div>${semDono ? `<p class="m" style="margin:8px 0 0">${semDono} sem responsável. Defina quem cuida para não ficar esquecido.</p>` : ''}`;
+  return `<button class="btn wa mini" type="button" data-resumo-equipe style="margin-bottom:10px">📲 Mandar resumo no grupo do WhatsApp</button><div class="eq-pend">${linhas.map(([n, p]) => `<button class="eq-linha" type="button" data-meudia="${esc(n)}"><span class="t">${esc(n)}</span><span class="m">${p.total} pendente${p.total === 1 ? '' : 's'}</span>${p.atr.length ? `<span class="rk-alerta">${p.atr.length} atrasada${p.atr.length === 1 ? '' : 's'}</span>` : '<span class="eq-ok">em dia</span>'}</button>`).join('')}</div>${semDono ? `<p class="m" style="margin:8px 0 0">${semDono} sem responsável. Defina quem cuida para não ficar esquecido.</p>` : ''}`;
 }
 function renderMeuDia() {
   const eu = myName(), nome = state.meuDiaDe || eu, t = todayStr();
@@ -414,7 +456,7 @@ function renderPainel() {
     <div class="kpis">${kpis}</div>${(() => { const n = data.demandas.filter(r => isUrgente('demandas', r)).length; return n ? `<div class="urg-aviso"><span>🚨 <b>${n}</b> demanda${n === 1 ? '' : 's'} urgente${n === 1 ? '' : 's'} em aberto.</span><button class="btn mini" type="button" data-ver-urgentes>Ver quais</button></div>` : ''; })()}${(() => { const n = data.demandas.filter(r => diasParada(r)).length; return n ? `<div class="parada-aviso"><span>⏳ <b>${n}</b> demanda${n === 1 ? '' : 's'} sem novidade há mais de ${DIAS_PARADA} dias. Dê um retorno antes de o cidadão cobrar.</span><button class="btn mini" type="button" data-ver-paradas>Ver quais</button></div>` : ''; })()}
     <div class="cols">
       <div style="display:flex;flex-direction:column;gap:18px;min-width:0">
-        <section class="panel"><h3>Próximos 7 dias na agenda <a data-go="agenda">ver agenda</a></h3>${agHtml}<button class="btn primary mini-full" type="button" data-novo="agenda">+ Compromisso</button></section>
+        <section class="panel"><h3>Próximos 7 dias na agenda <a data-go="agenda">ver agenda</a></h3>${agHtml}<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary mini-full" type="button" data-novo="agenda">+ Compromisso</button><button class="btn mini" type="button" data-arte-agenda>📸 Arte da agenda da semana</button></div></section>
         <section class="panel"><h3>Minhas tarefas <a data-go="tarefas">ver tarefas</a></h3>${minhasTarefasHtml()}</section>
         <section class="panel"><h3>Aniversariantes da semana <a data-go="pessoas">ver pessoas</a></h3>${anivHtml}${anivBtn}</section>
       </div>
@@ -992,9 +1034,25 @@ function textoMocao(r) {
     texto: `O Vereador que esta subscreve, na forma regimental, requer à Mesa que seja aprovada e consignada nos anais desta Casa a presente ${titulo} em favor de ${quem}, ${mot || (cong ? 'pelo importante trabalho realizado em benefício da população' : 'em reconhecimento aos relevantes serviços prestados à comunidade')}.\nRequer, ainda, que seja dada ciência desta Moção ao(à) homenageado(a).`,
     justificativa: [`A presente Moção tem por objetivo reconhecer publicamente o trabalho de ${quem}, cuja atuação contribui de forma significativa para a comunidade de ${cidade}.`, 'Iniciativas como esta merecem ser valorizadas e servem de exemplo para toda a sociedade, sendo justo que esta Casa de Leis registre em seus anais o devido reconhecimento.', fecho] };
 }
+// projeto de lei: artigos numerados a partir do campo Texto (um por linha) + vigência
+const ORD = ['1º', '2º', '3º', '4º', '5º', '6º', '7º', '8º', '9º'];
+function textoProjetoLei(r) {
+  const cidade = cfg.cidade_gabinete || 'Cascavel';
+  let itens = String(r.texto || '').split(/\n+/).map(x => x.trim()).filter(Boolean).map(x => x.replace(/^art(igo)?\.?\s*\d+\s*[º°o]?\s*[-–.:]?\s*/i, ''));
+  const temVig = itens.some(x => /entra em vigor/i.test(x));
+  if (!itens.length) itens = ['(escreva aqui o que a lei determina)'];
+  if (!temVig) itens.push('Esta Lei entra em vigor na data de sua publicação.');
+  const arts = itens.map((x, i) => `Art. ${ORD[i] || (i + 1) + '.'} ${x.charAt(0).toUpperCase() + x.slice(1)}${/[.;:]$/.test(x) ? '' : '.'}`);
+  const tit = /Complementar/.test(r.tipo) ? 'PROJETO DE LEI COMPLEMENTAR' : 'PROJETO DE LEI';
+  const ementa = String(r.ementa || '').trim().replace(/\.$/, '') + '.';
+  return {
+    titulo: tit, ementa, forca: true,
+    texto: [`A Câmara Municipal de ${cidade}, Estado do Paraná, aprova, e o Prefeito Municipal sanciona a seguinte Lei:`, ...arts].join('\n'),
+    justificativa: [`O presente Projeto de Lei, que “${ementa.slice(0, -1)}”, atende a uma necessidade da população de ${cidade} e busca melhorar a qualidade de vida dos munícipes.`, 'A proposta é de interesse público e está de acordo com a competência legislativa do Município para tratar de assuntos de interesse local, nos termos do art. 30, inciso I, da Constituição Federal.', 'Diante do exposto, conto com o apoio dos nobres Pares para a aprovação deste Projeto de Lei.'] };
+}
 function docTipo(mod, r) {
   if (mod === 'servicos') return r.tipo_doc === 'Indicação' ? 'indicacao' : r.tipo_doc === 'Requerimento' ? 'requerimento' : (!r.tipo_doc || r.tipo_doc === 'Ofício') ? 'oficio' : null;
-  if (mod === 'proposituras') return r.tipo === 'Indicação' ? 'indicacao' : r.tipo === 'Requerimento' ? 'requerimento' : /^Moção/.test(r.tipo || '') ? 'mocao' : null;
+  if (mod === 'proposituras') return r.tipo === 'Indicação' ? 'indicacao' : r.tipo === 'Requerimento' ? 'requerimento' : /^Moção/.test(r.tipo || '') ? 'mocao' : /^Projeto de Lei/.test(r.tipo || '') ? 'projeto_lei' : null;
   return null;
 }
 function proximoNumero(mod, r, ano) {
@@ -1049,8 +1107,8 @@ async function gerarDocumento() {
       OF_RETORNO,
       OF_FECHO,
     ];
-    const moc = tipo === 'mocao' ? textoMocao(r) : null;
-    const texto = r.texto || (moc ? moc.texto : tipo === 'indicacao'
+    const moc = tipo === 'mocao' ? textoMocao(r) : tipo === 'projeto_lei' ? textoProjetoLei(r) : null;
+    const texto = (moc && moc.forca) ? moc.texto : r.texto || (moc ? moc.texto : tipo === 'indicacao'
       ? `INDICO à Mesa, na forma regimental, que seja encaminhado expediente ao(à) ${destOrg}, solicitando, por intermédio do setor competente, ${minusc(assunto)}${localTxt}.`
       : `REQUEIRO à Mesa, na forma regimental, ${minusc(assunto)}.`);
     const justificativa = tipo === 'oficio' ? [] : (linhas(r.corpo).length ? linhas(r.corpo) : moc ? moc.justificativa : [`A presente proposição atende à demanda apresentada a este gabinete por ${r.solicitante || 'munícipes da região'}${protDemanda ? ' (protocolo nº ' + protDemanda + ')' : ''}.`, tipoPedido(assunto)?.[2] || 'A medida é de interesse público, pois contribui para a segurança, o bem-estar e a qualidade de vida da população atendida.', 'Diante da relevância do pedido, conto com o apoio dos nobres Pares para a aprovação desta proposição.']);
@@ -1069,7 +1127,7 @@ async function gerarDocumento() {
       destinatario_orgao: [r.destinatario, r.orgao].filter(Boolean).join(', ') || 'órgão competente', municipio_uf: munUf, assunto, local_texto: localTxt, texto, paragrafos, justificativa,
       numero_doc: tipo === 'oficio' ? numero : (numero ? String(numero).split('/')[0] : ''),
       vocativo: r.vocativo || (!r.destinatario && /^secretaria/i.test(r.orgao || '') ? 'Senhor(a) Secretário(a)' : 'Senhor(a)'), solicitante: r.solicitante || '',
-      gabinete_maiusculo: (cfg.gabinete || '').toLocaleUpperCase('pt-BR'), titulo_doc: moc ? moc.titulo : '',
+      gabinete_maiusculo: (cfg.gabinete || '').toLocaleUpperCase('pt-BR'), titulo_doc: moc ? moc.titulo : '', ementa_doc: moc ? moc.ementa || '' : '',
       proponente: [cargo1 && cargo1.trim(), cfg.deputado_nome].filter(Boolean).join(' ') + (partido ? '/' + partido.trim() : ''),
     };
     let blob = await docs.gerarDocx(tipo, valores);
@@ -2356,6 +2414,8 @@ document.addEventListener('click', e => {
   const sr = e.target.closest('[data-search]'); if (sr) { const q = sr.dataset.search; closeDrawer(); go('demandas'); state.q = q; state.filter = 'todos'; render(); return; }
   if (e.target.closest('[data-oficio-de]')) { oficioDaDemanda(); return; }
   if (e.target.closest('[data-reiterar]')) { reiterarOficio(); return; }
+  if (e.target.closest('[data-arte-agenda]')) { arteAgenda(e.target.closest('[data-arte-agenda]')); return; }
+  if (e.target.closest('[data-resumo-equipe]')) { resumoEquipe(); return; }
   if (e.target.closest('[data-arte-atendido]')) { arteAtendido(e.target.closest('[data-arte-atendido]')); return; }
   if (e.target.closest('[data-arte-mes]')) { arteDoMes(e.target.closest('[data-arte-mes]')); return; }
   const bcel = e.target.closest('[data-busca-cel]'); if (bcel) { const regs = registrosDoCidadao('', bcel.dataset.buscaCel); const r0 = regs.find(([m]) => m !== 'pessoas'); const nome = r0 ? (r0[1].solicitante || r0[1].nome || '') : ''; state.q = ''; abrirCidadao(nome || 'Celular ' + mascaraTel(bcel.dataset.buscaCel), mascaraTel(bcel.dataset.buscaCel)); return; }

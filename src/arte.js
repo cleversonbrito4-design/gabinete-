@@ -86,6 +86,42 @@ export async function gerarArteAtendido(p) {
   return new Promise(ok => c.toBlob(ok, 'image/png'));
 }
 
+/** Arte "Agenda da semana" para stories (1080x1920). a: { periodo, itens: [{ dia, hora, titulo, local }], vereador, cargo } */
+export async function gerarArteAgenda(a) {
+  const W = 1080, H = 1920, c = document.createElement('canvas'); c.width = W; c.height = H;
+  const x = c.getContext('2d');
+  try { await document.fonts?.load('800 80px Archivo'); } catch { /* usa a padrão */ }
+  const F = (peso, tam) => `${peso} ${tam}px Archivo, Arial, sans-serif`;
+  const g = x.createLinearGradient(0, 0, W, H); g.addColorStop(0, '#0d2236'); g.addColorStop(1, '#07111c');
+  x.fillStyle = g; x.fillRect(0, 0, W, H);
+  x.fillStyle = 'rgba(37,126,191,.20)'; x.beginPath(); x.arc(W - 40, 120, 320, 0, Math.PI * 2); x.fill();
+  x.fillStyle = 'rgba(114,168,59,.14)'; x.beginPath(); x.arc(40, H - 60, 300, 0, Math.PI * 2); x.fill();
+  try { const logo = await img(new URL('marca/fala-cascavel-branca.svg', document.baseURI).href); const lh = 96; x.drawImage(logo, 80, 110, logo.width / logo.height * lh || 260, lh); } catch { /* sem logo */ }
+  x.fillStyle = '#8cc8f2'; x.font = F(700, 38); x.fillText('AGENDA DA SEMANA', 80, 300);
+  x.fillStyle = '#fff'; x.font = F(800, 64); x.fillText(a.periodo, 78, 380);
+  let y = 450; const max = 7; const lista = a.itens.slice(0, max);
+  lista.forEach(it => {
+    x.font = F(800, 44); const linhas = quebrar(x, it.titulo, W - 360, 2);
+    x.font = F(500, 30); const loc = it.local ? quebrar(x, it.local, W - 360, 1)[0] : '';
+    const h = Math.max(150, 56 + linhas.length * 52 + (loc ? 40 : 0));
+    x.fillStyle = 'rgba(255,255,255,.07)'; caixa(x, 80, y, W - 160, h, 28); x.fill();
+    x.fillStyle = '#257ebf'; caixa(x, 80, y, 170, h, 28); x.fill();
+    const [dsem, ddata] = String(it.dia).split(' ');
+    x.textAlign = 'center'; x.fillStyle = '#fff'; x.font = F(800, 38); x.fillText(dsem || '', 165, y + h / 2 - (it.hora ? 20 : 4));
+    x.font = F(700, 30); x.fillText(ddata || '', 165, y + h / 2 + (it.hora ? 18 : 32));
+    if (it.hora) { x.font = F(600, 28); x.fillStyle = 'rgba(255,255,255,.85)'; x.fillText(it.hora, 165, y + h / 2 + 54); }
+    x.textAlign = 'left';
+    let ty = y + 70; x.fillStyle = '#fff'; x.font = F(800, 44); linhas.forEach(l => { x.fillText(l, 290, ty); ty += 52; });
+    if (loc) { x.fillStyle = '#8cc8f2'; x.font = F(500, 30); x.fillText(loc, 290, ty - 8); }
+    y += h + 22;
+  });
+  if (a.itens.length > max) { x.fillStyle = 'rgba(255,255,255,.7)'; x.font = F(600, 32); x.fillText(`e mais ${a.itens.length - max} compromisso${a.itens.length - max === 1 ? '' : 's'}`, 80, y + 20); }
+  x.textAlign = 'center';
+  x.fillStyle = 'rgba(255,255,255,.9)'; x.font = F(700, 36); x.fillText([a.cargo ? a.cargo.split('/')[0].trim() : 'Vereador', a.vereador].filter(Boolean).join(' '), W / 2, H - 150);
+  x.fillStyle = 'rgba(255,255,255,.6)'; x.font = F(600, 30); x.fillText('Faça seu pedido: falacascavel.com.br', W / 2, H - 100);
+  return new Promise(ok => c.toBlob(ok, 'image/png'));
+}
+
 export async function baixarArte(n, nomeArquivo, gerar = gerarArte) {
   const blob = await gerar(n);
   const file = new File([blob], nomeArquivo, { type: 'image/png' });
