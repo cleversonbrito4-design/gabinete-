@@ -321,3 +321,17 @@ export async function agendaFn(acao, extra = {}) {
   if (data?.erro) throw new Error(data.erro);
   return data;
 }
+
+/* ---------- avisos no celular antes dos compromissos ---------- */
+export async function avisosFn(acao, extra = {}) {
+  if (!sb) throw new Error('Ligue o banco de dados para usar esta função.');
+  const { data, error } = await sb.functions.invoke('avisos', { body: { acao, ...extra } });
+  if (error) {
+    let msg = '';
+    try { const j = await error.context.json(); msg = j.erro; } catch { /* ok */ }
+    if (!msg && /Failed to send|fetch/i.test(error.message || '')) msg = 'Sem conexão com o servidor. Tente de novo.';
+    throw new Error(msg || error.message || 'Erro nos avisos.');
+  }
+  if (data?.erro) throw new Error(data.erro);
+  return data;
+}

@@ -7,6 +7,7 @@ import * as docs from './documentos.js';
 import * as imp from './importar.js';
 import * as mapaLib from './mapa.js';
 import * as ags from './agendas.js';
+import * as pushAv from './avisos.js';
 
 /* Dados do gabinete: editáveis em "Minha conta"; os do .env são só o ponto de partida. */
 const env = import.meta.env;
@@ -541,7 +542,7 @@ function renderList(m) {
   if (m === 'agenda') {
     chips = [['proximos', 'Próximos'], ['mes', 'Calendário do mês'], ['passados', 'Passados'], ['todos', 'Todos']].map(([k, l]) => chip('data-win', k, l, state.agendaWin === k)).join('');
     carregarExternas();
-    if (store.configured) extra = `<div class="no-print" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px"><button class="btn mini primary" data-go="agendadia">📅 Agenda do dia</button><button class="btn mini" data-go="agendas">🔗 Ligar com Gmail e outras agendas</button><span class="gstat">${extResumo()}</span></div>`;
+    if (store.configured) extra = `<div class="no-print" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px"><button class="btn mini primary" data-go="agendadia">📅 Agenda do dia</button><button class="btn mini" data-go="agendas">🔗 Ligar com Gmail e outras agendas</button>${avisosBotoes()}<span class="gstat">${extResumo()}</span></div>`;
     if (gcal.googleAvailable) extra += `<div class="no-print" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px"><button class="btn mini" id="g-sync">${gcal.isConnected() ? 'Sincronizar com Google Agenda' : 'Conectar Google Agenda'}</button><span class="gstat" id="g-stat">${gcal.isConnected() ? 'Conectado · calendário: ' + esc(gcal.calendarId()) : 'Compromissos salvos aqui vão para o Google Agenda do parlamentar.'}</span></div>`;
   } else if (m === 'pessoas') {
     chips = [['abertos', 'Ativos'], ['pedidos', 'Fizeram pedidos'], ['tipo:Liderança', 'Lideranças'], ['tipo:Entidade / associação', 'Entidades'], ['aniv', 'Aniversariantes do mês'], ['todos', 'Todos']].map(([k, l]) => chip('data-filter', k, l, state.filter === k)).join('');
@@ -2245,6 +2246,38 @@ function renderAgendaDia() {
       <button class="btn primary" type="button" data-cal-dia="${esc(d)}">+ Compromisso neste dia</button>
     </div>`;
 }
+/* ---------- avisos no celular 30 min antes de cada compromisso ---------- */
+function avisoLongo(msg) {
+  document.querySelectorAll('.toast.acao').forEach(t => t.remove());
+  const t = document.createElement('div'); t.className = 'toast acao';
+  t.innerHTML = `<span>${esc(msg)}</span><button class="btn mini ghost" type="button" aria-label="Fechar">✕</button>`;
+  t.querySelector('button').addEventListener('click', () => t.remove());
+  document.body.appendChild(t); setTimeout(() => t.remove(), 20000);
+}
+function avisosBotoes() {
+  if (state.avisos === undefined) { state.avisos = '…'; pushAv.situacao().then(v => { state.avisos = v; if (state.view === 'agenda') render(); }); }
+  const v = state.avisos;
+  if (v === '…' || v === 'sem') return '';
+  if (v === 'ligado') return `<button class="btn mini" data-avisos="testar" title="Os avisos tocam 30 minutos antes de cada compromisso">🔔 Avisos ligados · testar</button><button class="btn mini ghost" data-avisos="desligar">Desligar avisos</button>`;
+  if (v === 'ocupado') return `<button class="btn mini" disabled>🔔 Ligando…</button>`;
+  return `<button class="btn mini" data-avisos="ligar" title="O celular toca 30 minutos antes de cada compromisso">🔔 Avisar no celular</button>`;
+}
+function avisosClique(e) {
+  const b = e.target.closest('[data-avisos]'); if (!b) return false;
+  const acao = b.dataset.avisos;
+  if (acao === 'ligar') {
+    if (state.avisos === 'instalar') { avisoLongo('No iPhone: abra o sistema no Safari, toque em Compartilhar (□↑) → "Adicionar à Tela de Início". Depois abra pelo ícone Fala Cascavel e toque de novo em 🔔 Avisar no celular.'); return true; }
+    if (state.avisos === 'bloqueado') { avisoLongo('Os avisos estão bloqueados para este site. Libere as notificações nas configurações do celular (ou no cadeado ao lado do endereço) e toque de novo.'); return true; }
+    state.avisos = 'ocupado'; render();
+    pushAv.ligar().then(() => { state.avisos = 'ligado'; avisoLongo('Pronto! Deve tocar agora um aviso de teste. A partir de agora o aparelho avisa 30 minutos antes de cada compromisso.'); })
+      .catch(err => { state.avisos = undefined; avisoLongo(errMsg(err)); }).finally(() => render());
+  } else if (acao === 'testar') {
+    pushAv.testar().then(() => toast('Aviso de teste enviado')).catch(err => avisoLongo(errMsg(err)));
+  } else if (acao === 'desligar') {
+    pushAv.desligar().then(() => { state.avisos = 'desligado'; toast('Avisos desligados neste aparelho'); render(); }).catch(err => avisoLongo(errMsg(err)));
+  }
+  return true;
+}
 function agendaDiaClique(e) {
   const n = e.target.closest('[data-dia-nav]'); if (n) { const v = +n.dataset.diaNav; state.dia = v === 0 ? '' : addDays(state.dia || todayStr(), v); render(); return true; }
   if (e.target.closest('[data-dia-copiar]')) { const txt = textoAgendaDia(state.dia || todayStr()).replace(/[*_]/g, ''); try { navigator.clipboard.writeText(txt).then(() => toast('Texto copiado')); } catch { toast('Não foi possível copiar'); } return true; }
@@ -2468,6 +2501,7 @@ document.addEventListener('click', e => {
   const xe = e.target.closest('[data-ext]'); if (xe) { toast(xe.dataset.ext); return; }
   if (agendasClique(e)) return;
   if (agendaDiaClique(e)) return;
+  if (avisosClique(e)) return;
   const cd = e.target.closest('[data-cal-dia]'); if (cd) { openDrawer('agenda', null, { data: cd.dataset.calDia }); return; }
   const cn = e.target.closest('[data-cal-nav]'); if (cn) { const [y, mo] = (state.cal || todayStr().slice(0, 7)).split('-').map(Number); const n = +cn.dataset.calNav; state.cal = n === 0 ? '' : ymd(new Date(y, mo - 1 + n, 1)).slice(0, 7); render(); return; }
   const cpv = e.target.closest('#overlay [data-comprovante]'); if (cpv) { baixarComprovante(cpv.dataset.comprovante, cpv); return; }

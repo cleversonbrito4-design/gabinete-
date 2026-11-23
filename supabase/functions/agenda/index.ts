@@ -32,14 +32,20 @@ async function setConfig(id: string, valor: unknown) {
   if (error) throw error;
 }
 
+// Confere a equipe pelo próprio banco (PostgREST valida a assinatura do token), sem
+// depender da sessão ainda existir no Auth (o celular/computador pode ter um token
+// válido de uma sessão já encerrada, e aí auth.getUser falha com "session missing").
 async function quemE(req: Request) {
   const jwt = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
-  if (!jwt) return null;
-  const { data } = await admin.auth.getUser(jwt);
-  const email = data?.user?.email?.toLowerCase();
-  if (!email) return null;
-  const { data: e } = await admin.from('equipe').select('email, admin').eq('email', email).maybeSingle();
-  return e ? { email, admin: !!e.admin } : null;
+  if (jwt.split('.').length !== 3) return null;
+  const comoUsuario = createClient(Deno.env.get('SUPABASE_URL')!, (Deno.env.get('SUPABASE_ANON_KEY') || Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'))!, {
+    auth: { persistSession: false }, global: { headers: { Authorization: 'Bearer ' + jwt } },
+  });
+  const [eq, ad] = await Promise.all([comoUsuario.rpc('is_equipe'), comoUsuario.rpc('is_admin')]);
+  if (eq.error || eq.data !== true) return null;
+  let email = '';
+  try { email = String(JSON.parse(atob(((p: string) => p + '='.repeat((4 - p.length % 4) % 4))(jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))).email || '').toLowerCase(); } catch { /* ok */ }
+  return { email, admin: ad.data === true };
 }
 
 async function linkAtual(req: Request, trocar = false) {
@@ -215,18 +221,22 @@ function hostPermitido(u: URL) {
   return true;
 }
 
+let diag: Record<string, unknown> = {};
 async function lerAgenda(url: string, de: string, ate: string) {
+  diag = {};
   const u = new URL(url.trim().replace(/^webcals?:\/\//i, 'https://'));
   if (!hostPermitido(u)) throw new Error('Endereço não aceito. Use o link que começa com https:// ou webcal://');
   const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 15000);
   let r: Response;
   try { r = await fetch(u, { signal: ctl.signal, headers: { 'User-Agent': 'FalaCascavel-Agenda/1.0', Accept: 'text/calendar, */*' } }); }
   catch { throw new Error('A agenda não respondeu. Confira o link.'); } finally { clearTimeout(t); }
+  diag = { http: r.status };
   if (!r.ok) throw new Error(r.status === 404 || r.status === 403 ? 'Link não encontrado ou sem permissão. Copie de novo o endereço secreto.' : 'A agenda respondeu com erro ' + r.status + '.');
   const txt = await r.text();
   if (txt.length > 15_000_000) throw new Error('Agenda grande demais.');
   if (!/BEGIN:VCALENDAR/i.test(txt)) throw new Error('Esse link não é de agenda (iCal). Use o "endereço secreto no formato iCal".');
   const evs = parseIcs(txt);
+  diag = { http: r.status, bytes: txt.length, vevents: evs.length };
   const nomeCal = un((txt.match(/^X-WR-CALNAME:(.*)$/m) || [])[1]);
   // instâncias alteradas de eventos que se repetem (RECURRENCE-ID)
   const alterado = new Set<string>();
@@ -290,10 +300,14 @@ Deno.serve(async req => {
       const ate = /^\d{4}-\d{2}-\d{2}$/.test(body.ate) ? body.ate : addDays(hoje, 200);
       const cfg = await getConfig('agendas_externas');
       const lista = cfg?.lista || [];
-      const res = await Promise.all(lista.map(async (a: { id: string; nome: string; url: string; cor: string }) => {
-        try { const r = await lerAgenda(a.url, de, ate); return { id: a.id, nome: a.nome, cor: a.cor, eventos: r.eventos }; }
-        catch (e) { return { id: a.id, nome: a.nome, cor: a.cor, eventos: [], erro: (e as Error).message }; }
-      }));
+      const res = [];
+      const estado: Record<string, unknown>[] = [];
+      for (const a of lista as { id: string; nome: string; url: string; cor: string }[]) {
+        try { const r = await lerAgenda(a.url, de, ate); res.push({ id: a.id, nome: a.nome, cor: a.cor, eventos: r.eventos }); estado.push({ id: a.id, ok: true, eventos: r.eventos.length, ...diag }); }
+        catch (e) { res.push({ id: a.id, nome: a.nome, cor: a.cor, eventos: [], erro: (e as Error).message }); estado.push({ id: a.id, ok: false, erro: (e as Error).message, ...diag }); }
+      }
+      // situação da última leitura (sem títulos nem links), para conferir sem abrir a tela
+      await setConfig('agendas_externas_status', { em: new Date().toISOString(), de, ate, agendas: estado }).catch(() => {});
       return json({ agendas: res });
     }
     return json({ erro: 'Ação desconhecida.' }, 400);
