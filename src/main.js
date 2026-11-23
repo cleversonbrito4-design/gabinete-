@@ -434,6 +434,7 @@ function renderList(m) {
     chips = opts.map(([k, l]) => chip('data-filter', k, l, state.filter === k)).join('');
     if (['demandas', 'servicos'].includes(m)) extra = `<div class="no-print" style="margin-bottom:4px"><button class="btn mini" data-mapa-de="${m}">Ver no mapa</button></div>`;
     if (m === 'recepcao') { chips = chip('data-filter', 'abertos', 'Fila agora', state.filter === 'abertos') + chip('data-filter', 'hoje', 'Hoje', state.filter === 'hoje') + chip('data-filter', 'todos', 'Todos', state.filter === 'todos'); const n = data.recepcao.filter(r => r.status === 'Aguardando').length; extra = `<div class="m" style="margin-bottom:4px">${n ? `<b>${n}</b> pessoa(s) aguardando.` : 'Ninguém aguardando agora.'}</div>`; }
+    if (m === 'servicos') extra = `<div class="no-print" style="margin-bottom:4px"><button class="btn mini primary" type="button" data-ranking>⏱️ Secretarias que mais demoram</button></div>`;
     if (m === 'emendas') extra = `<div class="no-print" style="margin-bottom:4px"><button class="btn mini primary" data-go="resumo-emendas">Painel de emendas (indicado, empenhado, pago)</button></div>`;
   }
   let body;
@@ -584,6 +585,7 @@ function openDrawer(mod, id, preset = {}) {
   if (rec && ['demandas', 'servicos'].includes(mod) && rec.solicitante) acts.push(`<button class="btn mini" type="button" data-cid="${esc(rec.solicitante)}" data-cid-tel="${esc(rec.telefone || '')}">Histórico de ${esc(primeiroNome(rec.solicitante))}</button>`);
   if (rec && mod !== 'tarefas') acts.push(`<button class="btn mini" type="button" data-tarefa-de>+ Tarefa</button>`);
   if (rec && mod === 'demandas') data.servicos.filter(o => o.demanda_id === rec.id).forEach(o => acts.push(`<button class="btn mini ghost" type="button" data-open="servicos:${o.id}">📄 Ofício ${esc(o.protocolo || '(sem nº)')} · ${esc(o.status)}</button>`));
+  if (rec && mod === 'servicos' && store.anexosDisponiveis) acts.push(`<label class="btn mini" style="cursor:pointer">📨 Anexar resposta do órgão<input type="file" multiple accept="image/*,application/pdf,.doc,.docx" data-anx-resposta hidden></label>`);
   if (rec && mod === 'servicos' && rec.demanda_id && data.demandas.some(d => d.id === rec.demanda_id)) acts.push(`<button class="btn mini ghost" type="button" data-open="demandas:${rec.demanda_id}">↩ Demanda de origem</button>`);
   const dt = rec && docTipo(mod, rec);
   if (dt) acts.push(`<button class="btn mini" type="button" id="btn-doc">Gerar ${docs.TIPOS[dt]} (Word)</button>`);
@@ -681,7 +683,22 @@ async function saveDrawer() {
     closeDrawer();
     if (!old && mod === 'demandas' && row.protocolo) mostrarProtocolo(row); else toast(old ? 'Alterações salvas' : 'Registro criado');
     if (!old && mod === 'demandas') cadastrarQuemPediu([row]).catch(() => {});
-    if (old && old.status !== st && M.phone && row[M.phone] && ['demandas', 'servicos'].includes(mod)) {
+    // ofício atendido: a demanda de origem é concluída junto e o aviso ao cidadão sai com o texto da demanda
+    let demFechada = null;
+    if (mod === 'servicos' && old && old.status !== st && kindOf('servicos', st) === 'ok' && row.demanda_id) {
+      const dem = data.demandas.find(x => x.id === row.demanda_id);
+      if (dem && isOpen('demandas', dem)) {
+        try {
+          const h = (dem.historico || []).concat({ em: new Date().toISOString(), txt: 'Situação: ' + dem.status + ' → Concluída', por }, { em: new Date().toISOString(), txt: 'Concluída porque o ofício ' + (row.protocolo || '') + ' foi atendido', por });
+          demFechada = await store.saveRow('demandas', dem.id, { status: 'Concluída', historico: h.slice(-100) }); upsertLocal('demandas', demFechada);
+        } catch (e) { toast('Ofício salvo, mas a demanda não foi concluída: ' + errMsg(e)); }
+      }
+    }
+    if (demFechada) {
+      const wa = demFechada.telefone && waLink(demFechada.telefone, waStatus('demandas', demFechada));
+      if (wa) setTimeout(() => toastAcao('A demanda também foi concluída. Avisar ' + (primeiroNome(demFechada.solicitante) || 'o cidadão') + '?', wa, 'Avisar no WhatsApp'), 400);
+      else toast('A demanda “' + demFechada.assunto + '” também foi concluída');
+    } else if (old && old.status !== st && M.phone && row[M.phone] && ['demandas', 'servicos'].includes(mod)) {
       const wa = waLink(row[M.phone], waStatus(mod, row));
       if (wa) setTimeout(() => toastAcao('Avisar ' + (primeiroNome(row.solicitante) || 'o cidadão') + ' da nova situação?', wa, 'Avisar no WhatsApp'), 400);
     }
@@ -1092,7 +1109,7 @@ async function reduzirFoto(f) {
   } catch { return f; }
 }
 const nomeSeguro = n => n.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\w.-]+/g, '-').slice(-80);
-async function anexarArquivos(mod, id, files) {
+async function anexarArquivos(mod, id, files, resposta = false) {
   let r = data[mod].find(x => x.id === id); if (!r) return;
   const novos = [];
   const box0 = $('#anx'); const aviso = document.createElement('div'); aviso.className = 'm anx-prog'; if (box0) box0.appendChild(aviso);
@@ -1108,11 +1125,13 @@ async function anexarArquivos(mod, id, files) {
   aviso.remove();
   if (!novos.length) return;
   r = data[mod].find(x => x.id === id);
-  const hist = (r.historico || []).concat(novos.map(n => ({ em: n.em, txt: 'Anexo incluído: ' + n.nome, por: n.por }))).slice(-100);
+  const hist = (r.historico || []).concat(novos.map(n => ({ em: n.em, txt: (resposta ? 'Resposta do órgão anexada: ' : 'Anexo incluído: ') + n.nome, por: n.por }))).slice(-100);
+  if (resposta) novos.forEach(n => { n.resposta = true; });
   const row = await store.saveRow(mod, id, { anexos: (r.anexos || []).concat(novos), historico: hist });
   upsertLocal(mod, row);
   const box = $('#anx'); if (box && drawer.id === id) { box.innerHTML = anexosHtml(row); carregarMiniaturas(); }
-  toast(novos.length === 1 ? 'Arquivo anexado' : novos.length + ' arquivos anexados');
+  toast(resposta ? 'Resposta do órgão registrada. Ela aparece na consulta do cidadão.' : novos.length === 1 ? 'Arquivo anexado' : novos.length + ' arquivos anexados');
+  if (resposta && mod === 'servicos' && ['Recebida', 'Ofício enviado'].includes(row.status)) setTimeout(() => toast('Se o órgão já resolveu, mude a situação para “Atendida” ou “Em execução”.'), 2700);
 }
 async function removerAnexo(mod, id, i) {
   const r = data[mod].find(x => x.id === id); const a = (r?.anexos || []).slice(); const x = a[i]; if (!x) return;
@@ -1133,6 +1152,33 @@ function relFiltrados() {
     const d = String(DATA_REL[m](r) || '').slice(0, 10);
     return (!f.de || d >= f.de) && (!f.ate || d <= f.ate) && (!f.municipio || r.municipio === f.municipio) && (!f.bairro || r.bairro === f.bairro) && (!f.status || r.status === f.status);
   }).sort((a, b) => String(DATA_REL[m](a) || '').localeCompare(String(DATA_REL[m](b) || '')));
+}
+/** Tempo de resposta por órgão: ofícios enviados, respondidos, sem resposta e média de dias. */
+function rankingOrgaos() {
+  const dia = v => v ? new Date(String(v).length <= 10 ? v + 'T12:00:00' : v).getTime() : NaN;
+  const por = {};
+  data.servicos.forEach(r => {
+    const h = r.historico || [];
+    const env = h.find(x => /→ Ofício enviado$/.test(x.txt || ''));
+    const envio = dia(r.data_envio) || dia(env && env.em);
+    if (!envio) return; // ainda não foi enviado
+    const org = (r.orgao || 'Sem órgão').trim();
+    const o = por[org] || (por[org] = { org, enviados: 0, resp: 0, dias: 0, abertos: 0, maisVelho: 0 });
+    o.enviados++;
+    const resp = h.find(x => /^Resposta do órgão anexada|→ (Em execução|Atendida|Não atendida)$/.test(x.txt || '') && dia(x.em) >= envio - 86400000);
+    if (resp) { o.resp++; o.dias += Math.max(0, (dia(resp.em) - envio) / 86400000); }
+    else if (isOpen('servicos', r)) { o.abertos++; o.maisVelho = Math.max(o.maisVelho, Math.floor((Date.now() - envio) / 86400000)); }
+  });
+  return Object.values(por).map(o => ({ ...o, media: o.resp ? Math.round(o.dias / o.resp) : null }))
+    .sort((a, b) => (b.abertos ? b.maisVelho : -1) - (a.abertos ? a.maisVelho : -1) || (b.media ?? -1) - (a.media ?? -1));
+}
+function rankingHtml() {
+  const lista = rankingOrgaos(); if (!lista.length) return '';
+  return `<section class="panel" style="margin-top:14px"><h3 class="rk-titulo">Tempo de resposta das secretarias</h3>
+    <p class="m" style="margin-top:0">Conta a partir do envio do ofício até a primeira resposta (resposta anexada ou situação “Em execução”, “Atendida” ou “Não atendida”). As que estão há mais tempo sem responder aparecem primeiro.</p>
+    <table class="rtab"><thead><tr><th>Órgão</th><th class="num">Responde em</th><th class="num">Sem resposta</th></tr></thead><tbody>
+    ${lista.map(o => `<tr><td>${esc(o.org)}<div class="m" style="font-size:11.5px">${o.enviados} enviado${o.enviados === 1 ? '' : 's'} · ${o.resp} respondido${o.resp === 1 ? '' : 's'}</div></td><td class="num">${o.media == null ? '—' : o.media + ' dia' + (o.media === 1 ? '' : 's')}</td><td class="num">${o.abertos ? `<b class="rk-alerta">${o.abertos}</b><div class="m" style="font-size:11.5px">há ${o.maisVelho} dias</div>` : '0'}</td></tr>`).join('')}
+    </tbody></table></section>`;
 }
 function renderRelatorios() {
   const f = state.rel, m = f.mod, M = MODS[m];
@@ -1174,6 +1220,7 @@ function renderRelatorios() {
         ${M.fields.some(x => x.k === 'tipo') ? tabela('Por tipo', conta('tipo', 'Sem tipo')) : ''}
         ${M.fields.some(x => x.k === 'responsavel') ? tabela('Por responsável', conta('responsavel', 'Sem responsável')) : ''}
       </div>
+      ${m === 'servicos' ? rankingHtml() : ''}
       <section class="panel" style="margin-top:14px"><h3>Lista (${rows.length})</h3><div class="rtab-wrap"><table class="rtab det"><thead><tr>${colsDet.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>${rows.map(linha).join('')}</tbody></table></div></section>`
       : '<div class="empty"><b>Nenhum registro nesse filtro</b>Mude o período ou os filtros acima.</div>'}
     </div>`;
@@ -2034,6 +2081,7 @@ document.addEventListener('click', e => {
   const g = e.target.closest('[data-go]'); if (g) { e.preventDefault(); go(g.dataset.go); return; }
   const o = e.target.closest('[data-open]'); if (o) { const [m, id] = o.dataset.open.split(':'); openDrawer(m, id); return; }
   if (e.target.closest('[data-close]')) { closeDrawer(); return; }
+  if (e.target.closest('[data-ranking]')) { Object.assign(state.rel, { mod: 'servicos', municipio: '', bairro: '', status: '' }); go('relatorios'); setTimeout(() => document.querySelector('.rk-titulo')?.scrollIntoView({ behavior: 'smooth' }), 300); return; }
   if (e.target.closest('[data-ver-paradas]')) { state.filterNext = 'paradas'; go('demandas'); return; }
   const f = e.target.closest('[data-filter]'); if (f) { state.filter = f.dataset.filter; render(); return; }
   const w = e.target.closest('[data-win]'); if (w) { state.agendaWin = w.dataset.win; render(); return; }
@@ -2113,6 +2161,7 @@ document.addEventListener('change', async e => {
   if (e.target.id === 'mapa-per' || e.target.id === 'mapa-org') { state.mapa[e.target.id === 'mapa-per' ? 'per' : 'org'] = e.target.value; render(); return; }
   if (e.target.id === 'gf-de' || e.target.id === 'gf-ate') { state.graf[e.target.id === 'gf-de' ? 'de' : 'ate'] = e.target.value; render(); return; }
   const el = e.target;
+  if (el.dataset && 'anxResposta' in el.dataset) { const files = [...el.files]; el.value = ''; if (files.length) anexarArquivos(drawer.mod, drawer.id, files, true).catch(err => toast('Não foi possível anexar: ' + errMsg(err))); return; }
   if (el.dataset && 'anxAdd' in el.dataset) { const files = [...el.files]; el.value = ''; if (files.length) anexarArquivos(drawer.mod, drawer.id, files).catch(err => toast('Não foi possível anexar: ' + errMsg(err))); return; }
   if (el.dataset && el.dataset.rel) { state.rel[el.dataset.rel] = el.value; if (el.dataset.rel === 'mod') Object.assign(state.rel, { municipio: '', bairro: '', status: '' }); render(); return; }
   if (el.dataset && el.dataset.rem) { state.rem[el.dataset.rem] = el.value; render(); return; }

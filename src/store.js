@@ -296,8 +296,10 @@ export async function consultarProtocolo(protocolo, telefone) {
     if (!d) return null;
     return { protocolo: d.protocolo, assunto: d.assunto, status: d.status, bairro: d.bairro, municipio: d.municipio, aberto_em: d.criado_em, atualizado_em: d.atualizado_em,
       linha: (d.historico || []).filter(h => /^(Situação:|Cadastrado como|Recebida pelo formulário|Ofício de solicitação criado)/.test(h.txt || '')).map(h => ({ em: h.em, txt: /^Situação:/.test(h.txt) ? 'Situação: ' + h.txt.split('→')[1].trim() : /^Ofício/.test(h.txt) ? (h.txt.includes(' para ') ? 'Gabinete preparou ofício para ' + h.txt.split(' para ').slice(1).join(' para ') : 'Gabinete preparou ofício ao órgão responsável') : 'Pedido registrado no gabinete' }))
-        .concat((demoRead().servicos || []).filter(o => o.demanda_id === d.id).flatMap(o => (o.historico || []).filter(h => /^Situação:/.test(h.txt || '')).map(h => {
-          const st = h.txt.split('→')[1].trim(), org = o.orgao || 'O órgão responsável';
+        .concat((demoRead().servicos || []).filter(o => o.demanda_id === d.id).flatMap(o => (o.historico || []).filter(h => /^(Situação:|Resposta do órgão)/.test(h.txt || '')).map(h => {
+          const org = o.orgao || 'O órgão responsável';
+          if (/^Resposta do órgão/.test(h.txt)) return { em: h.em, txt: org + ' respondeu ao ofício' };
+          const st = h.txt.split('→')[1].trim();
           return { em: h.em, txt: st === 'Ofício enviado' ? 'Ofício' + (o.protocolo ? ' nº ' + o.protocolo : '') + ' enviado para ' + (o.orgao || 'o órgão responsável') : st === 'Em execução' ? org + ' está executando o serviço' : st === 'Atendida' ? org + ' atendeu o pedido' : st === 'Não atendida' ? org + ' não atendeu o pedido' : '' };
         }))).filter(x => x.txt).sort((a, b) => String(a.em).localeCompare(String(b.em))) };
   }

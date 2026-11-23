@@ -540,14 +540,15 @@ begin
           where h->>'txt' like 'Situação:%' or h->>'txt' like 'Cadastrado como%' or h->>'txt' like 'Recebida pelo formulário%' or h->>'txt' like 'Ofício de solicitação criado%'
         union all
         select h->>'em',
+          case when h->>'txt' like 'Resposta do órgão%' then coalesce(nullif(s.orgao, ''), 'O órgão responsável') || ' respondeu ao ofício' else
           case trim(split_part(h->>'txt', '→', 2))
                when 'Ofício enviado' then 'Ofício' || coalesce(' nº ' || nullif(s.protocolo, ''), '') || ' enviado para ' || coalesce(nullif(s.orgao, ''), 'o órgão responsável')
                when 'Em execução' then coalesce(nullif(s.orgao, ''), 'O órgão responsável') || ' está executando o serviço'
                when 'Atendida' then coalesce(nullif(s.orgao, ''), 'O órgão responsável') || ' atendeu o pedido'
                when 'Não atendida' then coalesce(nullif(s.orgao, ''), 'O órgão responsável') || ' não atendeu o pedido'
-               else null end
+               else null end end
           from public.servicos s, jsonb_array_elements(coalesce(s.historico, '[]'::jsonb)) h
-          where s.demanda_id = d.id and h->>'txt' like 'Situação:%'
+          where s.demanda_id = d.id and (h->>'txt' like 'Situação:%' or h->>'txt' like 'Resposta do órgão%')
       ) x where x.txt is not null), '[]'::jsonb),
     'gabinete', (select jsonb_build_object('gabinete', valor->>'gabinete', 'deputado_nome', valor->>'deputado_nome', 'deputado_cargo', valor->>'deputado_cargo') from public.config where id = 'gabinete'));
 end $$;

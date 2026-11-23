@@ -652,3 +652,4 @@ body.mapa-cheio{overflow:hidden}
 .consulta-linha li.ult::before{background:#257ebf;border-color:#8cc8f2}
 .consulta-linha li:last-child{padding-bottom:0}
 .consulta-linha time{font-size:12px}
+.rk-alerta{color:#f0b43c}
