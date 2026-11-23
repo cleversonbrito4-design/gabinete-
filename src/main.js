@@ -510,7 +510,7 @@ function fieldInput(f, v, ro) {
   if (f.type === 'money') return `<input id="${id}" inputmode="decimal" placeholder="0,00" value="${v !== '' && v != null ? esc(Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2 })) : ''}" ${dis}>`;
   const type = ['date', 'time', 'number', 'tel', 'email', 'url'].includes(f.type) ? f.type : 'text';
   if (type === 'tel') return `<input id="${id}" type="tel" inputmode="numeric" maxlength="20" placeholder="(45) 99999-9999" value="${esc(v)}" autocomplete="off" ${dis}>`;
-  const list = f.list ? 'list="dl-munis"' : f.people ? 'list="dl-pessoas"' : f.team ? 'list="dl-equipe"' : '';
+  const list = f.orgaos ? 'list="dl-orgaos" placeholder="Escolha ou digite o órgão"' : f.list ? 'list="dl-munis"' : f.people ? 'list="dl-pessoas"' : f.team ? 'list="dl-equipe"' : '';
   return `<input id="${id}" type="${type}" value="${esc(f.type === 'time' ? hhmm(v) : v)}" ${list} ${f.mono ? 'style="font-family:var(--mono)"' : ''} autocomplete="off" ${dis}>`;
 }
 
@@ -548,7 +548,7 @@ function openDrawer(mod, id, preset = {}) {
   $('#overlay').innerHTML = `<div class="scrim" data-close></div><aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="dr-t">
     <div class="dr-head"><div style="min-width:0"><div class="eyebrow">${esc(M.label)}${rec && rec.protocolo ? ' · Protocolo ' + esc(rec.protocolo) : ''}</div><h3 id="dr-t">${rec ? esc(M.title(rec)) : esc(M.novo)}</h3></div><button class="btn ghost" data-close aria-label="Fechar">✕</button></div>
     <form class="dr-body" id="frm" novalidate>${acts.length ? `<div class="dr-actions">${acts.join('')}</div>` : ''}${statusSel}<div class="f"></div>${fields}
-      <datalist id="dl-munis"></datalist><datalist id="dl-pessoas"></datalist><datalist id="dl-equipe"></datalist><div class="err" id="frm-err" hidden></div>
+      <datalist id="dl-munis"></datalist><datalist id="dl-pessoas"></datalist><datalist id="dl-equipe"></datalist><datalist id="dl-orgaos">${AREAS_DEMANDA.map(o => `<option value="${esc(o)}">`).join('')}</datalist><div class="err" id="frm-err" hidden></div>
       ${M.geo ? `<div class="geo" id="geo"><span class="eyebrow">Localização exata</span>
         <div class="geo-busca"><input id="geo-end" placeholder="Rua, número, bairro" value="${esc(r.local || [r.bairro, r.municipio].filter(Boolean).join(', '))}" autocomplete="off"><button class="btn mini" type="button" id="geo-buscar">🔎 Buscar</button><button class="btn mini" type="button" id="geo-gps">📍 Estou no local</button></div>
         <div id="geo-map" class="geo-map"></div>
@@ -690,6 +690,15 @@ async function oficioDaDemanda() {
 }
 
 /* ---------- documentos Word ---------- */
+/** Linhas do destinatário no topo do ofício. Sem nome de destinatário, o ofício vai ao órgão: "À Secretaria Municipal de Obras Públicas" / "Cascavel – PR". */
+function blocoDestinatario(r, tipo) {
+  const orgao = (r.orgao || '').trim(), dest = (r.destinatario || '').trim();
+  if (tipo !== 'oficio' || dest || !orgao) return { destinatario: dest, orgao };
+  const fem = /^(secretaria|procuradoria|controladoria|ag[êe]ncia|companhia|c[âa]mara|prefeitura|coordenadoria|diretoria|funda[çc][ãa]o|autarquia|superintend[êe]ncia|guarda|defesa|ouvidoria|assessoria)\b/i.test(orgao);
+  const cidade = (r.municipio || cfg.cidade_gabinete || '').trim();
+  const uf = UF_GAB() || 'PR';
+  return { destinatario: (fem ? 'À ' : 'Ao ') + orgao, orgao: cidade ? cidade + (uf && !cidade.includes(uf) ? ' – ' + uf : '') : '' };
+}
 function docTipo(mod, r) {
   if (mod === 'servicos') return r.tipo_doc === 'Indicação' ? 'indicacao' : r.tipo_doc === 'Requerimento' ? 'requerimento' : (!r.tipo_doc || r.tipo_doc === 'Ofício') ? 'oficio' : null;
   if (mod === 'proposituras') return r.tipo === 'Indicação' ? 'indicacao' : r.tipo === 'Requerimento' ? 'requerimento' : null;
@@ -726,6 +735,13 @@ async function gerarDocumento() {
       anoDoc = r.ano || ano;
       if (r.numero) numero = r.numero; else { numero = proximoNumero(mod, r, anoDoc); r = await store.saveRow(mod, r.id, { numero, ano: anoDoc }); upsertLocal(mod, r); }
     }
+    // órgão destinatário: o do ofício ou, se vazio, o da demanda de origem
+    if (mod === 'servicos' && !r.orgao && r.demanda_id) {
+      const dem = data.demandas.find(x => x.id === r.demanda_id);
+      const org = dem && ((AREAS_DEMANDA.includes(dem.area) ? dem.area : ORGAO_POR_AREA[dem.area]) || '');
+      if (org) { r = await store.saveRow(mod, r.id, { orgao: org }); upsertLocal(mod, r); }
+    }
+    if (tipo === 'oficio' && !r.orgao && !r.destinatario) throw new Error('Escolha o "Órgão destinatário" do ofício antes de gerar o Word.');
     const assunto = (mod === 'servicos' ? r.servico : r.ementa) || '';
     const munUf = r.municipio || '';
     const localTxt = mod === 'servicos' ? [r.local && ', na ' + r.local, r.municipio && ', no município de ' + r.municipio].filter(Boolean).join('') : '';
@@ -752,10 +768,10 @@ async function gerarDocumento() {
     if (btn) btn.textContent = 'Gerando…';
     const [cargo1, partido] = String(cfg.deputado_cargo || '').split('/');
     const valores = {
-      ...cfg, numero, ano: anoDoc, data_extenso: docs.dataExtenso(), destinatario: r.destinatario || '', orgao: r.orgao || '',
+      ...cfg, numero, ano: anoDoc, data_extenso: docs.dataExtenso(), ...blocoDestinatario(r, tipo),
       destinatario_orgao: [r.destinatario, r.orgao].filter(Boolean).join(', ') || 'órgão competente', municipio_uf: munUf, assunto, local_texto: localTxt, texto, paragrafos, justificativa,
       numero_doc: tipo === 'oficio' ? numero : (numero ? String(numero).split('/')[0] : ''),
-      vocativo: r.vocativo || 'Senhor(a)', solicitante: r.solicitante || '',
+      vocativo: r.vocativo || (!r.destinatario && /^secretaria/i.test(r.orgao || '') ? 'Senhor(a) Secretário(a)' : 'Senhor(a)'), solicitante: r.solicitante || '',
       gabinete_maiusculo: (cfg.gabinete || '').toLocaleUpperCase('pt-BR'),
       proponente: [cargo1 && cargo1.trim(), cfg.deputado_nome].filter(Boolean).join(' ') + (partido ? '/' + partido.trim() : ''),
     };

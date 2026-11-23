@@ -73,7 +73,7 @@ export const MODS = {
       { k:'telefone', l:'Telefone / WhatsApp', type:'tel' },
       { k:'municipio', l:'Município', list:1 },
       { k:'local', l:'Endereço / Local' },
-      { k:'orgao', l:'Órgão destinatário' },
+      { k:'orgao', l:'Órgão destinatário (vai no ofício)', orgaos:1 },
       { k:'destinatario', l:'Destinatário (nome e cargo)' },
       { k:'tipo_doc', l:'Tipo de documento', type:'select', opts:['Ofício','Indicação','Requerimento','E-mail','Contato direto'] },
       { k:'protocolo', l:'Nº ofício / protocolo', mono:1 },
