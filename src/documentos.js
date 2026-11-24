@@ -5,7 +5,7 @@ import PizZip from 'pizzip';
 import Docxtemplater from 'docxtemplater';
 import * as store from './store.js';
 
-export const TIPOS = { oficio: 'Ofício', requerimento: 'Requerimento', indicacao: 'Indicação', mocao: 'Moção', projeto_lei: 'Projeto de Lei' };
+export const TIPOS = { oficio: 'Ofício', requerimento: 'Requerimento', indicacao: 'Indicação', mocao: 'Moção', projeto_lei: 'Projeto de Lei', lideranca: 'Liderança de Governo' };
 
 export const CAMPOS = [
   ['numero', 'Número do ofício (ex.: 164)'], ['numero_doc', 'Número de indicação/requerimento (em branco até a Câmara numerar)'], ['ano', 'Ano'], ['data_extenso', 'Data por extenso (16 de novembro de 2026)'],
@@ -87,6 +87,37 @@ export async function anexarImagens(blob, titulo, imagens) {
   });
   const fim = docXml.lastIndexOf('<w:sectPr');
   const pos = fim > docXml.lastIndexOf('</w:p>') ? fim : docXml.lastIndexOf('</w:body>');
+  docXml = docXml.slice(0, pos) + corpo + docXml.slice(pos);
+  zip.file('word/document.xml', docXml); zip.file('word/_rels/document.xml.rels', rels); zip.file('[Content_Types].xml', ct);
+  return zip.generate({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+}
+
+/**
+ * Põe as fotos logo depois do parágrafo que contém `depoisDe`, duas por linha
+ * (como na ficha "Liderança de Governo"). Sem o texto, vão para o fim.
+ */
+export async function inserirFotosGrade(blob, imagens, depoisDe) {
+  if (!imagens.length) return blob;
+  const zip = new PizZip(await blob.arrayBuffer());
+  let docXml = zip.file('word/document.xml').asText();
+  let rels = zip.file('word/_rels/document.xml.rels').asText();
+  let ct = zip.file('[Content_Types].xml').asText();
+  for (const [ext, tipo] of [['jpg', 'image/jpeg'], ['png', 'image/png']]) if (!new RegExp(`Extension="${ext}"`, 'i').test(ct)) ct = ct.replace(/(<Types[^>]*>)/, `$1<Default Extension="${ext}" ContentType="${tipo}"/>`);
+  const base = Date.now() % 100000, maxW = 8.6 * EMU_CM, maxH = 5.3 * EMU_CM;
+  const runs = imagens.map((img, i) => {
+    const rid = 'rIdFoto' + i, nome = `gab-foto-${base}-${i}.${img.ext}`;
+    zip.file('word/media/' + nome, img.bytes);
+    rels = rels.replace('</Relationships>', `<Relationship Id="${rid}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${nome}"/></Relationships>`);
+    const k = Math.min(maxW / img.w, maxH / img.h);
+    // reaproveita o desenho de figura(), só o <w:r> de dentro
+    return /<w:r>.*<\/w:r>/s.exec(figura(rid, 9100 + i, Math.round(img.w * k), Math.round(img.h * k)))[0];
+  });
+  let corpo = '';
+  for (let i = 0; i < runs.length; i += 2) corpo += `<w:p><w:pPr><w:spacing w:before="${i ? 80 : 200}" w:after="0"/></w:pPr>${runs[i]}${runs[i + 1] ? '<w:r><w:t xml:space="preserve">  </w:t></w:r>' + runs[i + 1] : ''}</w:p>`;
+  let pos = -1;
+  const t = depoisDe ? docXml.indexOf(xmlEsc(depoisDe)) : -1;
+  if (t >= 0) pos = docXml.indexOf('</w:p>', t) + 6;
+  if (pos < 6) { const fim = docXml.lastIndexOf('<w:sectPr'); pos = fim > docXml.lastIndexOf('</w:p>') ? fim : docXml.lastIndexOf('</w:body>'); }
   docXml = docXml.slice(0, pos) + corpo + docXml.slice(pos);
   zip.file('word/document.xml', docXml); zip.file('word/_rels/document.xml.rels', rels); zip.file('[Content_Types].xml', ct);
   return zip.generate({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
