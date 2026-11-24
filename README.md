@@ -33,3 +33,17 @@ python3 scripts/gen-modelos.py   # regenera os modelos padrão de Word (requer p
 ```
 
 Para incluir ou alterar campos, edite `src/schema.js`, rode `npm run sql` e execute o `supabase/schema.sql` de novo no SQL Editor do Supabase. O script é idempotente e só acrescenta o que falta.
+
+## Vários gabinetes (clientes)
+
+Cada gabinete tem uma pasta em `clientes/<nome>/`:
+
+- `cliente.json`: marca, site, cidade, UF, DDD, dados do gabinete, bairros, órgãos da prefeitura e banco (Supabase).
+- `publico/` (opcional): arquivos que substituem os de `public/` só para esse cliente (logos em `marca/`, ícones, modelos de Word em `modelos/`).
+
+Gerar o site de um cliente: `CLIENTE=<nome> npm run build`. Sem `CLIENTE`, sai o Fala Cascavel (`clientes/fala-cascavel`).
+
+Novo cliente do zero: copie `clientes/_ficha-exemplo.json`, preencha e rode `npm run novo-cliente -- minha-ficha.json`.
+Ele cria a pasta do cliente, os logos, os ícones, os modelos de Word com o timbre dele, o `saida/<nome>/banco.sql`
+(banco + administrador; fica fora do Git) e o `saida/<nome>/site.zip` para arrastar na Netlify.
+O passo a passo aparece em `saida/<nome>/PROXIMOS-PASSOS.txt`.

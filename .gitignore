@@ -4,3 +4,7 @@ dist
 .env.*.local
 .DS_Store
 .netlify/
+
+# kit de novo cliente: banco.sql tem e-mail do administrador, fica fora do GitHub
+saida/
+clientes/*/ficha*.json

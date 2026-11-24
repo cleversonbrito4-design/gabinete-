@@ -8,18 +8,21 @@ import * as imp from './importar.js';
 import * as mapaLib from './mapa.js';
 import * as ags from './agendas.js';
 import * as pushAv from './avisos.js';
+import * as cli from './cliente.js';
 
-/* Dados do gabinete: editáveis em "Minha conta"; os do .env são só o ponto de partida. */
+/* Dados do gabinete: editáveis em "Minha conta"; os de clientes/<nome>/cliente.json (ou do .env) são só o ponto de partida. */
 const env = import.meta.env;
+// com cliente.json, o .env é ignorado (para não misturar dados de outro gabinete)
+const ini = (k, e) => (Object.keys(cli.GAB).length ? cli.GAB[k] : e ? env[e] : '') || '';
 const CFG_CAMPOS = [
-  ['gabinete', 'Nome do gabinete', env.VITE_NOME_GABINETE || 'Gestão do Gabinete'],
-  ['deputado_nome', 'Nome do parlamentar (como assina)', env.VITE_DEPUTADO_NOME || ''],
-  ['deputado_cargo', 'Cargo', env.VITE_DEPUTADO_CARGO || 'Deputado Estadual'],
-  ['casa_legislativa', 'Casa legislativa', env.VITE_CASA || 'Assembleia Legislativa do Estado'],
-  ['cidade_gabinete', 'Cidade do gabinete (para a data dos documentos)', env.VITE_CIDADE || ''],
-  ['endereco_gabinete', 'Endereço, telefone e e-mail do gabinete (rodapé)', env.VITE_ENDERECO_GABINETE || ''],
-  ['ultimo_oficio', 'Último nº de ofício já emitido fora do sistema (ex.: 163)', env.VITE_ULTIMO_OFICIO || ''],
-  ['ultima_lideranca', 'Último nº de "Liderança de Governo" (ficha de demandas) já feito fora do sistema (ex.: 330)', '330'],
+  ['gabinete', 'Nome do gabinete', ini('nome', 'VITE_NOME_GABINETE') || 'Gestão do Gabinete'],
+  ['deputado_nome', 'Nome do parlamentar (como assina)', ini('parlamentar', 'VITE_DEPUTADO_NOME')],
+  ['deputado_cargo', 'Cargo', ini('cargo', 'VITE_DEPUTADO_CARGO') || 'Deputado Estadual'],
+  ['casa_legislativa', 'Casa legislativa', ini('casa', 'VITE_CASA') || 'Assembleia Legislativa do Estado'],
+  ['cidade_gabinete', 'Cidade do gabinete (para a data dos documentos)', ini('cidade', 'VITE_CIDADE') || cli.CIDADE],
+  ['endereco_gabinete', 'Endereço, telefone e e-mail do gabinete (rodapé)', ini('endereco', 'VITE_ENDERECO_GABINETE')],
+  ['ultimo_oficio', 'Último nº de ofício já emitido fora do sistema (ex.: 163)', ini('ultimo_oficio', 'VITE_ULTIMO_OFICIO')],
+  ['ultima_lideranca', 'Último nº de "Liderança de Governo" (ficha de demandas) já feito fora do sistema (ex.: 330)', ini('ultima_lideranca')],
 ];
 const cfg = Object.fromEntries(CFG_CAMPOS.map(([k, , v]) => [k, v]));
 const NOME_GAB = () => cfg.gabinete || 'Gestão do Gabinete';
@@ -169,12 +172,12 @@ let loginMode = 'entrar';
 const marcaPub = () => `<div class="pt-badge"><span class="pt-dot" aria-hidden="true"></span>${esc(NOME_GAB())}</div>`;
 /** Topo das páginas abertas: logo sem fundo à esquerda e um botão em pílula à direita (estilo vidro, fundo escuro). */
 const ACOES_PORTAL = { pedido: ['?solicitar', 'Fazer um pedido'], consulta: ['?consulta', 'Acompanhar pedido'], equipe: ['/', 'Entrar'] };
-const topoPortal = (acao = '', semLogo = false) => { const a = ACOES_PORTAL[acao]; return `<div class="pt-fundo" aria-hidden="true"><i></i><i></i><i></i></div><header class="pt-top${semLogo ? ' sem-logo' : ''}"><a class="pt-logo" href="${a && acao !== 'equipe' ? '?solicitar' : '/'}"><img src="/marca/fala-cascavel-branca.svg" alt="Fala Cascavel" width="190" height="61"></a>${a ? `<a class="pt-acao" href="${a[0]}">${a[1]}</a>` : ''}</header>`; };
+const topoPortal = (acao = '', semLogo = false) => { const a = ACOES_PORTAL[acao]; return `<div class="pt-fundo" aria-hidden="true"><i></i><i></i><i></i></div><header class="pt-top${semLogo ? ' sem-logo' : ''}"><a class="pt-logo" href="${a && acao !== 'equipe' ? '?solicitar' : '/'}"><img src="/marca/fala-cascavel-branca.svg" alt="${esc(cli.MARCA)}" width="190" height="61"></a>${a ? `<a class="pt-acao" href="${a[0]}">${a[1]}</a>` : ''}</header>`; };
 const tituloPortal = (t, sub = '') => `<h1 class="pt-h1">${t}</h1>${sub ? `<p class="pt-sub">${sub}</p>` : ''}`;
 function renderLogin(msg = '', ok = '', email = '') {
   const criar = loginMode === 'criar';
   document.body.innerHTML = `<div class="login portal">${topoPortal('pedido', true)}<form class="login-card" id="login" novalidate>
-    <img class="pt-logo-card" src="/marca/fala-cascavel-branca.svg" alt="Fala Cascavel" width="240" height="77">
+    <img class="pt-logo-card" src="/marca/fala-cascavel-branca.svg" alt="${esc(cli.MARCA)}" width="240" height="77">
     ${tituloPortal(criar ? 'Criar minha conta' : 'Entrar no sistema', criar ? 'Use o e-mail que a equipe liberou para você.' : 'Área da equipe do gabinete.')}
     <div class="f"><label for="l-email">E-mail</label><input id="l-email" type="email" autocomplete="username" value="${esc(email)}" required></div>
     <div class="f"><label for="l-pass">${criar ? 'Crie uma senha (mínimo 8 caracteres)' : 'Senha'}</label><input id="l-pass" type="password" autocomplete="${criar ? 'new-password' : 'current-password'}" required></div>
@@ -251,7 +254,7 @@ function shell() {
   document.body.innerHTML = `
 <header class="top"><div class="wrap">
   <div class="brand">
-    <div class="brand-l"><a href="#painel" class="logo-top" aria-label="Fala Cascavel – início"><img class="lg-claro" src="/marca/fala-cascavel.svg" alt="Fala Cascavel"><img class="lg-escuro" src="/marca/fala-cascavel-branca.svg" alt="Fala Cascavel"></a><h1>${esc(NOME_GAB())}<small>Demandas, ofícios, emendas, proposituras, agenda e pessoas</small></h1></div>
+    <div class="brand-l"><a href="#painel" class="logo-top" aria-label="${esc(cli.MARCA)} – início"><img class="lg-claro" src="/marca/fala-cascavel.svg" alt="${esc(cli.MARCA)}"><img class="lg-escuro" src="/marca/fala-cascavel-branca.svg" alt="${esc(cli.MARCA)}"></a><h1>${esc(NOME_GAB())}<small>Demandas, ofícios, emendas, proposituras, agenda e pessoas</small></h1></div>
     <div style="display:flex;gap:8px;align-items:center">
       <button class="btn ghost" id="btn-tema" type="button" title="Mudar tema claro/escuro" aria-label="Mudar tema claro/escuro">${document.documentElement.dataset.theme === "light" ? "🌙" : "☀️"}</button>
       <button class="btn ghost bell" id="btn-avisos" title="Avisos" aria-label="Avisos">🔔<span class="n" id="avisos-n" hidden></span></button>
@@ -366,7 +369,7 @@ function resumoEquipeTexto() {
   l.push('', '*Pendências de cada um*'); if (pess.length) pess.forEach(([n, p]) => l.push(`• ${n}: ${p.total}${p.atr.length ? ` (⚠️ ${p.atr.length} atrasada${p.atr.length === 1 ? '' : 's'})` : ' ✅'}`)); else l.push('• Ninguém com pendências');
   if (semDono) l.push(`• Sem responsável: ${semDono}`);
   if (semResp) l.push('', `📄 ${semResp} ofício${semResp === 1 ? '' : 's'} sem resposta há ${DIAS_REITERAR}+ dias. Vale reiterar.`);
-  l.push('', 'Veja a sua lista em falacascavel.com.br → Minha lista do dia');
+  l.push('', 'Veja a sua lista em ' + (cli.SITE || 'o sistema') + ' → Minha lista do dia');
   return l.join('\n');
 }
 async function resumoEquipe() {
@@ -674,7 +677,7 @@ function fieldInput(f, v, ro) {
   if (f.type === 'textarea') return `<textarea id="${id}" ${dis}>${esc(v)}</textarea>`;
   if (f.type === 'money') return `<input id="${id}" inputmode="decimal" placeholder="0,00" value="${v !== '' && v != null ? esc(Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2 })) : ''}" ${dis}>`;
   const type = ['date', 'time', 'number', 'tel', 'email', 'url'].includes(f.type) ? f.type : 'text';
-  if (type === 'tel') return `<input id="${id}" type="tel" inputmode="numeric" maxlength="20" placeholder="(45) 99999-9999" value="${esc(v)}" autocomplete="off" ${dis}>`;
+  if (type === 'tel') return `<input id="${id}" type="tel" inputmode="numeric" maxlength="20" placeholder="(${cli.DDD}) 99999-9999" value="${esc(v)}" autocomplete="off" ${dis}>`;
   const list = f.orgaos ? 'list="dl-orgaos" placeholder="Escolha ou digite o órgão"' : f.list ? 'list="dl-munis"' : f.people ? 'list="dl-pessoas"' : f.team ? 'list="dl-equipe"' : '';
   return `<input id="${id}" type="${type}" value="${esc(f.type === 'time' ? hhmm(v) : v)}" ${list} ${f.mono ? 'style="font-family:var(--mono)"' : ''} autocomplete="off" ${dis}>`;
 }
@@ -758,7 +761,7 @@ async function geoBuscar() {
     const mun = $('#f-municipio')?.value || cfg.cidade_gabinete || '';
     const bairro = ($('#f-bairro')?.value || '').trim();
     const txt = bairro && !t.toLowerCase().includes(bairro.toLowerCase()) ? t + ', ' + bairro : t;
-    const p = await mapaLib.buscarEndereco(txt, { mun, uf: UF_GAB() || 'PR' });
+    const p = await mapaLib.buscarEndereco(txt, { mun, uf: UF_GAB() || cli.UF });
     if (!p) toast('Endereço não encontrado. Confira o nome da rua ou toque no mapa no local certo.');
     else { const aviso = p.aviso; drawer.geo = [p[0], p[1]]; geoMini?.marcar(drawer.geo, true); geoInfo(); if (aviso) toast(aviso); }
   } catch (e) { toast(errMsg(e)); }
@@ -795,7 +798,7 @@ async function saveDrawer() {
   if (missing.length) { const e = $('#frm-err'); e.hidden = false; e.textContent = 'Preencha: ' + missing.join(', ') + '.'; return; }
   // trava de telefone: confere só o que foi digitado ou mudado (cadastros antigos continuam salvando)
   const telRuim = M.fields.filter(f => f.type === 'tel' && rec[f.k] && digitosTel(rec[f.k]) !== digitosTel(old?.[f.k]) && !telefoneOk(rec[f.k]));
-  if (telRuim.length) { const e = $('#frm-err'); e.hidden = false; e.textContent = 'Telefone inválido. Digite com DDD: (45) 99999-9999 para celular ou (45) 3333-4444 para fixo.'; const i = $('#f-' + telRuim[0].k); if (i) i.focus(); return; }
+  if (telRuim.length) { const e = $('#frm-err'); e.hidden = false; e.textContent = `Telefone inválido. Digite com DDD: (${cli.DDD}) 99999-9999 para celular ou (${cli.DDD}) 3333-4444 para fixo.`; const i = $('#f-' + telRuim[0].k); if (i) i.focus(); return; }
   M.fields.filter(f => f.type === 'tel' && rec[f.k] && telefoneOk(rec[f.k])).forEach(f => { rec[f.k] = mascaraTel(rec[f.k]); });
   if (!old && !drawer.parecidoOk) {
     const par = pedidosParecidos(mod, rec);
@@ -877,9 +880,9 @@ function legendaAtendido(d) {
   const tag = t => '#' + semAcento(t).replace(/[^a-z0-9]/g, '');
   return [`✅ Pedido atendido!`, '',
     `${d.assunto || 'Pedido da comunidade'}${d.bairro && !semAcento(d.assunto).includes(semAcento(d.bairro)) ? ' no bairro ' + d.bairro : ''}.`,
-    `O pedido chegou ao gabinete pelo Fala Cascavel${ofs.length ? `, foi encaminhado por ofício${org ? ' à ' + org : ''}` : ''} e agora está resolvido. 💪`, '',
-    'Trabalho sério se faz ouvindo a população. Tem algum problema no seu bairro? Faça seu pedido em falacascavel.com.br ou pelo link da bio.', '',
-    ['#Cascavel', '#FalaCascavel', '#PedidoAtendido', d.bairro && tag(d.bairro), cfg.deputado_nome && tag(cfg.deputado_nome)].filter(Boolean).join(' ')].join('\n');
+    `O pedido chegou ao gabinete pelo ${cli.MARCA}${ofs.length ? `, foi encaminhado por ofício${org ? ' à ' + org : ''}` : ''} e agora está resolvido. 💪`, '',
+    'Trabalho sério se faz ouvindo a população. Tem algum problema no seu bairro? Faça seu pedido em ' + (cli.SITE || 'nosso site') + ' ou pelo link da bio.', '',
+    [...cli.HASHTAGS, '#PedidoAtendido', d.bairro && tag(d.bairro), cfg.deputado_nome && tag(cfg.deputado_nome)].filter(Boolean).join(' ')].join('\n');
 }
 async function arteAtendido(btn) {
   const d = data.demandas.find(x => x.id === drawer.id); if (!d) return;
@@ -1021,7 +1024,7 @@ function blocoDestinatario(r, tipo) {
   if (tipo !== 'oficio' || dest || !orgao) return { destinatario: dest, orgao };
   const fem = /^(secretaria|procuradoria|controladoria|ag[êe]ncia|companhia|c[âa]mara|prefeitura|coordenadoria|diretoria|funda[çc][ãa]o|autarquia|superintend[êe]ncia|guarda|defesa|ouvidoria|assessoria)\b/i.test(orgao);
   const cidade = (r.municipio || cfg.cidade_gabinete || '').trim();
-  const uf = UF_GAB() || 'PR';
+  const uf = UF_GAB() || cli.UF;
   return { destinatario: (fem ? 'À ' : 'Ao ') + orgao, orgao: cidade ? cidade + (uf && !cidade.includes(uf) ? ' – ' + uf : '') : '' };
 }
 // moções: texto e justificativa conforme o tipo (aplauso, congratulações, pesar)
@@ -1029,7 +1032,7 @@ function textoMocao(r) {
   const quem = (r.destinatario || '').trim() || '(nome do homenageado)';
   const motivo = String(r.ementa || '').replace(/\s*\n+\s*/g, ' ').trim().replace(/\.$/, '');
   const mot = motivo ? (/^(a|à|ao|aos|às|as|pel[oa]s?|por|em|no|na|pela)\b/i.test(motivo) ? motivo.charAt(0).toLowerCase() + motivo.slice(1) : 'pelo seguinte motivo: ' + motivo.charAt(0).toLowerCase() + motivo.slice(1)) : '';
-  const cidade = cfg.cidade_gabinete || 'Cascavel';
+  const cidade = cfg.cidade_gabinete || cli.CIDADE;
   const fecho = 'Diante do exposto, conto com o apoio dos nobres Pares para a aprovação desta Moção.';
   if (/Pesar/.test(r.tipo)) return {
     titulo: 'MOÇÃO DE PESAR',
@@ -1045,7 +1048,7 @@ function textoMocao(r) {
 // projeto de lei: artigos numerados a partir do campo Texto (um por linha) + vigência
 const ORD = ['1º', '2º', '3º', '4º', '5º', '6º', '7º', '8º', '9º'];
 function textoProjetoLei(r) {
-  const cidade = cfg.cidade_gabinete || 'Cascavel';
+  const cidade = cfg.cidade_gabinete || cli.CIDADE;
   let itens = String(r.texto || '').split(/\n+/).map(x => x.trim()).filter(Boolean).map(x => x.replace(/^art(igo)?\.?\s*\d+\s*[º°o]?\s*[-–.:]?\s*/i, ''));
   const temVig = itens.some(x => /entra em vigor/i.test(x));
   if (!itens.length) itens = ['(escreva aqui o que a lei determina)'];
@@ -1055,7 +1058,7 @@ function textoProjetoLei(r) {
   const ementa = String(r.ementa || '').trim().replace(/\.$/, '') + '.';
   return {
     titulo: tit, ementa, forca: true,
-    texto: [`A Câmara Municipal de ${cidade}, Estado do Paraná, aprova, e o Prefeito Municipal sanciona a seguinte Lei:`, ...arts].join('\n'),
+    texto: [`A Câmara Municipal de ${cidade}, ${cli.ESTADO_DE}, aprova, e o Prefeito Municipal sanciona a seguinte Lei:`, ...arts].join('\n'),
     justificativa: [`O presente Projeto de Lei, que “${ementa.slice(0, -1)}”, atende a uma necessidade da população de ${cidade} e busca melhorar a qualidade de vida dos munícipes.`, 'A proposta é de interesse público e está de acordo com a competência legislativa do Município para tratar de assuntos de interesse local, nos termos do art. 30, inciso I, da Constituição Federal.', 'Diante do exposto, conto com o apoio dos nobres Pares para a aprovação deste Projeto de Lei.'] };
 }
 function docTipo(mod, r) {
@@ -1667,18 +1670,18 @@ function gruposMapa(regs) {
   }
   return Object.values(por).sort((a, b) => b.total - a.total);
 }
-// Bairros de Cascavel (lista de referência para "onde o gabinete ainda não chegou"; ajuste se faltar algum).
-const BAIRROS_CASCAVEL = ['Alto Alegre', 'Brasília', 'Brasmadeira', 'Canadá', 'Cancelli', 'Cascavel Velho', 'Cataratas', 'Centro', 'Claudete', 'Coqueiral', 'Country', 'Esmeralda', 'Floresta', 'Florais do Paraná', 'Guarujá', 'Interlagos', 'Maria Luiza', 'Morumbi', 'Neva', 'Nova Cidade', 'Pacaembu', 'Parque São Paulo', 'Parque Verde', 'Periolo', 'Pioneiros Catarinenses', 'Recanto Tropical', 'Riviera', 'Santa Cruz', 'Santa Felicidade', 'Santo Onofre', 'São Cristóvão', 'Tropical', 'Universitário', 'XIV de Novembro'];
+// Bairros da cidade do cliente (lista de referência para "onde o gabinete ainda não chegou"; fica em clientes/<nome>/cliente.json).
+const BAIRROS_CIDADE = cli.BAIRROS;
 const normBairro = b => String(b || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/^(bairro|jardim|jd\.?|vila|vl\.?|conjunto|residencial)\s+/, '').replace(/\s+/g, ' ').trim();
-/** Bairros da cidade do gabinete: com pedidos e nenhum atendido, e (em Cascavel) sem nenhum pedido. */
+/** Bairros da cidade do gabinete: com pedidos e nenhum atendido, e (na cidade do cliente, com a lista de bairros do cliente.json) sem nenhum pedido. */
 function bairrosSemAtendimento() {
-  const cid = normBairro(cfg.cidade_gabinete || 'Cascavel');
+  const cid = normBairro(cfg.cidade_gabinete || cli.CIDADE);
   const daCidade = r => !r.municipio || normBairro(r.municipio) === cid;
   const por = {};
   data.demandas.filter(daCidade).forEach(r => { if (!r.bairro) return; const k = normBairro(r.bairro); const g = por[k] || (por[k] = { bairro: r.bairro.trim(), total: 0, ok: 0 }); g.total++; if (kindOf('demandas', r.status) === 'ok') g.ok++; });
   data.servicos.filter(daCidade).forEach(r => { const b = r.bairro || ''; if (!b) return; const k = normBairro(b); const g = por[k] || (por[k] = { bairro: b.trim(), total: 0, ok: 0 }); g.total++; if (kindOf('servicos', r.status) === 'ok') g.ok++; });
   const semAtend = Object.values(por).filter(g => !g.ok).sort((a, b) => b.total - a.total);
-  const semPedido = cid === 'cascavel' ? BAIRROS_CASCAVEL.filter(b => !por[normBairro(b)]) : [];
+  const semPedido = cid === normBairro(cli.CIDADE) ? BAIRROS_CIDADE.filter(b => !por[normBairro(b)]) : [];
   return { semAtend, semPedido };
 }
 function bairrosHtml() {
@@ -1757,7 +1760,7 @@ async function desenharMapa() {
     const mod = state.mapa.mod, regs = regsMapa();
     const grupos = gruposMapa(regs);
     const semLocal = await mapaLib.desenhar(el, grupos, {
-      cache: geoCache, uf: UF_GAB() || 'PR', cidadePadrao: cfg.cidade_gabinete, esc,
+      cache: geoCache, uf: UF_GAB() || cli.UF, cidadePadrao: cfg.cidade_gabinete, esc,
       salvarCache: c => store.setConfig('geo', c),
       onProgresso: (i, n) => { const p = $('#mapa-prog'); if (!p) return; p.hidden = !n; p.textContent = n ? `Localizando bairros no mapa… ${i} de ${n} (só na primeira vez)` : ''; },
       onClique: g => { mapaLib.destruir(); state.qNext = g.bairro; go(mod); },
@@ -1847,7 +1850,7 @@ const celularOk = v => { const d = digitosTel(v); return d.length === 11 && dddO
 const telefoneOk = v => { const d = digitosTel(v); return celularOk(d) || (d.length === 10 && dddOk(d) && /[2-5]/.test(d[2])); };
 
 function renderFormPublico(msg = '', ok = false, vals = {}) {
-  document.title = 'Fala Cascavel · Fale com o gabinete';
+  document.title = cli.MARCA + ' · Fale com o gabinete';
   if (ok) {
     document.body.innerHTML = `<div class="login portal">${topoPortal('consulta')}<div class="login-card pub">${marcaPub()}
       ${tituloPortal('Pedido recebido!', 'Obrigado. A equipe do gabinete do ' + esc(DEP()) + ' vai analisar e entrar em contato pelo telefone informado.')}${vals.protocolo ? `<div class="prot-box"><span class="m">Seu número de protocolo</span><b class="num">${esc(vals.protocolo)}</b><span class="m">Anote ou tire um print. Com ele e o seu celular você acompanha o pedido.</span><a class="btn primary" href="${esc(linkConsulta(vals.protocolo))}">Acompanhar meu pedido</a></div>` : ''}${vals.avisoFotos ? `<p class="m">${esc(vals.avisoFotos)}</p>` : ''}
@@ -1860,7 +1863,7 @@ function renderFormPublico(msg = '', ok = false, vals = {}) {
     ${marcaPub()}
     ${tituloPortal('Fale com o gabinete', 'Conte o que você precisa: um buraco na rua, iluminação, saúde, um pedido para o seu bairro. A equipe responde pelo WhatsApp.')}
     <div class="f"><label for="fp-nome">Seu nome *</label><input id="fp-nome" autocomplete="name" maxlength="120" value="${v('nome')}"></div>
-    <div class="f"><label for="fp-tel">WhatsApp / telefone *</label><input id="fp-tel" type="tel" inputmode="numeric" autocomplete="tel" maxlength="20" placeholder="(45) 99999-9999" value="${esc(mascaraTel(vals.telefone))}"></div>
+    <div class="f"><label for="fp-tel">WhatsApp / telefone *</label><input id="fp-tel" type="tel" inputmode="numeric" autocomplete="tel" maxlength="20" placeholder="(${cli.DDD}) 99999-9999" value="${esc(mascaraTel(vals.telefone))}"></div>
     <div class="f"><label for="fp-mun">Cidade</label><input id="fp-mun" maxlength="80" value="${v('municipio')}"></div>
     <div class="f"><label for="fp-bairro">Bairro</label><input id="fp-bairro" maxlength="80" value="${v('bairro')}"></div>
     <div class="f"><label for="fp-ass">Qual é o pedido? *</label><input id="fp-ass" maxlength="200" placeholder="Ex.: Troca de lâmpada na Rua das Flores" value="${v('assunto')}"></div>
@@ -1893,7 +1896,7 @@ function renderFormPublico(msg = '', ok = false, vals = {}) {
     const c = { lat: vals.lat, lng: vals.lng, nome: $('#fp-nome').value.trim(), telefone: $('#fp-tel').value.trim(), municipio: $('#fp-mun').value.trim(), bairro: $('#fp-bairro').value.trim(), assunto: $('#fp-ass').value.trim(), descricao: $('#fp-desc').value.trim() };
     if ($('#fp-site').value) return renderFormPublico('', true);
     if (!c.nome || !c.assunto) return renderFormPublico('Preencha seu nome e o pedido.', false, c);
-    if (!celularOk(c.telefone)) return renderFormPublico('Digite um número de celular válido, com DDD: (45) 99999-9999.', false, c);
+    if (!celularOk(c.telefone)) return renderFormPublico(`Digite um número de celular válido, com DDD: (${cli.DDD}) 99999-9999.`, false, c);
     c.telefone = mascaraTel(c.telefone);
     const b = e.target.querySelector('[type=submit]'); b.disabled = true; b.textContent = 'Enviando…';
     try {
@@ -2248,7 +2251,7 @@ function renderAgendas() {
       <ol class="ag-passos">
         <li>Entre com o <b>Gmail do gabinete</b> (ou o seu) e clique no botão <b>Adicionar no Google Agenda</b> acima.</li>
         <li>O Google pergunta <i>"Adicionar agenda?"</i>: clique em <b>Adicionar</b>.</li>
-        <li>Pronto. A "Agenda do gabinete (Fala Cascavel)" aparece no Google Agenda e no celular. O Google atualiza sozinho, de algumas em algumas horas.</li>
+        <li>Pronto. A "Agenda do gabinete (${esc(cli.MARCA)})" aparece no Google Agenda e no celular. O Google atualiza sozinho, de algumas em algumas horas.</li>
       </ol>
       <div class="f"><label for="ag-link">Link da agenda (para outros aplicativos)</label><input id="ag-link" value="${esc(L.url)}" readonly></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><button class="btn mini" type="button" data-ag-copiar>Copiar link</button>${state.admin ? '<button class="btn mini ghost" type="button" data-ag-trocar>Trocar link</button>' : ''}</div>
@@ -2382,7 +2385,7 @@ function avisosClique(e) {
   const b = e.target.closest('[data-avisos]'); if (!b) return false;
   const acao = b.dataset.avisos;
   if (acao === 'ligar') {
-    if (state.avisos === 'instalar') { avisoLongo('No iPhone: abra o sistema no Safari, toque em Compartilhar (□↑) → "Adicionar à Tela de Início". Depois abra pelo ícone Fala Cascavel e toque de novo em 🔔 Avisar no celular.'); return true; }
+    if (state.avisos === 'instalar') { avisoLongo('No iPhone: abra o sistema no Safari, toque em Compartilhar (□↑) → "Adicionar à Tela de Início". Depois abra pelo ícone ' + cli.MARCA + ' e toque de novo em 🔔 Avisar no celular.'); return true; }
     if (state.avisos === 'bloqueado') { avisoLongo('Os avisos estão bloqueados para este site. Libere as notificações nas configurações do celular (ou no cadeado ao lado do endereço) e toque de novo.'); return true; }
     state.avisos = 'ocupado'; render();
     pushAv.ligar().then(() => { state.avisos = 'ligado'; avisoLongo('Pronto! Deve tocar agora um aviso de teste. A partir de agora o aparelho avisa 30 minutos antes de cada compromisso.'); })
@@ -2479,7 +2482,7 @@ function renderDisparo() {
 
 /* ---------- consulta do protocolo (página aberta ao cidadão) ---------- */
 function renderConsulta(prot = '', msgErro = '', tel = '', res = null) {
-  document.title = 'Fala Cascavel · Acompanhe seu pedido';
+  document.title = cli.MARCA + ' · Acompanhe seu pedido';
   const sit = res ? (kindOf('demandas', res.status) || 'novo') : '';
   const frase = { novo: 'Recebemos o seu pedido e ele vai ser analisado pela equipe.', and: 'O gabinete está trabalhando no seu pedido.', ok: 'Seu pedido foi concluído!', neg: 'Este pedido foi arquivado. Fale com o gabinete se precisar.' }[sit] || '';
   document.body.innerHTML = `<div class="login portal">${topoPortal('pedido')}<div class="login-card pub">
@@ -2498,7 +2501,7 @@ function renderConsulta(prot = '', msgErro = '', tel = '', res = null) {
     : `<p class="pt-sub">Digite o número do protocolo que você recebeu e o celular informado no pedido.</p>
       <form id="fcons" style="display:flex;flex-direction:column;gap:12px" novalidate>
         <div class="f"><label for="cs-prot">Número do protocolo</label><input id="cs-prot" autocomplete="off" placeholder="Ex.: 2026-000123" maxlength="20" value="${esc(prot)}" style="text-transform:uppercase"></div>
-        <div class="f"><label for="cs-tel">Seu celular</label><input id="cs-tel" type="tel" inputmode="numeric" autocomplete="tel" maxlength="20" placeholder="(45) 99999-9999" value="${esc(mascaraTel(tel))}"></div>
+        <div class="f"><label for="cs-tel">Seu celular</label><input id="cs-tel" type="tel" inputmode="numeric" autocomplete="tel" maxlength="20" placeholder="(${cli.DDD}) 99999-9999" value="${esc(mascaraTel(tel))}"></div>
         ${msgErro ? `<div class="err">${esc(msgErro)}</div>` : ''}
         <button class="btn primary" type="submit" style="justify-content:center">Consultar</button>
       </form>`}
@@ -2517,7 +2520,7 @@ function renderConsulta(prot = '', msgErro = '', tel = '', res = null) {
 
 /* ---------- pesquisa de satisfação (página aberta ao cidadão) ---------- */
 async function renderAvaliacao(token) {
-  document.title = 'Fala Cascavel · Avaliação';
+  document.title = cli.MARCA + ' · Avaliação';
   const caixa = h => { document.body.innerHTML = `<div class="login portal">${topoPortal()}<div class="login-card pub av">${h}</div></div>`; };
   caixa('<div class="m" style="text-align:center">Carregando…</div>');
   let info;
@@ -2553,7 +2556,7 @@ async function renderPrestacao() {
   try { d = await store.prestacaoPublica(); }
   catch (e) { document.body.innerHTML = `<div class="pub-page portal">${topoPortal()}<div class="empty" style="margin:40px auto;max-width:480px"><b>Página indisponível no momento</b>${esc(errMsg(e))}</div></div>`; return; }
   const g = d.gabinete || {}; if (g.gabinete) cfg.gabinete = g.gabinete; if (g.deputado_nome) cfg.deputado_nome = g.deputado_nome; if (g.deputado_cargo) cfg.deputado_cargo = g.deputado_cargo;
-  document.title = 'Fala Cascavel · Prestação de contas';
+  document.title = cli.MARCA + ' · Prestação de contas';
   const pub = { f: { area: '', bairro: '' } };
   const desenha = () => {
     const f = pub.f;
@@ -2777,7 +2780,7 @@ async function startApp() {
   try { state.backup = await store.getConfig('backup'); } catch { /* ok */ }
   try { msgs = (await store.getConfig('mensagens')) || {}; } catch { msgs = {}; }
   try { const c = await store.getConfig('gabinete'); if (c) Object.entries(c).forEach(([k, v]) => { if (v) cfg[k] = v; }); } catch { /* usa os padrões */ }
-  document.title = 'Fala Cascavel · ' + NOME_GAB();
+  document.title = cli.MARCA + ' · ' + NOME_GAB();
   if (store.configured && !state.profiles.some(p => p.id === state.session.user.id)) return renderAskName();
   readHash();
   if (!location.hash) history.replaceState(null, '', location.pathname + '#painel');

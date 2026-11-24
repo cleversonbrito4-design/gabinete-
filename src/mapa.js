@@ -1,3 +1,4 @@
+import { CIDADE, UF, MAPA_AREA, MAPA_CENTRO } from './cliente.js';
 // Mapa dos pedidos por bairro. Usa OpenStreetMap (grátis) para o mapa e para achar
 // o centro de cada bairro. As posições encontradas ficam guardadas (config "geo")
 // para não precisar procurar de novo.
@@ -40,7 +41,7 @@ async function photon(texto, area) {
 }
 
 /* área (retângulo) de cada município; guardada no aparelho */
-const AREAS_CONHECIDAS = { 'cascavel|pr': { bb: [-25.30, -24.65, -53.82, -53.10], centro: [-24.9555, -53.4552] } };
+const AREAS_CONHECIDAS = CIDADE && MAPA_AREA ? { [semAc(CIDADE) + '|' + semAc(UF)]: { bb: MAPA_AREA, centro: MAPA_CENTRO } } : {};
 const areas = {};
 export async function areaMunicipio(mun, uf) {
   if (!mun) return null;
@@ -185,12 +186,12 @@ export async function desenhar(el, grupos, { cache, salvarCache, uf, cidadePadra
     c.on('popupopen', ev => { const el = ev.popup.getElement(); const a = el.querySelector('[data-mapa-abrir]'); if (a) a.addEventListener('click', e => { e.preventDefault(); onAbrir(p); }); const r = el.querySelector('[data-mapa-rota]'); if (r) r.addEventListener('click', e => { e.preventDefault(); onRota({ titulo: p.titulo + (p.sub ? ' · ' + p.sub : ''), lat: p.lat, lng: p.lng }); mapa.closePopup(); }); });
   }
   if (pontos.length) mapa.fitBounds(L.latLngBounds(pontos).pad(0.15), { maxZoom: 14 });
-  else mapa.setView(CASCAVEL, 12);
+  else mapa.setView(CENTRO_CIDADE, 12);
   setTimeout(() => mapa && mapa.invalidateSize(), 50);
   return semLocal;
 }
 
-const CASCAVEL = [-24.9555, -53.4552];
+const CENTRO_CIDADE = MAPA_CENTRO;
 let indice = {};
 const corDe = (atrasado, aberto) => atrasado ? '#e5484d' : aberto ? '#f0a020' : '#3fb06a';
 
@@ -270,7 +271,7 @@ export async function miniMapa(el, pos, onPick, centro) {
     if (centralizar) m.setView(p, Math.max(m.getZoom() || 0, 17));
   };
   m.on('click', e => { const p = [e.latlng.lat, e.latlng.lng]; marcar(p); onPick(p); });
-  m.setView(pos || centro || CASCAVEL, pos ? 17 : 13);
+  m.setView(pos || centro || CENTRO_CIDADE, pos ? 17 : 13);
   marcar(pos);
   setTimeout(() => m.invalidateSize(), 60);
   return { marcar, remover: () => m.remove() };

@@ -1,0 +1,23 @@
+{
+  "_leia": "Ficha de um novo cliente. Copie este arquivo, troque os valores e rode: npm run novo-cliente -- clientes/minha-ficha.json. Campos com caminho de arquivo são opcionais (deixe vazio se não tiver).",
+  "pasta": "fala-toledo",
+  "marca": "Fala Toledo",
+  "site": "falatoledo.com.br",
+  "parlamentar": "Fulano de Tal",
+  "cargo": "Vereador/PARTIDO",
+  "casa": "Câmara Municipal de Toledo",
+  "cidade": "Toledo",
+  "uf": "PR",
+  "ddd": "45",
+  "endereco": "Rua Exemplo, 100 – Centro – CEP 85900-000 – Toledo – PR",
+  "ultimo_oficio": "0",
+  "email_admin": "email-do-administrador@exemplo.com",
+  "supabase_url": "",
+  "supabase_chave": "",
+  "cor": "#257ebf",
+  "cor2": "#72a83b",
+  "logo": "",
+  "logo_branca": "",
+  "icone": "",
+  "timbre": ""
+}

@@ -4,8 +4,10 @@
 import { createClient } from '@supabase/supabase-js';
 import { ORDER } from './schema.js';
 
-const URL = import.meta.env.VITE_SUPABASE_URL;
-const KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
+// O banco vem de clientes/<nome>/cliente.json; o .env só vale se o cliente não tiver "supabase".
+import { SUPABASE } from './cliente.js';
+const URL = SUPABASE.url !== undefined ? SUPABASE.url : import.meta.env.VITE_SUPABASE_URL;
+const KEY = SUPABASE.chave !== undefined ? SUPABASE.chave : import.meta.env.VITE_SUPABASE_ANON_KEY;
 export const configured = !!(URL && KEY);
 export const sb = configured ? createClient(URL, KEY) : null;
 
