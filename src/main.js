@@ -19,6 +19,7 @@ const CFG_CAMPOS = [
   ['cidade_gabinete', 'Cidade do gabinete (para a data dos documentos)', env.VITE_CIDADE || ''],
   ['endereco_gabinete', 'Endereço, telefone e e-mail do gabinete (rodapé)', env.VITE_ENDERECO_GABINETE || ''],
   ['ultimo_oficio', 'Último nº de ofício já emitido fora do sistema (ex.: 163)', env.VITE_ULTIMO_OFICIO || ''],
+  ['ultima_lideranca', 'Último nº de "Liderança de Governo" (ficha de demandas) já feito fora do sistema (ex.: 330)', '330'],
 ];
 const cfg = Object.fromEntries(CFG_CAMPOS.map(([k, , v]) => [k, v]));
 const NOME_GAB = () => cfg.gabinete || 'Gestão do Gabinete';
@@ -703,6 +704,7 @@ function openDrawer(mod, id, preset = {}) {
   if (rec && mod === 'recepcao') acts.push(`<button class="btn mini primary" type="button" data-recep-demanda>Transformar em demanda</button>`, `<button class="btn mini" type="button" data-cid="${esc(rec.nome)}" data-cid-tel="${esc(rec.telefone || '')}">Histórico de ${esc(primeiroNome(rec.nome))}</button>`);
   if (rec && mod === 'demandas' && kindOf('demandas', rec.status) === 'ok') acts.push(`<button class="btn mini primary" type="button" data-arte-atendido>📸 Arte "Pedido atendido" para o Instagram</button>`);
   if (rec && mod === 'demandas') acts.push(`<button class="btn mini${kindOf('demandas', rec.status) === 'ok' ? '' : ' primary'}" type="button" data-oficio-de>Gerar ofício de solicitação</button>`);
+  if (rec && mod === 'demandas') acts.push(`<button class="btn mini" type="button" data-lideranca>📝 Ficha Liderança de Governo (Word / PDF)</button>`);
   if (rec && ['demandas', 'servicos'].includes(mod) && rec.solicitante) acts.push(`<button class="btn mini" type="button" data-cid="${esc(rec.solicitante)}" data-cid-tel="${esc(rec.telefone || '')}">Histórico de ${esc(primeiroNome(rec.solicitante))}</button>`);
   if (rec && mod !== 'tarefas') acts.push(`<button class="btn mini" type="button" data-tarefa-de>+ Tarefa</button>`);
   if (rec && mod === 'demandas') data.servicos.filter(o => o.demanda_id === rec.id).forEach(o => acts.push(`<button class="btn mini ghost" type="button" data-open="servicos:${o.id}">📄 Ofício ${esc(o.protocolo || '(sem nº)')} · ${esc(o.status)}</button>`));
@@ -1151,6 +1153,102 @@ async function gerarDocumento(formato = 'docx') {
     toast(`${rot} gerado em ${NOME_FMT}`);
     openDrawer(mod, r.id);
   } catch (e) { toast(errMsg(e)); if (btn) { btn.disabled = false; btn.textContent = 'Gerar ' + docs.TIPOS[tipo] + ' (' + NOME_FMT + ')'; } }
+}
+
+/* ---------- Ficha "Liderança de Governo – Demandas SESOP" (modelo do gabinete) ---------- */
+const SIGLAS_ORGAO = [[/obras/, 'SESOP'], [/saude/, 'SESAU'], [/educacao/, 'SEMED'], [/assistencia social/, 'SEASO'], [/meio.ambiente/, 'SEMA'], [/agricultura/, 'SEAGRI'], [/seguranca/, 'SESPC'], [/planejamento e gestao/, 'SEPLAG'], [/esporte e lazer/, 'SEEL'], [/cultura/, 'SECULT'], [/financas/, 'SEFIN'], [/mulher/, 'SEMUC']];
+function siglaOrgao(org) {
+  if (!org) return 'SESOP';
+  const n = semAcento(org); const s = SIGLAS_ORGAO.find(x => x[0].test(n));
+  if (s) return s[1];
+  const m = /[-–]\s*([A-Z]{2,})\s*$/.exec(org); return m ? m[1] : org.toLocaleUpperCase('pt-BR');
+}
+const LID_RE = /Liderança de Governo nº (\d+)/;
+const numLideranca = r => { for (const h of (r.historico || []).slice().reverse()) { const m = LID_RE.exec(h.txt || ''); if (m) return +m[1]; } return null; };
+function proximaLideranca() {
+  const nums = data.demandas.map(numLideranca).filter(Boolean);
+  if (+cfg.ultima_lideranca) nums.push(+cfg.ultima_lideranca);
+  return (nums.length ? Math.max(...nums) : 0) + 1;
+}
+/** Rua tirada do texto do pedido (ex.: "Rua Oliva nº 375"), para já vir preenchida. */
+function ruaDoTexto(t) {
+  const m = /\b(rua|r\.|avenida|av\.|travessa|rodovia|estrada|alameda|linha)\s+[^\n,.;]{2,80}/i.exec(String(t || ''));
+  return m ? m[0].trim().replace(/^r\.\s*/i, 'Rua ').replace(/^av\.\s*/i, 'Avenida ') : '';
+}
+function naturezaDe(r) {
+  const n = semAcento([r.assunto, r.descricao].join(' '));
+  const ilum = /ilumina|lampada|poste|luminaria|escuro/.test(n), bur = /buraco|asfalto|pavimenta|cascalh|patrolamento|tapa/.test(n), bue = /bueiro|boca de lobo|galeria|esgoto pluvial|alagamento/.test(n);
+  return { ilum, bur, bue, out: !(ilum || bur || bue) };
+}
+function abrirFichaLideranca() {
+  const r = data.demandas.find(x => x.id === drawer.id); if (!r) return;
+  document.querySelectorAll('.prot-modal').forEach(x => x.remove());
+  const nat = naturezaDe(r), num = numLideranca(r) || proximaLideranca();
+  const org = (AREAS_DEMANDA.includes(r.area) ? r.area : ORGAO_POR_AREA[r.area]) || r.area || '';
+  const rua = ruaDoTexto(r.assunto) || ruaDoTexto(r.descricao);
+  const fotos = (r.anexos || []).filter(a => tipoMidia(a) === 'foto').length;
+  const ck = (k, rot) => `<label style="display:inline-flex;gap:6px;align-items:center;margin-right:12px"><input type="checkbox" id="lg-${k}" ${nat[k] ? 'checked' : ''}> ${rot}</label>`;
+  const w = document.createElement('div'); w.className = 'prot-modal';
+  w.innerHTML = `<div class="scrim" data-fechar-prot></div><form class="prot-card" role="dialog" aria-modal="true" aria-labelledby="lg-t" id="lg-form" novalidate>
+    <h3 id="lg-t">Ficha Liderança de Governo</h3><p class="m">Confira os dados. É só tocar em Word ou PDF.</p>
+    <div class="f"><label for="lg-num">Número</label><input id="lg-num" inputmode="numeric" value="${num}"></div>
+    <div class="f"><label for="lg-sigla">Secretaria (aparece em "DEMANDAS …")</label><input id="lg-sigla" value="${esc(siglaOrgao(org))}"></div>
+    <div class="f"><label>Natureza da demanda</label><div>${ck('ilum', 'Iluminação')}${ck('bur', 'Buracos')}${ck('bue', 'Bueiro')}${ck('out', 'Outros')}</div></div>
+    <div class="f"><label for="lg-outros">Se for "Outros", qual?</label><input id="lg-outros" value="${nat.out ? esc(r.assunto || '') : ''}"></div>
+    <div class="f"><label for="lg-end">Endereço (rua, número, esquina)</label><input id="lg-end" value="${esc(rua)}" placeholder="Ex.: Rua Oliva nº 375 / Esq. Rua João Merlin"></div>
+    <div class="f"><label for="lg-bairro">Bairro</label><input id="lg-bairro" value="${esc(r.bairro || '')}"></div>
+    <div class="f"><label for="lg-obs">Observações</label><input id="lg-obs" value="${esc(r.assunto || '')}"></div>
+    <div class="f"><label for="lg-ass">Assessor responsável</label><input id="lg-ass" value="${esc(r.responsavel || myName())}"></div>
+    <p class="m" style="font-size:12.5px">${fotos ? `As ${Math.min(fotos, 6)} primeira(s) foto(s) da demanda vão no documento.` : 'Esta demanda não tem fotos. Para pôr fotos, anexe-as na demanda antes.'}</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" type="button" data-lg-gerar="docx">Gerar Word</button><button class="btn" type="button" data-lg-gerar="pdf">Gerar PDF</button><button class="btn ghost" type="button" data-fechar-prot>Cancelar</button></div></form>`;
+  w.addEventListener('click', e => {
+    const g = e.target.closest('[data-lg-gerar]'); if (g) { gerarFichaLideranca(r.id, g.dataset.lgGerar, g, w); return; }
+    if (e.target.closest('[data-fechar-prot]')) w.remove();
+  });
+  document.body.appendChild(w);
+}
+async function gerarFichaLideranca(id, formato, btn, janela) {
+  let r = data.demandas.find(x => x.id === id); if (!r) return;
+  const pdf = formato === 'pdf', NOME_FMT = pdf ? 'PDF' : 'Word', txt = btn.textContent, v = s => $(s).value.trim();
+  janela.querySelectorAll('[data-lg-gerar]').forEach(b => { b.disabled = true; }); btn.textContent = 'Gerando…';
+  try {
+    const numero = parseInt(v('#lg-num'), 10); if (!numero) throw new Error('Coloque o número da ficha.');
+    const outroUsa = data.demandas.find(x => x.id !== r.id && numLideranca(x) === numero);
+    if (outroUsa) throw new Error(`O nº ${numero} já foi usado na demanda ${outroUsa.protocolo || outroUsa.assunto}. Use outro número.`);
+    const X = k => ($('#lg-' + k).checked ? 'X' : ' ');
+    const partido = String(cfg.deputado_cargo || '').split('/')[1];
+    const outros = v('#lg-outros');
+    const valores = {
+      numero, sigla: v('#lg-sigla') || 'SESOP', data: new Date().toLocaleDateString('pt-BR'),
+      vereador: (cfg.deputado_nome || '') + ((partido || '').trim() ? '/' + partido.trim() : ''),
+      x_ilum: X('ilum'), x_bur: X('bur'), x_bue: X('bue'), x_out: X('out'), outros: $('#lg-out').checked && outros ? ': ' + outros : '',
+      endereco: v('#lg-end'), bairro: v('#lg-bairro'), observacoes: v('#lg-obs'), assessor: v('#lg-ass'),
+    };
+    let blob = await docs.gerarDocx('lideranca', valores);
+    btn.textContent = 'Juntando fotos…';
+    const fotosAnx = (r.anexos || []).filter(a => tipoMidia(a) === 'foto').slice(0, 6), imgs = [];
+    if (fotosAnx.length) {
+      let links = {}; try { links = await store.linksAnexos(fotosAnx.map(f => f.path)); } catch { /* sem fotos */ }
+      for (const f of fotosAnx) { if (!links[f.path]) continue; try { imgs.push(await docs.imagemParaWord(links[f.path])); } catch (e) { console.warn('foto', e); } }
+    }
+    if (imgs.length) { try { blob = await docs.inserirFotosGrade(blob, imgs, 'Assessor responsável:'); } catch (e) { console.warn(e); toast('Documento gerado sem as fotos (não foi possível juntá-las).'); } }
+    if (pdf) { btn.textContent = 'Montando o PDF…'; blob = await docs.docxParaPdf(blob); }
+    const nomeArq = `Lideranca-de-Governo-${numero}-${valores.sigla}.${pdf ? 'pdf' : 'docx'}`.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\w.-]+/g, '-');
+    docs.baixar(blob, nomeArq);
+    const rot = `Liderança de Governo nº ${numero}`;
+    const hist = (r.historico || []).concat({ em: new Date().toISOString(), txt: `${rot} (Demandas ${valores.sigla}) gerada em ${NOME_FMT}`, por: myName() }).slice(-100);
+    const extra = {};
+    if (store.anexosDisponiveis) {
+      try {
+        const path = `demandas/${r.id}/${Date.now()}-${nomeSeguro(nomeArq)}`;
+        await store.enviarAnexo(path, new File([blob], nomeArq, { type: blob.type || (pdf ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') }));
+        extra.anexos = (r.anexos || []).concat({ path, nome: nomeArq, tamanho: blob.size, em: new Date().toISOString(), por: myName() });
+      } catch { /* sem a pasta de anexos, segue só com o download */ }
+    }
+    r = await store.saveRow('demandas', r.id, { historico: hist, ...extra }); upsertLocal('demandas', r);
+    toast(`${rot} gerada em ${NOME_FMT}`);
+    janela.remove(); openDrawer('demandas', r.id);
+  } catch (e) { toast(errMsg(e)); janela.querySelectorAll('[data-lg-gerar]').forEach(b => { b.disabled = false; }); btn.textContent = txt; }
 }
 
 /** Mapa do ponto marcado e fotos do registro (e da demanda de origem), prontos para o Word. */
@@ -2562,6 +2660,7 @@ document.addEventListener('click', e => {
   if (e.target.closest('#g-sync')) { syncGoogle(); return; }
   if (e.target.closest('#btn-doc')) { gerarDocumento(); return; }
   if (e.target.closest('#btn-pdf')) { gerarDocumento('pdf'); return; }
+  if (e.target.closest('[data-lideranca]')) { abrirFichaLideranca(); return; }
   const eqd = e.target.closest('[data-eq-del]'); if (eqd) { const em = eqd.dataset.eqDel; if (eqd.dataset.ok) { store.removeEquipe(em).then(() => { toast('Acesso removido'); render(); }).catch(err => toast(/row-level|policy|permission/i.test(errMsg(err)) ? 'Só o administrador pode remover e-mails' : errMsg(err))); } else { eqd.dataset.ok = '1'; eqd.textContent = 'Confirmar remoção'; eqd.classList.add('danger'); } return; }
   const mb = e.target.closest('[data-mod-baixar]'); if (mb) { docs.carregarModelo(mb.dataset.modBaixar).then(m => docs.baixar(new Blob([m.buf]), 'modelo-' + mb.dataset.modBaixar + '.docx')).catch(err => toast(errMsg(err))); return; }
   const mp = e.target.closest('[data-mod-padrao]'); if (mp) { store.setConfig('modelo:' + mp.dataset.modPadrao, null).then(() => { toast('Voltou ao modelo padrão'); render(); }).catch(err => toast(errMsg(err))); return; }
