@@ -712,7 +712,8 @@ function openDrawer(mod, id, preset = {}) {
   if (rec && mod === 'servicos' && store.anexosDisponiveis) acts.push(`<label class="btn mini" style="cursor:pointer">📨 Anexar resposta do órgão<input type="file" multiple accept="image/*,application/pdf,.doc,.docx" data-anx-resposta hidden></label>`);
   if (rec && mod === 'servicos' && rec.demanda_id && data.demandas.some(d => d.id === rec.demanda_id)) acts.push(`<button class="btn mini ghost" type="button" data-open="demandas:${rec.demanda_id}">↩ Demanda de origem</button>`);
   const dt = rec && docTipo(mod, rec);
-  if (dt) acts.push(`<button class="btn mini" type="button" id="btn-doc">Gerar ${docs.TIPOS[dt]} (Word)</button>`, `<button class="btn mini" type="button" id="btn-pdf">Gerar ${docs.TIPOS[dt]} (PDF)</button>`);
+  if (dt === 'lideranca') acts.push(`<button class="btn mini primary" type="button" data-lideranca>📝 Gerar Liderança de Governo (Word / PDF)</button>`);
+  else if (dt) acts.push(`<button class="btn mini" type="button" id="btn-doc">Gerar ${docs.TIPOS[dt]} (Word)</button>`, `<button class="btn mini" type="button" id="btn-pdf">Gerar ${docs.TIPOS[dt]} (PDF)</button>`);
   if (rec && mod === 'proposituras' && rec.link) acts.push(`<a class="btn mini" href="${esc(rec.link)}" target="_blank" rel="noopener">Abrir tramitação</a>`);
   $('#overlay').innerHTML = `<div class="scrim" data-close></div><aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="dr-t">
     <div class="dr-head"><div style="min-width:0"><div class="eyebrow">${esc(M.label)}${rec && rec.protocolo ? ' · Protocolo ' + esc(rec.protocolo) : ''}</div><h3 id="dr-t">${rec ? esc(M.title(rec)) : esc(M.novo)}</h3></div><button class="btn ghost" data-close aria-label="Fechar">✕</button></div>
@@ -1054,6 +1055,7 @@ function textoProjetoLei(r) {
     justificativa: [`O presente Projeto de Lei, que “${ementa.slice(0, -1)}”, atende a uma necessidade da população de ${cidade} e busca melhorar a qualidade de vida dos munícipes.`, 'A proposta é de interesse público e está de acordo com a competência legislativa do Município para tratar de assuntos de interesse local, nos termos do art. 30, inciso I, da Constituição Federal.', 'Diante do exposto, conto com o apoio dos nobres Pares para a aprovação deste Projeto de Lei.'] };
 }
 function docTipo(mod, r) {
+  if (mod === 'servicos' && r.tipo_doc === 'Liderança de Governo') return 'lideranca';
   if (mod === 'servicos') return r.tipo_doc === 'Indicação' ? 'indicacao' : r.tipo_doc === 'Requerimento' ? 'requerimento' : (!r.tipo_doc || r.tipo_doc === 'Ofício') ? 'oficio' : null;
   if (mod === 'proposituras') return r.tipo === 'Indicação' ? 'indicacao' : r.tipo === 'Requerimento' ? 'requerimento' : /^Moção/.test(r.tipo || '') ? 'mocao' : /^Projeto de Lei/.test(r.tipo || '') ? 'projeto_lei' : null;
   return null;
@@ -1166,7 +1168,7 @@ function siglaOrgao(org) {
 const LID_RE = /Liderança de Governo nº (\d+)/;
 const numLideranca = r => { for (const h of (r.historico || []).slice().reverse()) { const m = LID_RE.exec(h.txt || ''); if (m) return +m[1]; } return null; };
 function proximaLideranca() {
-  const nums = data.demandas.map(numLideranca).filter(Boolean);
+  const nums = [...data.demandas, ...data.servicos].map(numLideranca).filter(Boolean);
   if (+cfg.ultima_lideranca) nums.push(+cfg.ultima_lideranca);
   return (nums.length ? Math.max(...nums) : 0) + 1;
 }
@@ -1180,13 +1182,22 @@ function naturezaDe(r) {
   const ilum = /ilumina|lampada|poste|luminaria|escuro/.test(n), bur = /buraco|asfalto|pavimenta|cascalh|patrolamento|tapa/.test(n), bue = /bueiro|boca de lobo|galeria|esgoto pluvial|alagamento/.test(n);
   return { ilum, bur, bue, out: !(ilum || bur || bue) };
 }
+/** Campos da ficha a partir de uma demanda ou de um ofício/serviço (que herda o que faltar da demanda de origem). */
+function dadosFicha(mod, reg) {
+  const fotosDe = x => (x?.anexos || []).filter(a => tipoMidia(a) === 'foto');
+  if (mod === 'demandas') return { ...reg, fotos: fotosDe(reg) };
+  const o = reg.demanda_id ? data.demandas.find(d => d.id === reg.demanda_id) : null;
+  return { assunto: reg.servico, descricao: [reg.corpo, o?.descricao].filter(Boolean).join('\n'), rua: reg.local && !/^bairro\b/i.test(reg.local) ? reg.local : '', bairro: o?.bairro || '', area: reg.orgao || o?.area || '', responsavel: reg.responsavel || o?.responsavel,
+    fotos: [...fotosDe(reg), ...fotosDe(o)].filter((a, i, l) => l.findIndex(b => b.path === a.path) === i) };
+}
 function abrirFichaLideranca() {
-  const r = data.demandas.find(x => x.id === drawer.id); if (!r) return;
+  const mod = drawer.mod, reg = data[mod].find(x => x.id === drawer.id); if (!reg) return;
+  const r = dadosFicha(mod, reg);
   document.querySelectorAll('.prot-modal').forEach(x => x.remove());
-  const nat = naturezaDe(r), num = numLideranca(r) || proximaLideranca();
+  const nat = naturezaDe(r), num = numLideranca(reg) || proximaLideranca();
   const org = (AREAS_DEMANDA.includes(r.area) ? r.area : ORGAO_POR_AREA[r.area]) || r.area || '';
-  const rua = ruaDoTexto(r.assunto) || ruaDoTexto(r.descricao);
-  const fotos = (r.anexos || []).filter(a => tipoMidia(a) === 'foto').length;
+  const rua = r.rua || ruaDoTexto(r.assunto) || ruaDoTexto(r.descricao);
+  const fotos = r.fotos.length;
   const ck = (k, rot) => `<label style="display:inline-flex;gap:6px;align-items:center;margin-right:12px"><input type="checkbox" id="lg-${k}" ${nat[k] ? 'checked' : ''}> ${rot}</label>`;
   const w = document.createElement('div'); w.className = 'prot-modal';
   w.innerHTML = `<div class="scrim" data-fechar-prot></div><form class="prot-card" role="dialog" aria-modal="true" aria-labelledby="lg-t" id="lg-form" novalidate>
@@ -1202,19 +1213,19 @@ function abrirFichaLideranca() {
     <p class="m" style="font-size:12.5px">${fotos ? `As ${Math.min(fotos, 6)} primeira(s) foto(s) da demanda vão no documento.` : 'Esta demanda não tem fotos. Para pôr fotos, anexe-as na demanda antes.'}</p>
     <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" type="button" data-lg-gerar="docx">Gerar Word</button><button class="btn" type="button" data-lg-gerar="pdf">Gerar PDF</button><button class="btn ghost" type="button" data-fechar-prot>Cancelar</button></div></form>`;
   w.addEventListener('click', e => {
-    const g = e.target.closest('[data-lg-gerar]'); if (g) { gerarFichaLideranca(r.id, g.dataset.lgGerar, g, w); return; }
+    const g = e.target.closest('[data-lg-gerar]'); if (g) { gerarFichaLideranca(mod, reg.id, g.dataset.lgGerar, g, w); return; }
     if (e.target.closest('[data-fechar-prot]')) w.remove();
   });
   document.body.appendChild(w);
 }
-async function gerarFichaLideranca(id, formato, btn, janela) {
-  let r = data.demandas.find(x => x.id === id); if (!r) return;
+async function gerarFichaLideranca(mod, id, formato, btn, janela) {
+  let r = data[mod].find(x => x.id === id); if (!r) return;
   const pdf = formato === 'pdf', NOME_FMT = pdf ? 'PDF' : 'Word', txt = btn.textContent, v = s => $(s).value.trim();
   janela.querySelectorAll('[data-lg-gerar]').forEach(b => { b.disabled = true; }); btn.textContent = 'Gerando…';
   try {
     const numero = parseInt(v('#lg-num'), 10); if (!numero) throw new Error('Coloque o número da ficha.');
-    const outroUsa = data.demandas.find(x => x.id !== r.id && numLideranca(x) === numero);
-    if (outroUsa) throw new Error(`O nº ${numero} já foi usado na demanda ${outroUsa.protocolo || outroUsa.assunto}. Use outro número.`);
+    const outroUsa = [...data.demandas, ...data.servicos].find(x => x.id !== r.id && numLideranca(x) === numero);
+    if (outroUsa) throw new Error(`O nº ${numero} já foi usado em "${outroUsa.assunto || outroUsa.servico || outroUsa.protocolo}". Use outro número.`);
     const X = k => ($('#lg-' + k).checked ? 'X' : ' ');
     const partido = String(cfg.deputado_cargo || '').split('/')[1];
     const outros = v('#lg-outros');
@@ -1226,7 +1237,7 @@ async function gerarFichaLideranca(id, formato, btn, janela) {
     };
     let blob = await docs.gerarDocx('lideranca', valores);
     btn.textContent = 'Juntando fotos…';
-    const fotosAnx = (r.anexos || []).filter(a => tipoMidia(a) === 'foto').slice(0, 6), imgs = [];
+    const fotosAnx = dadosFicha(mod, r).fotos.slice(0, 6), imgs = [];
     if (fotosAnx.length) {
       let links = {}; try { links = await store.linksAnexos(fotosAnx.map(f => f.path)); } catch { /* sem fotos */ }
       for (const f of fotosAnx) { if (!links[f.path]) continue; try { imgs.push(await docs.imagemParaWord(links[f.path])); } catch (e) { console.warn('foto', e); } }
@@ -1240,14 +1251,15 @@ async function gerarFichaLideranca(id, formato, btn, janela) {
     const extra = {};
     if (store.anexosDisponiveis) {
       try {
-        const path = `demandas/${r.id}/${Date.now()}-${nomeSeguro(nomeArq)}`;
+        const path = `${mod}/${r.id}/${Date.now()}-${nomeSeguro(nomeArq)}`;
         await store.enviarAnexo(path, new File([blob], nomeArq, { type: blob.type || (pdf ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') }));
         extra.anexos = (r.anexos || []).concat({ path, nome: nomeArq, tamanho: blob.size, em: new Date().toISOString(), por: myName() });
       } catch { /* sem a pasta de anexos, segue só com o download */ }
     }
-    r = await store.saveRow('demandas', r.id, { historico: hist, ...extra }); upsertLocal('demandas', r);
+    if (mod === 'servicos') { extra.protocolo = String(numero); if (!r.data_envio) extra.data_envio = todayStr(); }
+    r = await store.saveRow(mod, r.id, { historico: hist, ...extra }); upsertLocal(mod, r);
     toast(`${rot} gerada em ${NOME_FMT}`);
-    janela.remove(); openDrawer('demandas', r.id);
+    janela.remove(); openDrawer(mod, r.id);
   } catch (e) { toast(errMsg(e)); janela.querySelectorAll('[data-lg-gerar]').forEach(b => { b.disabled = false; }); btn.textContent = txt; }
 }
 
