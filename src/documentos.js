@@ -130,3 +130,64 @@ export async function imagemMapa(lat, lng, zoom = 17) {
   g.fillStyle = 'rgba(255,255,255,.85)'; g.fillRect(W - tw - 12, H - 22, tw + 12, 22); g.fillStyle = '#333'; g.fillText(cr, W - tw - 6, H - 7);
   return { bytes: await canvasBytes(c, 'image/png'), ext: 'png', w: W, h: H };
 }
+
+/* ---------- PDF ---------- */
+/**
+ * Converte o .docx gerado em PDF, no próprio navegador: desenha o Word numa
+ * página escondida (com timbre, cabeçalho e rodapé) e fotografa cada folha A4.
+ * Texto que passa de uma folha continua na seguinte, repetindo o timbre.
+ */
+export async function docxParaPdf(blob) {
+  const [{ renderAsync }, { jsPDF }, { toCanvas }] = await Promise.all([import('docx-preview'), import('jspdf'), import('html-to-image')]);
+  // iframe separado: o tema escuro do sistema não interfere no documento
+  const fr = document.createElement('iframe');
+  fr.setAttribute('aria-hidden', 'true'); fr.tabIndex = -1;
+  fr.style.cssText = 'position:fixed;left:-12000px;top:0;width:1100px;height:1600px;border:0;visibility:hidden';
+  document.body.appendChild(fr);
+  try {
+    const d = fr.contentDocument; d.open(); d.write('<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;background:#fff}.docx-wrapper{background:#fff!important;padding:0!important;display:block!important}.docx-wrapper>section.docx{box-shadow:none!important;margin:0!important}</style></head><body></body></html>'); d.close();
+    await renderAsync(blob, d.body, d.head, { className: 'docx', inWrapper: true, breakPages: true, ignoreLastRenderedPageBreak: true, renderHeaders: true, renderFooters: true, renderFootnotes: true, useBase64URL: true, experimental: true });
+    await esperarImagens(d);
+    if (d.fonts && d.fonts.ready) await d.fonts.ready;
+    paginar(d);
+    const folhas = [...d.querySelectorAll('section.docx')];
+    if (!folhas.length) throw new Error('Não consegui montar o PDF deste documento.');
+    const safari = /^((?!chrome|android|crios|fxios).)*safari/i.test(navigator.userAgent);
+    let pdf = null;
+    for (const f of folhas) {
+      const wPx = f.offsetWidth, hPx = Math.round(alturaFolha(f));
+      f.style.height = hPx + 'px'; f.style.minHeight = '0'; f.style.overflow = 'hidden';
+      const wMm = wPx * 25.4 / 96, hMm = hPx * 25.4 / 96;
+      const orient = wMm > hMm ? 'l' : 'p';
+      if (!pdf) pdf = new jsPDF({ unit: 'mm', format: [wMm, hMm], orientation: orient, compress: true });
+      else pdf.addPage([wMm, hMm], orient);
+      const op = { pixelRatio: 2, backgroundColor: '#ffffff', width: wPx, height: hPx, skipFonts: true };
+      if (safari) await toCanvas(f, op); // no Safari (iPhone) a 1ª passada às vezes sai sem as imagens
+      const c = await toCanvas(f, op);
+      pdf.addImage(c.toDataURL('image/jpeg', 0.9), 'JPEG', 0, 0, wMm, hMm, undefined, 'FAST');
+    }
+    return pdf.output('blob');
+  } finally { fr.remove(); }
+}
+function esperarImagens(d) {
+  return Promise.all([...d.images].map(i => i.complete ? null : new Promise(ok => { i.onload = i.onerror = ok; setTimeout(ok, 5000); })));
+}
+/** O visualizador não quebra páginas sozinho: move o que sobra de cada folha para uma folha nova (com o mesmo cabeçalho e rodapé). */
+function paginar(d) {
+  for (let n = 0, folha; (folha = d.querySelectorAll('section.docx')[n]) && n < 60; n++) {
+    const art = folha.querySelector(':scope > article'); if (!art) continue;
+    const limite = folha.getBoundingClientRect().top + alturaFolha(folha) - paddingBaixo(folha) - alturaRodape(folha);
+    const filhos = [...art.children];
+    let i = filhos.findIndex(el => el.getBoundingClientRect().bottom > limite);
+    if (i < 0) continue;
+    if (i === 0) i = 1; // um bloco maior que a folha fica sozinho nela
+    if (i >= filhos.length) continue;
+    const nova = folha.cloneNode(true);
+    const novoArt = nova.querySelector(':scope > article'); novoArt.innerHTML = '';
+    filhos.slice(i).forEach(el => novoArt.appendChild(el));
+    folha.after(nova);
+  }
+}
+function alturaFolha(s) { const h = parseFloat(s.style.minHeight || s.style.height); return h ? h * (s.style.minHeight.endsWith('pt') || s.style.height.endsWith('pt') ? 96 / 72 : 1) : s.offsetWidth * 297 / 210; }
+function paddingBaixo(s) { return parseFloat(getComputedStyle(s).paddingBottom) || 0; }
+function alturaRodape(s) { const f = s.querySelector(':scope > footer'); return f ? f.offsetHeight : 0; }
