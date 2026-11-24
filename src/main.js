@@ -710,7 +710,7 @@ function openDrawer(mod, id, preset = {}) {
   if (rec && mod === 'servicos' && store.anexosDisponiveis) acts.push(`<label class="btn mini" style="cursor:pointer">📨 Anexar resposta do órgão<input type="file" multiple accept="image/*,application/pdf,.doc,.docx" data-anx-resposta hidden></label>`);
   if (rec && mod === 'servicos' && rec.demanda_id && data.demandas.some(d => d.id === rec.demanda_id)) acts.push(`<button class="btn mini ghost" type="button" data-open="demandas:${rec.demanda_id}">↩ Demanda de origem</button>`);
   const dt = rec && docTipo(mod, rec);
-  if (dt) acts.push(`<button class="btn mini" type="button" id="btn-doc">Gerar ${docs.TIPOS[dt]} (Word)</button>`);
+  if (dt) acts.push(`<button class="btn mini" type="button" id="btn-doc">Gerar ${docs.TIPOS[dt]} (Word)</button>`, `<button class="btn mini" type="button" id="btn-pdf">Gerar ${docs.TIPOS[dt]} (PDF)</button>`);
   if (rec && mod === 'proposituras' && rec.link) acts.push(`<a class="btn mini" href="${esc(rec.link)}" target="_blank" rel="noopener">Abrir tramitação</a>`);
   $('#overlay').innerHTML = `<div class="scrim" data-close></div><aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="dr-t">
     <div class="dr-head"><div style="min-width:0"><div class="eyebrow">${esc(M.label)}${rec && rec.protocolo ? ' · Protocolo ' + esc(rec.protocolo) : ''}</div><h3 id="dr-t">${rec ? esc(M.title(rec)) : esc(M.novo)}</h3></div><button class="btn ghost" data-close aria-label="Fechar">✕</button></div>
@@ -971,7 +971,7 @@ async function reiterarOficio() {
     const row = await store.saveRow('servicos', null, novo); upsertLocal('servicos', row);
     const o2 = await store.saveRow('servicos', o.id, { historico: (o.historico || []).concat({ em: agora, txt: 'Reiterado (novo ofício criado)', por }).slice(-100) }); upsertLocal('servicos', o2);
     closeDrawer(); openDrawer('servicos', row.id);
-    toast('Reiteração criada. Confira o texto e toque em "Gerar Ofício (Word)" para numerar.');
+    toast('Reiteração criada. Confira o texto e toque em "Gerar Ofício (Word)" ou "(PDF)" para numerar.');
   } catch (e) { toast('Não foi possível criar a reiteração: ' + errMsg(e)); if (btn) { btn.disabled = false; btn.textContent = 'Gerar ofício de reiteração'; } }
 }
 async function oficioDaDemanda() {
@@ -1003,7 +1003,7 @@ async function oficioDaDemanda() {
     const hist = (d.historico || []).concat({ em: agora, txt: 'Ofício de solicitação criado' + (of.orgao ? ' para ' + of.orgao : ''), por });
     d = await store.saveRow('demandas', d.id, { historico: hist.slice(-100), status: d.status === 'Nova' ? 'Encaminhada' : d.status }); upsertLocal('demandas', d);
     closeDrawer(); go('servicos'); openDrawer('servicos', row.id);
-    toast('Ofício criado. Confira o órgão e o texto e toque em "Gerar Ofício (Word)".');
+    toast('Ofício criado. Confira o órgão e o texto e toque em "Gerar Ofício (Word)" ou "(PDF)".');
   } catch (e) { toast('Não foi possível criar o ofício: ' + errMsg(e)); if (btn) { btn.disabled = false; btn.textContent = 'Gerar ofício de solicitação'; } }
 }
 
@@ -1063,9 +1063,10 @@ function proximoNumero(mod, r, ano) {
   if (String(ano) === String(new Date().getFullYear()) && +cfg.ultimo_oficio) nums.push(+cfg.ultimo_oficio);
   return String((nums.length ? Math.max(...nums) : 0) + 1).padStart(3, '0');
 }
-async function gerarDocumento() {
+async function gerarDocumento(formato = 'docx') {
   const { mod, id } = drawer; let r = data[mod].find(x => x.id === id); if (!r) return;
-  const btn = $('#btn-doc'); if (btn) { btn.disabled = true; btn.textContent = 'Gerando…'; }
+  const pdf = formato === 'pdf', NOME_FMT = pdf ? 'PDF' : 'Word';
+  const btn = $(pdf ? '#btn-pdf' : '#btn-doc'); if (btn) { btn.disabled = true; btn.textContent = 'Gerando…'; }
   let tipo = docTipo(mod, r);
   try {
     // grava antes o que foi digitado no formulário
@@ -1093,7 +1094,7 @@ async function gerarDocumento() {
       const org = dem && ((AREAS_DEMANDA.includes(dem.area) ? dem.area : ORGAO_POR_AREA[dem.area]) || '');
       if (org) { r = await store.saveRow(mod, r.id, { orgao: org }); upsertLocal(mod, r); }
     }
-    if (tipo === 'oficio' && !r.orgao && !r.destinatario) throw new Error('Escolha o "Órgão destinatário" do ofício antes de gerar o Word.');
+    if (tipo === 'oficio' && !r.orgao && !r.destinatario) throw new Error('Escolha o "Órgão destinatário" do ofício antes de gerar o documento.');
     const assunto = (mod === 'servicos' ? r.servico : r.ementa) || '';
     const munUf = r.municipio || '';
     const localTxt = mod === 'servicos' ? [r.local && ', na ' + r.local, r.municipio && ', no município de ' + r.municipio].filter(Boolean).join('') : '';
@@ -1133,22 +1134,23 @@ async function gerarDocumento() {
     };
     let blob = await docs.gerarDocx(tipo, valores);
     if (anexoImgs.length) { try { blob = await docs.anexarImagens(blob, 'ANEXO – ' + (anexoImgs.some(x => x.mapa) ? (anexoImgs.length > 1 ? 'LOCALIZAÇÃO E REGISTRO FOTOGRÁFICO' : 'LOCALIZAÇÃO') : 'REGISTRO FOTOGRÁFICO'), anexoImgs); } catch (e) { console.warn(e); toast('Documento gerado sem as fotos (não foi possível juntá-las).'); } }
-    docs.baixar(blob, `${docs.TIPOS[tipo]}${numero ? '-' + String(numero).replace(/\//g, '-') : ''}-${anoDoc}.docx`.normalize('NFD').replace(/[\u0300-\u036f]/g, ''));
+    if (pdf) { if (btn) btn.textContent = 'Montando o PDF…'; blob = await docs.docxParaPdf(blob); }
+    const nomeArq = `${docs.TIPOS[tipo]}${numero ? '-' + String(numero).replace(/\//g, '-') : ''}-${anoDoc}.${pdf ? 'pdf' : 'docx'}`.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    docs.baixar(blob, nomeArq);
     const rot = numero ? `${docs.TIPOS[tipo]} nº ${numero}${tipo === 'oficio' ? '/' + anoDoc : ''}` : docs.TIPOS[tipo];
-    const hist = (r.historico || []).concat({ em: new Date().toISOString(), txt: `${rot} gerado em Word`, por: myName() }).slice(-100);
+    const hist = (r.historico || []).concat({ em: new Date().toISOString(), txt: `${rot} gerado em ${NOME_FMT}`, por: myName() }).slice(-100);
     const extra = {};
     if (store.anexosDisponiveis) {
       try {
-        const nomeArq = `${docs.TIPOS[tipo]}${numero ? '-' + String(numero).replace(/\//g, '-') : ''}-${anoDoc}.docx`.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
         const path = `${mod}/${r.id}/${Date.now()}-${nomeSeguro(nomeArq)}`;
-        await store.enviarAnexo(path, new File([blob], nomeArq, { type: blob.type || 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }));
+        await store.enviarAnexo(path, new File([blob], nomeArq, { type: blob.type || (pdf ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') }));
         extra.anexos = (r.anexos || []).concat({ path, nome: nomeArq, tamanho: blob.size, em: new Date().toISOString(), por: myName() });
       } catch { /* sem a pasta de anexos, segue só com o download */ }
     }
     r = await store.saveRow(mod, r.id, { historico: hist, ...extra }); upsertLocal(mod, r);
-    toast(`${rot} gerado`);
+    toast(`${rot} gerado em ${NOME_FMT}`);
     openDrawer(mod, r.id);
-  } catch (e) { toast(errMsg(e)); if (btn) { btn.disabled = false; btn.textContent = 'Gerar ' + docs.TIPOS[tipo] + ' (Word)'; } }
+  } catch (e) { toast(errMsg(e)); if (btn) { btn.disabled = false; btn.textContent = 'Gerar ' + docs.TIPOS[tipo] + ' (' + NOME_FMT + ')'; } }
 }
 
 /** Mapa do ponto marcado e fotos do registro (e da demanda de origem), prontos para o Word. */
@@ -2559,6 +2561,7 @@ document.addEventListener('click', e => {
   }
   if (e.target.closest('#g-sync')) { syncGoogle(); return; }
   if (e.target.closest('#btn-doc')) { gerarDocumento(); return; }
+  if (e.target.closest('#btn-pdf')) { gerarDocumento('pdf'); return; }
   const eqd = e.target.closest('[data-eq-del]'); if (eqd) { const em = eqd.dataset.eqDel; if (eqd.dataset.ok) { store.removeEquipe(em).then(() => { toast('Acesso removido'); render(); }).catch(err => toast(/row-level|policy|permission/i.test(errMsg(err)) ? 'Só o administrador pode remover e-mails' : errMsg(err))); } else { eqd.dataset.ok = '1'; eqd.textContent = 'Confirmar remoção'; eqd.classList.add('danger'); } return; }
   const mb = e.target.closest('[data-mod-baixar]'); if (mb) { docs.carregarModelo(mb.dataset.modBaixar).then(m => docs.baixar(new Blob([m.buf]), 'modelo-' + mb.dataset.modBaixar + '.docx')).catch(err => toast(errMsg(err))); return; }
   const mp = e.target.closest('[data-mod-padrao]'); if (mp) { store.setConfig('modelo:' + mp.dataset.modPadrao, null).then(() => { toast('Voltou ao modelo padrão'); render(); }).catch(err => toast(errMsg(err))); return; }
