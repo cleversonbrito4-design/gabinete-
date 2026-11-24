@@ -18,6 +18,7 @@ const CORS = {
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
 };
 const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status, headers: { ...CORS, 'Content-Type': 'application/json; charset=utf-8' } });
+const MARCA = Deno.env.get('MARCA') || 'Fala Cascavel'; // nome do sistema do cliente (segredo MARCA da função)
 const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } });
 
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -83,8 +84,8 @@ async function feed(token: string) {
   const { data: rows, error } = await admin.from('agenda').select('*').gte('data', desde).neq('status', 'Cancelado').order('data').limit(3000);
   if (error) return new Response('Erro ao ler a agenda.', { status: 500, headers: CORS });
   const agora = new Date().toISOString().replace(/[-:]/g, '').slice(0, 15) + 'Z';
-  const L = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Fala Cascavel//Agenda do gabinete//PT-BR', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH',
-    'X-WR-CALNAME:Agenda do gabinete (Fala Cascavel)', 'X-WR-TIMEZONE:' + TZ, 'REFRESH-INTERVAL;VALUE=DURATION:PT1H', 'X-PUBLISHED-TTL:PT1H'];
+  const L = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//' + MARCA + '//Agenda do gabinete//PT-BR', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH',
+    'X-WR-CALNAME:Agenda do gabinete (' + MARCA + ')', 'X-WR-TIMEZONE:' + TZ, 'REFRESH-INTERVAL;VALUE=DURATION:PT1H', 'X-PUBLISHED-TTL:PT1H'];
   for (const r of rows || []) {
     if (!r.data) continue;
     const titulo = (r.status === 'A confirmar' ? 'A confirmar: ' : '') + (r.titulo || 'Compromisso');

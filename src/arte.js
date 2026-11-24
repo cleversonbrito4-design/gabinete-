@@ -1,4 +1,5 @@
-// Arte "Resultados do mês" (1080x1350) para o Instagram, no visual Fala Cascavel. Sem nomes de cidadãos.
+// Arte "Resultados do mês" (1080x1350) para o Instagram, no visual do sistema. Sem nomes de cidadãos.
+import { SITE } from './cliente.js';
 const img = src => new Promise((ok, erro) => { const i = new Image(); i.onload = () => ok(i); i.onerror = erro; i.src = src; });
 
 function caixa(x, X, Y, W, H, r) { x.beginPath(); if (x.roundRect) x.roundRect(X, Y, W, H, r); else x.rect(X, Y, W, H); }
@@ -38,7 +39,7 @@ export async function gerarArte(n) {
     });
   }
   x.fillStyle = 'rgba(255,255,255,.85)'; x.font = F(700, 34); x.textAlign = 'center';
-  x.fillText('Faça seu pedido: falacascavel.com.br', W / 2, H - 120);
+  x.fillText('Faça seu pedido: ' + SITE, W / 2, H - 120);
   x.fillStyle = 'rgba(255,255,255,.55)'; x.font = F(500, 28);
   x.fillText([n.vereador, n.cargo].filter(Boolean).join(' · '), W / 2, H - 72);
   return new Promise(ok => c.toBlob(ok, 'image/png'));
@@ -82,7 +83,7 @@ export async function gerarArteAtendido(p) {
   if (lugar) { x.fillStyle = '#8cc8f2'; x.font = F(700, 36); x.fillText(lugar.toLocaleUpperCase('pt-BR'), 70, y + 6); }
   x.textAlign = 'center';
   x.fillStyle = 'rgba(255,255,255,.88)'; x.font = F(700, 32); x.fillText('Pedido levado pelo ' + [p.cargo ? p.cargo.split('/')[0].trim().toLowerCase() : 'vereador', p.vereador].filter(Boolean).join(' '), W / 2, H - 112);
-  x.fillStyle = 'rgba(255,255,255,.6)'; x.font = F(600, 28); x.fillText('Faça seu pedido: falacascavel.com.br', W / 2, H - 66);
+  x.fillStyle = 'rgba(255,255,255,.6)'; x.font = F(600, 28); x.fillText('Faça seu pedido: ' + SITE, W / 2, H - 66);
   return new Promise(ok => c.toBlob(ok, 'image/png'));
 }
 
@@ -118,7 +119,7 @@ export async function gerarArteAgenda(a) {
   if (a.itens.length > max) { x.fillStyle = 'rgba(255,255,255,.7)'; x.font = F(600, 32); x.fillText(`e mais ${a.itens.length - max} compromisso${a.itens.length - max === 1 ? '' : 's'}`, 80, y + 20); }
   x.textAlign = 'center';
   x.fillStyle = 'rgba(255,255,255,.9)'; x.font = F(700, 36); x.fillText([a.cargo ? a.cargo.split('/')[0].trim() : 'Vereador', a.vereador].filter(Boolean).join(' '), W / 2, H - 150);
-  x.fillStyle = 'rgba(255,255,255,.6)'; x.font = F(600, 30); x.fillText('Faça seu pedido: falacascavel.com.br', W / 2, H - 100);
+  x.fillStyle = 'rgba(255,255,255,.6)'; x.font = F(600, 30); x.fillText('Faça seu pedido: ' + SITE, W / 2, H - 100);
   return new Promise(ok => c.toBlob(ok, 'image/png'));
 }
 

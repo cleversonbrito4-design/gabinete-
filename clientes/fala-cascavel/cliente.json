@@ -1,0 +1,109 @@
+{
+  "_leia": "Configuração deste cliente. Para outro gabinete, copie esta pasta (ou rode npm run novo-cliente) e troque os valores.",
+  "marca": "Fala Cascavel",
+  "site": "falacascavel.com.br",
+  "hashtags": [
+    "#Cascavel",
+    "#FalaCascavel"
+  ],
+  "gabinete": {
+    "nome": "Gabinete do Vereador Fão do Bolsonaro",
+    "parlamentar": "Fão do Bolsonaro",
+    "cargo": "Vereador/PL",
+    "casa": "Câmara Municipal de Cascavel",
+    "endereco": "Rua Pernambuco, 1843 – Centro – CEP 85810-021 – Cascavel – PR",
+    "ultimo_oficio": "163",
+    "ultima_lideranca": "330"
+  },
+  "cidade": "Cascavel",
+  "uf": "PR",
+  "estado": "Paraná",
+  "ddd": "45",
+  "mapa": {
+    "centro": [
+      -24.9555,
+      -53.4552
+    ],
+    "area": [
+      -25.3,
+      -24.65,
+      -53.82,
+      -53.1
+    ]
+  },
+  "bairros": [
+    "Alto Alegre",
+    "Brasília",
+    "Brasmadeira",
+    "Canadá",
+    "Cancelli",
+    "Cascavel Velho",
+    "Cataratas",
+    "Centro",
+    "Claudete",
+    "Coqueiral",
+    "Country",
+    "Esmeralda",
+    "Floresta",
+    "Florais do Paraná",
+    "Guarujá",
+    "Interlagos",
+    "Maria Luiza",
+    "Morumbi",
+    "Neva",
+    "Nova Cidade",
+    "Pacaembu",
+    "Parque São Paulo",
+    "Parque Verde",
+    "Periolo",
+    "Pioneiros Catarinenses",
+    "Recanto Tropical",
+    "Riviera",
+    "Santa Cruz",
+    "Santa Felicidade",
+    "Santo Onofre",
+    "São Cristóvão",
+    "Tropical",
+    "Universitário",
+    "XIV de Novembro"
+  ],
+  "orgaos": [
+    "Secretaria Municipal da Casa Civil",
+    "Secretaria Municipal de Agricultura",
+    "Secretaria Municipal de Assistência Social",
+    "Secretaria Municipal de Comunicação Social",
+    "Secretaria Municipal de Cultura",
+    "Secretaria Municipal de Desenvolvimento Econômico",
+    "Secretaria Municipal de Educação",
+    "Secretaria Municipal de Esporte e Lazer",
+    "Secretaria Municipal de Finanças",
+    "Secretaria Municipal de Meio-Ambiente",
+    "Secretaria Municipal de Planejamento e Gestão",
+    "Secretaria Municipal de Saúde",
+    "Secretaria Municipal de Segurança Pública e Proteção à Comunidade",
+    "Secretaria Municipal de Obras Públicas",
+    "Secretaria Municipal de Políticas Sobre Drogas",
+    "Secretaria Municipal da Mulher e Cidadania",
+    "Procuradoria Geral do Município",
+    "Controladoria-Geral do Município",
+    "Território Cidadão",
+    "PROCON",
+    "COMPDEC",
+    "Agência de Inteligência e Fomento - AIF",
+    "Companhia Municipal de Habitação de Cascavel - COHAVEL",
+    "Fundação Municipal de Esporte e Cultura - FMEC",
+    "Fundação para o Desenvolvimento Científico e Tecnológico - FUNDETEC",
+    "Instituto de Planejamento de Cascavel - IPC",
+    "Instituto de Previdência dos Servidores Públicos de Cascavel - IPMC",
+    "Autarquia Municipal de Mobilidade, Trânsito e Cidadania - TRANSITAR",
+    "Administração dos Cemitérios e Serviços Funerários de Cascavel - ACESC"
+  ],
+  "supabase": {
+    "url": "https://ueqbdruyaxwrxjrmcvub.supabase.co",
+    "chave": "sb_publishable_peNBaQLtuxX1kKvkk84d9g_B_igHFEG"
+  },
+  "app": {
+    "nome_completo": "Fala Cascavel – Gabinete do Vereador Fão do Bolsonaro",
+    "cor_fundo": "#07111c"
+  }
+}
