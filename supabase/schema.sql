@@ -114,6 +114,7 @@ begin new.atualizado_em = now(); return new; end $$;
 create table if not exists public.demandas (
   id uuid primary key default gen_random_uuid(),
   status text not null default 'Nova',
+  tipo_doc text,
   assunto text,
   solicitante text,
   telefone text,
@@ -139,6 +140,7 @@ create table if not exists public.demandas (
   criado_em timestamptz not null default now(),
   atualizado_em timestamptz not null default now()
 );
+alter table public.demandas add column if not exists tipo_doc text;
 alter table public.demandas add column if not exists assunto text;
 alter table public.demandas add column if not exists solicitante text;
 alter table public.demandas add column if not exists telefone text;
