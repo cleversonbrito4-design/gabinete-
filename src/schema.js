@@ -44,6 +44,7 @@ export const MODS = {
     hint: 'Atendimentos: pedidos da população e de lideranças que chegam ao gabinete.',
     statuses: [['Nova','novo'],['Em andamento','and'],['Encaminhada','and'],['Concluída','ok'],['Arquivada','neg']],
     fields: [
+      { k:'tipo_doc', l:'O que vai ser feito (tipo de documento)', type:'select', opts:['Ofício','Indicação','Requerimento','Liderança de Governo','E-mail','Contato direto'] },
       { k:'assunto', l:'Assunto', req:1, wide:1 },
       { k:'solicitante', l:'Solicitante', req:1, people:1 },
       { k:'telefone', l:'Telefone / WhatsApp', type:'tel' },

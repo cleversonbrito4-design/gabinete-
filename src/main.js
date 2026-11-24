@@ -703,8 +703,9 @@ function openDrawer(mod, id, preset = {}) {
   if (rec && mod === 'agenda' && rec.data) acts.push(`<a class="btn mini" href="${esc(ags.linkGoogleEvento(rec))}" target="_blank" rel="noopener">📅 Pôr no Google Agenda</a>`);
   if (rec && mod === 'recepcao') acts.push(`<button class="btn mini primary" type="button" data-recep-demanda>Transformar em demanda</button>`, `<button class="btn mini" type="button" data-cid="${esc(rec.nome)}" data-cid-tel="${esc(rec.telefone || '')}">Histórico de ${esc(primeiroNome(rec.nome))}</button>`);
   if (rec && mod === 'demandas' && kindOf('demandas', rec.status) === 'ok') acts.push(`<button class="btn mini primary" type="button" data-arte-atendido>📸 Arte "Pedido atendido" para o Instagram</button>`);
-  if (rec && mod === 'demandas') acts.push(`<button class="btn mini${kindOf('demandas', rec.status) === 'ok' ? '' : ' primary'}" type="button" data-oficio-de>Gerar ofício de solicitação</button>`);
-  if (rec && mod === 'demandas') acts.push(`<button class="btn mini" type="button" data-lideranca>📝 Ficha Liderança de Governo (Word / PDF)</button>`);
+  const lid = rec && mod === 'demandas' && rec.tipo_doc === 'Liderança de Governo', abertaDem = rec && kindOf('demandas', rec.status) !== 'ok';
+  if (rec && mod === 'demandas') acts.push(`<button class="btn mini${abertaDem && !lid ? ' primary' : ''}" type="button" data-oficio-de>${esc(rotuloDocDemanda(rec))}</button>`);
+  if (rec && mod === 'demandas') acts.push(`<button class="btn mini${lid ? ' primary' : ''}" type="button" data-lideranca>📝 Ficha Liderança de Governo (Word / PDF)</button>`);
   if (rec && ['demandas', 'servicos'].includes(mod) && rec.solicitante) acts.push(`<button class="btn mini" type="button" data-cid="${esc(rec.solicitante)}" data-cid-tel="${esc(rec.telefone || '')}">Histórico de ${esc(primeiroNome(rec.solicitante))}</button>`);
   if (rec && mod !== 'tarefas') acts.push(`<button class="btn mini" type="button" data-tarefa-de>+ Tarefa</button>`);
   if (rec && mod === 'demandas') data.servicos.filter(o => o.demanda_id === rec.id).forEach(o => acts.push(`<button class="btn mini ghost" type="button" data-open="servicos:${o.id}">📄 Ofício ${esc(o.protocolo || '(sem nº)')} · ${esc(o.status)}</button>`));
@@ -717,7 +718,7 @@ function openDrawer(mod, id, preset = {}) {
   if (rec && mod === 'proposituras' && rec.link) acts.push(`<a class="btn mini" href="${esc(rec.link)}" target="_blank" rel="noopener">Abrir tramitação</a>`);
   $('#overlay').innerHTML = `<div class="scrim" data-close></div><aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="dr-t">
     <div class="dr-head"><div style="min-width:0"><div class="eyebrow">${esc(M.label)}${rec && rec.protocolo ? ' · Protocolo ' + esc(rec.protocolo) : ''}</div><h3 id="dr-t">${rec ? esc(M.title(rec)) : esc(M.novo)}</h3></div><button class="btn ghost" data-close aria-label="Fechar">✕</button></div>
-    <form class="dr-body" id="frm" novalidate>${mod === 'demandas' ? protocoloBox(rec) : ''}${rec ? parecidoHtml(pedidosParecidos(mod, rec)) : ''}${acts.length ? `<div class="dr-actions">${acts.join('')}</div>` : ''}${statusSel}<div class="f"></div>${fields}
+    <form class="dr-body" id="frm" novalidate>${mod === 'demandas' ? protocoloBox(rec) : ''}${rec ? parecidoHtml(pedidosParecidos(mod, rec)) : ''}${acts.length ? `<div class="dr-actions">${acts.join('')}</div>` : ''}${statusSel}${M.fields[0].type === 'select' ? '' : '<div class="f"></div>'}${fields}
       <datalist id="dl-munis"></datalist><datalist id="dl-pessoas"></datalist><datalist id="dl-equipe"></datalist><datalist id="dl-orgaos">${AREAS_DEMANDA.map(o => `<option value="${esc(o)}">`).join('')}</datalist><div class="err" id="frm-err" hidden></div>
       ${M.geo ? `<div class="geo" id="geo"><span class="eyebrow">Localização exata</span>
         <div class="geo-busca"><input id="geo-end" placeholder="Rua, número, bairro" value="${esc(r.local || [r.bairro, r.municipio].filter(Boolean).join(', '))}" autocomplete="off"><button class="btn mini" type="button" id="geo-buscar">🔎 Buscar</button><button class="btn mini" type="button" id="geo-gps">📍 Estou no local</button></div>
@@ -731,7 +732,7 @@ function openDrawer(mod, id, preset = {}) {
   if (M.geo) iniciarGeo();
   // ao escolher uma pessoa cadastrada, preenche telefone e município
   ['solicitante', ...(mod === 'recepcao' ? ['nome'] : [])].forEach(k => { const el = $('#f-' + k); if (el) el.addEventListener('change', () => { const p = data.pessoas.find(x => x.nome === el.value); if (!p) return; [['telefone', 'telefone'], ['municipio', 'municipio'], ['bairro', 'bairro']].forEach(([a, b]) => { const t = $('#f-' + a); if (t && !t.value && p[b]) t.value = p[b]; }); }); });
-  setTimeout(() => { const f = $('#f-' + M.fields[0].k); f && f.focus(); }, 30);
+  setTimeout(() => { const f = $('#f-' + (M.fields.find(x => x.type !== 'select') || M.fields[0]).k); f && f.focus(); }, 30);
 }
 /* ---------- localização exata no registro ---------- */
 const linkMaps = p => `https://www.google.com/maps/search/?api=1&query=${p[0].toFixed(6)},${p[1].toFixed(6)}`;
@@ -977,6 +978,9 @@ async function reiterarOficio() {
     toast('Reiteração criada. Confira o texto e toque em "Gerar Ofício (Word)" ou "(PDF)" para numerar.');
   } catch (e) { toast('Não foi possível criar a reiteração: ' + errMsg(e)); if (btn) { btn.disabled = false; btn.textContent = 'Gerar ofício de reiteração'; } }
 }
+/** Tipo escolhido em "O que vai ser feito": indicação e requerimento viram esse documento; o resto vira ofício. */
+const tipoDocDemanda = d => ['Indicação', 'Requerimento'].includes(d.tipo_doc) ? d.tipo_doc : 'Ofício';
+const rotuloDocDemanda = d => tipoDocDemanda(d) === 'Ofício' ? 'Gerar ofício de solicitação' : 'Gerar ' + tipoDocDemanda(d).toLowerCase() + ' desta demanda';
 async function oficioDaDemanda() {
   const { id } = drawer; let d = data.demandas.find(x => x.id === id); if (!d) return;
   const btn = $('[data-oficio-de]'); if (btn) { btn.disabled = true; btn.textContent = 'Criando ofício…'; }
@@ -994,7 +998,7 @@ async function oficioDaDemanda() {
     linhas.push(OF_FECHO);
     const of = {
       servico: d.assunto, solicitante: d.solicitante, telefone: d.telefone, municipio: d.municipio, local: d.bairro,
-      orgao: (AREAS_DEMANDA.includes(d.area) ? d.area : ORGAO_POR_AREA[d.area]) || null, tipo_doc: 'Ofício', prazo: addDays(todayStr(), 15), responsavel: por || d.responsavel,
+      orgao: (AREAS_DEMANDA.includes(d.area) ? d.area : ORGAO_POR_AREA[d.area]) || null, tipo_doc: tipoDocDemanda(d), prazo: addDays(todayStr(), 15), responsavel: por || d.responsavel,
       corpo: linhas.join('\n'), status: 'Recebida', demanda_id: d.id,
       ...(d.lat != null ? { lat: d.lat, lng: d.lng } : {}),
       historico: [{ em: agora, txt: 'Criado a partir da demanda “' + d.assunto + '”', por }],
@@ -1003,11 +1007,11 @@ async function oficioDaDemanda() {
     try { row = await store.saveRow('servicos', null, of); }
     catch (e) { if (!/demanda_id|lat|lng/.test(errMsg(e))) throw e; delete of.demanda_id; delete of.lat; delete of.lng; of.obs = 'Demanda de origem: ' + d.assunto; row = await store.saveRow('servicos', null, of); }
     upsertLocal('servicos', row);
-    const hist = (d.historico || []).concat({ em: agora, txt: 'Ofício de solicitação criado' + (of.orgao ? ' para ' + of.orgao : ''), por });
+    const hist = (d.historico || []).concat({ em: agora, txt: (of.tipo_doc === 'Ofício' ? 'Ofício de solicitação criado' : of.tipo_doc + ' criada') + (of.orgao ? ' para ' + of.orgao : ''), por });
     d = await store.saveRow('demandas', d.id, { historico: hist.slice(-100), status: d.status === 'Nova' ? 'Encaminhada' : d.status }); upsertLocal('demandas', d);
     closeDrawer(); go('servicos'); openDrawer('servicos', row.id);
-    toast('Ofício criado. Confira o órgão e o texto e toque em "Gerar Ofício (Word)" ou "(PDF)".');
-  } catch (e) { toast('Não foi possível criar o ofício: ' + errMsg(e)); if (btn) { btn.disabled = false; btn.textContent = 'Gerar ofício de solicitação'; } }
+    toast(`${of.tipo_doc} ${of.tipo_doc === 'Ofício' ? 'criado' : 'criada'}. Confira o órgão e o texto e toque em "Gerar ${of.tipo_doc} (Word)" ou "(PDF)".`);
+  } catch (e) { toast('Não foi possível criar o documento: ' + errMsg(e)); if (btn) { btn.disabled = false; btn.textContent = rotuloDocDemanda(d); } }
 }
 
 /* ---------- documentos Word ---------- */
