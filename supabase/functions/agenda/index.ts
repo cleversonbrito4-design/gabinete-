@@ -222,21 +222,56 @@ function hostPermitido(u: URL) {
 }
 
 let diag: Record<string, unknown> = {};
+const espera = (ms: number) => new Promise(r => setTimeout(r, ms));
+const msgErro = (st: number) => st === 404 || st === 403 ? 'Link não encontrado ou sem permissão. Copie de novo o endereço secreto.' : 'A agenda respondeu com erro ' + st + '.';
+
+// Pede o arquivo .ics pelo banco de dados (pg_net), que sai por outro endereço de internet.
+// Serve de reserva quando o Google bloqueia o servidor das funções (erro 429).
+async function baixarPeloBanco(url: string) {
+  const { data: id, error } = await admin.rpc('ics_pedir', { p_url: url });
+  if (error || id == null) return null;
+  for (let k = 0; k < 24; k++) {
+    await espera(k < 4 ? 400 : 700);
+    const { data, error: e2 } = await admin.rpc('ics_ler', { p_id: id });
+    if (e2) return null;
+    const r = Array.isArray(data) ? data[0] : data;
+    if (r && (r.status != null || r.erro)) return { status: Number(r.status || 0), txt: String(r.conteudo || '') };
+  }
+  return null;
+}
+
+async function baixar(u: URL) {
+  let st = 0, txt = '';
+  try {
+    const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 15000);
+    try {
+      const r = await fetch(u, { signal: ctl.signal, headers: { 'User-Agent': 'Mozilla/5.0 (FalaCascavel-Agenda)', Accept: 'text/calendar, */*' } });
+      st = r.status; txt = r.ok ? await r.text() : '';
+    } finally { clearTimeout(t); }
+  } catch { st = 0; }
+  diag = { http: st };
+  if (st >= 200 && st < 300) return txt;
+  if (st === 404 || st === 403) throw new Error(msgErro(st));
+  // 429 (muitos pedidos), erro do Google ou sem resposta: tenta pelo banco
+  const b = await baixarPeloBanco(u.toString());
+  if (b) {
+    diag = { http: st, http_banco: b.status };
+    if (b.status >= 200 && b.status < 300) return b.txt;
+    throw new Error(msgErro(b.status || st));
+  }
+  if (!st) throw new Error('A agenda não respondeu. Confira o link.');
+  throw new Error(msgErro(st));
+}
+
 async function lerAgenda(url: string, de: string, ate: string) {
   diag = {};
   const u = new URL(url.trim().replace(/^webcals?:\/\//i, 'https://'));
   if (!hostPermitido(u)) throw new Error('Endereço não aceito. Use o link que começa com https:// ou webcal://');
-  const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 15000);
-  let r: Response;
-  try { r = await fetch(u, { signal: ctl.signal, headers: { 'User-Agent': 'FalaCascavel-Agenda/1.0', Accept: 'text/calendar, */*' } }); }
-  catch { throw new Error('A agenda não respondeu. Confira o link.'); } finally { clearTimeout(t); }
-  diag = { http: r.status };
-  if (!r.ok) throw new Error(r.status === 404 || r.status === 403 ? 'Link não encontrado ou sem permissão. Copie de novo o endereço secreto.' : 'A agenda respondeu com erro ' + r.status + '.');
-  const txt = await r.text();
+  const txt = await baixar(u);
   if (txt.length > 15_000_000) throw new Error('Agenda grande demais.');
   if (!/BEGIN:VCALENDAR/i.test(txt)) throw new Error('Esse link não é de agenda (iCal). Use o "endereço secreto no formato iCal".');
   const evs = parseIcs(txt);
-  diag = { http: r.status, bytes: txt.length, vevents: evs.length };
+  diag = { ...diag, bytes: txt.length, vevents: evs.length };
   const nomeCal = un((txt.match(/^X-WR-CALNAME:(.*)$/m) || [])[1]);
   // instâncias alteradas de eventos que se repetem (RECURRENCE-ID)
   const alterado = new Set<string>();
@@ -300,12 +335,32 @@ Deno.serve(async req => {
       const ate = /^\d{4}-\d{2}-\d{2}$/.test(body.ate) ? body.ate : addDays(hoje, 200);
       const cfg = await getConfig('agendas_externas');
       const lista = cfg?.lista || [];
+      // cópia da última leitura boa (janela padrão): evita pedir ao Google a cada tela
+      // aberta e segura a agenda no ar se o Google recusar por um tempo
+      const padrao = !body.de && !body.ate;
+      const cache = (await getConfig('agendas_externas_cache')) || {};
+      const novoCache: Record<string, unknown> = {};
       const res = [];
       const estado: Record<string, unknown>[] = [];
       for (const a of lista as { id: string; nome: string; url: string; cor: string }[]) {
-        try { const r = await lerAgenda(a.url, de, ate); res.push({ id: a.id, nome: a.nome, cor: a.cor, eventos: r.eventos }); estado.push({ id: a.id, ok: true, eventos: r.eventos.length, ...diag }); }
-        catch (e) { res.push({ id: a.id, nome: a.nome, cor: a.cor, eventos: [], erro: (e as Error).message }); estado.push({ id: a.id, ok: false, erro: (e as Error).message, ...diag }); }
+        const c = cache[a.id] as { url: string; em: string; de: string; eventos: Record<string, unknown>[] } | undefined;
+        const cOk = c && c.url === a.url && Array.isArray(c.eventos);
+        if (padrao && cOk && Date.now() - Date.parse(c.em) < 10 * 60000) {
+          res.push({ id: a.id, nome: a.nome, cor: a.cor, eventos: c.eventos }); estado.push({ id: a.id, ok: true, eventos: c.eventos.length, copia: c.em });
+          novoCache[a.id] = c; continue;
+        }
+        try {
+          const r = await lerAgenda(a.url, de, ate);
+          res.push({ id: a.id, nome: a.nome, cor: a.cor, eventos: r.eventos }); estado.push({ id: a.id, ok: true, eventos: r.eventos.length, ...diag });
+          novoCache[a.id] = padrao ? { url: a.url, em: new Date().toISOString(), de, eventos: r.eventos } : c;
+        } catch (e) {
+          const ev = cOk ? c.eventos.filter(x => String(x.data) >= de && String(x.data) <= ate) : [];
+          res.push({ id: a.id, nome: a.nome, cor: a.cor, eventos: ev, ...(cOk ? { copia: c.em } : { erro: (e as Error).message }) });
+          estado.push({ id: a.id, ok: false, erro: (e as Error).message, copia: cOk ? c.em : null, ...diag });
+          if (c) novoCache[a.id] = c;
+        }
       }
+      await setConfig('agendas_externas_cache', novoCache).catch(() => {});
       // situação da última leitura (sem títulos nem links), para conferir sem abrir a tela
       await setConfig('agendas_externas_status', { em: new Date().toISOString(), de, ate, agendas: estado }).catch(() => {});
       return json({ agendas: res });
