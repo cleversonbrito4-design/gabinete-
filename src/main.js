@@ -84,6 +84,7 @@ const MSG_PADRAO = {
   concluida: ['Pedido concluído', 'Olá, {nome}! Aqui é do gabinete do {vereador}. Seu pedido "{assunto}" foi concluído! Ficamos felizes em ajudar. Pode nos dar uma nota de 1 a 5? Leva 10 segundos: {link_avaliacao}'],
   negado: ['Pedido não atendido', 'Olá, {nome}! Aqui é do gabinete do {vereador}. Sobre o seu pedido "{assunto}": infelizmente a situação é "{situacao}". Se precisar de algo mais, estamos à disposição.'],
   aniversario: ['Aniversário', 'Olá, {nome}! O {vereador} e toda a equipe do gabinete desejam a você um feliz aniversário, com muita saúde e alegria!'],
+  compromisso: ['Compromisso da agenda (para o contato)', 'Olá, {nome}! Aqui é do gabinete do {vereador}. Confirmando o compromisso: {evento}, no dia {data}{hora}{local}. Qualquer dúvida, é só responder esta mensagem.'],
   convite: ['Convite para evento', 'Olá, {nome}! O {vereador} convida você para {evento}, no dia {data}{hora}{local}. Contamos com sua presença!'],
 };
 let msgs = {}; // textos salvos pela equipe
@@ -134,6 +135,7 @@ const preencher = (t, v) => String(t || '').replace(/\{(\w+)\}/g, (m, k) => k in
 function waTexto(mod, r) {
   if (mod === 'pessoas' || mod === 'recepcao') return msg('contato', { nome: primeiroNome(r.nome) });
   if (mod === 'demandas' || mod === 'servicos') return waStatus(mod, r);
+  if (mod === 'agenda') return msg('compromisso', varsCompromisso(r));
   return '';
 }
 function waStatus(mod, r) {
@@ -146,6 +148,14 @@ function waStatus(mod, r) {
   if (mod === 'servicos' && r.status === 'Ofício enviado') return msg('oficio', vars);
   return msg('andamento', vars);
 }
+/** Dados do compromisso para as mensagens de WhatsApp (título, data, hora e local). */
+function varsCompromisso(r) {
+  const hora = r.inicio ? ', às ' + hhmm(r.inicio) + (r.fim ? ' (até ' + hhmm(r.fim) + ')' : '') : '';
+  const lugar = [r.local, r.municipio].filter(Boolean).join(', ');
+  return { nome: primeiroNome(r.contato), evento: r.titulo || 'compromisso', data: r.data ? fmtDate(r.data) + ' (' + new Date(r.data + 'T12:00').toLocaleDateString('pt-BR', { weekday: 'long' }) + ')' : '', hora, local: lugar ? ', em ' + lugar : '' };
+}
+/** Telefone do contato do compromisso: o do próprio compromisso ou, se vazio, o da pessoa cadastrada com esse nome. */
+const telCompromisso = r => r.telefone || (r.contato && (data.pessoas.find(p => p.nome === r.contato && p.telefone) || {}).telefone) || '';
 const waAniversario = p => msg('aniversario', { nome: primeiroNome(p.nome) });
 
 /* ---------- estado ---------- */
@@ -692,7 +702,12 @@ function openDrawer(mod, id, preset = {}) {
   const hist = rec && rec.historico && rec.historico.length ? `<div class="hist"><span class="eyebrow">Histórico</span><ol>${rec.historico.slice().reverse().map(h => `<li><time>${fmtStamp(h.em)}</time><span>${esc(h.txt)}${h.por ? ' <span class="m">· ' + esc(h.por) + '</span>' : ''}</span></li>`).join('')}</ol></div>` : '';
   // ações rápidas
   const acts = [];
-  if (rec && M.phone) { const wa = waLink(rec[M.phone], waTexto(mod, rec)); if (wa) acts.push(`<a class="btn wa mini" href="${esc(wa)}" target="_blank" rel="noopener">Abrir WhatsApp</a>`); }
+  if (rec && M.phone && mod !== 'agenda') { const wa = waLink(rec[M.phone], waTexto(mod, rec)); if (wa) acts.push(`<a class="btn wa mini" href="${esc(wa)}" target="_blank" rel="noopener">Abrir WhatsApp</a>`); }
+  if (rec && mod === 'agenda') {
+    const wa = waLink(telCompromisso(rec), waTexto('agenda', rec));
+    acts.push(wa ? `<a class="btn wa mini" href="${esc(wa)}" target="_blank" rel="noopener">📲 Mandar compromisso para ${esc(primeiroNome(rec.contato) || 'o contato')} no WhatsApp</a>`
+      : `<button class="btn mini" type="button" disabled title="Preencha o telefone do contato e salve">📲 Mandar no WhatsApp (falta o telefone do contato)</button>`);
+  }
   if (rec && mod === 'pessoas') {
     const linked = ['demandas', 'servicos', 'emendas'].reduce((n, m) => n + data[m].filter(x => [x.solicitante, x.beneficiario, x.quem_pediu].includes(rec.nome)).length, 0);
     acts.push(`<button class="btn mini primary" type="button" data-cid="${esc(rec.nome)}" data-cid-tel="${esc(rec.telefone || '')}">Histórico do cidadão</button>`);
@@ -731,6 +746,7 @@ function openDrawer(mod, id, preset = {}) {
   carregarMiniaturas();
   if (M.geo) iniciarGeo();
   // ao escolher uma pessoa cadastrada, preenche telefone e município
+  if (mod === 'agenda') { const el = $('#f-contato'), t = $('#f-telefone'); if (el && t) el.addEventListener('change', () => { const p = data.pessoas.find(x => x.nome === el.value); if (p && p.telefone && !t.value) t.value = p.telefone; }); }
   ['solicitante', ...(mod === 'recepcao' ? ['nome'] : [])].forEach(k => { const el = $('#f-' + k); if (el) el.addEventListener('change', () => { const p = data.pessoas.find(x => x.nome === el.value); if (!p) return; [['telefone', 'telefone'], ['municipio', 'municipio'], ['bairro', 'bairro']].forEach(([a, b]) => { const t = $('#f-' + a); if (t && !t.value && p[b]) t.value = p[b]; }); }); });
   setTimeout(() => { const f = $('#f-' + (M.fields.find(x => x.type !== 'select') || M.fields[0]).k); f && f.focus(); }, 30);
 }

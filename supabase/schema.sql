@@ -326,6 +326,7 @@ create table if not exists public.agenda (
   local text,
   municipio text,
   contato text,
+  telefone text,
   acompanha text,
   pauta text,
   google_event_id text,
@@ -343,6 +344,7 @@ alter table public.agenda add column if not exists fim time;
 alter table public.agenda add column if not exists local text;
 alter table public.agenda add column if not exists municipio text;
 alter table public.agenda add column if not exists contato text;
+alter table public.agenda add column if not exists telefone text;
 alter table public.agenda add column if not exists acompanha text;
 alter table public.agenda add column if not exists pauta text;
 alter table public.agenda add column if not exists google_event_id text;
