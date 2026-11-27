@@ -711,7 +711,7 @@ function openDrawer(mod, id, preset = {}) {
   if (rec && mod === 'agenda') acts.push(`<button class="btn mini wa" type="button" data-disp-convite>Convidar pessoas pelo WhatsApp</button>`);
   if (rec && mod === 'agenda' && rec.data) acts.push(`<a class="btn mini" href="${esc(ags.linkGoogleEvento(rec))}" target="_blank" rel="noopener">📅 Pôr no Google Agenda</a>`);
   if (rec && mod === 'recepcao') acts.push(`<button class="btn mini primary" type="button" data-recep-demanda>Transformar em demanda</button>`, `<button class="btn mini" type="button" data-cid="${esc(rec.nome)}" data-cid-tel="${esc(rec.telefone || '')}">Histórico de ${esc(primeiroNome(rec.nome))}</button>`);
-  if (rec && mod === 'demandas') linksDe(rec.descricao).forEach((u, i, all) => acts.push(`<a class="btn mini" href="${esc(u)}" target="_blank" rel="noopener noreferrer">🔗 Abrir link enviado${all.length > 1 ? ' ' + (i + 1) : ''}</a>`));
+  if (rec && mod === 'demandas') linksDe(rec.descricao).forEach((u, i, all) => acts.push(`<a class="btn mini" style="color:inherit;text-decoration:none" href="${esc(u)}" target="_blank" rel="noopener noreferrer">🔗 Abrir link enviado${all.length > 1 ? ' ' + (i + 1) : ''}</a>`));
   if (rec && mod === 'demandas' && categoriaDe(rec) === 'Emenda') acts.push(`<button class="btn mini primary" type="button" data-dem-emenda>💰 Cadastrar em Emendas</button>`);
   if (rec && mod === 'demandas' && kindOf('demandas', rec.status) === 'ok') acts.push(`<button class="btn mini primary" type="button" data-arte-atendido>📸 Arte "Pedido atendido" para o Instagram</button>`);
   const lid = rec && mod === 'demandas' && rec.tipo_doc === 'Liderança de Governo', abertaDem = rec && kindOf('demandas', rec.status) !== 'ok';
