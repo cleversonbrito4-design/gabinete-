@@ -539,6 +539,8 @@ function rowHtml(m, r) {
 
 // Tipo de pedido da demanda. Pedidos que chegaram antes do banco ter a coluna vêm com "[Emenda]" ou "[Denúncia]" no assunto.
 const categoriaDe = r => r.categoria || (/^\[(Emenda|Denúncia)\]/.exec(r.assunto || '') || [])[1] || 'Pedido';
+// links (http/https) escritos na descrição: viram botão "Abrir link enviado" na demanda
+const linksDe = t => [...new Set((String(t || '').match(/https?:\/\/[^\s<>"']+/gi) || []).map(u => u.replace(/[.,;)]+$/, '')))].slice(0, 3);
 const outraCidade = r => !!r.municipio && !!cfg.cidade_gabinete && semAcento(r.municipio).trim() !== semAcento(cfg.cidade_gabinete).trim();
 function chip(attr, k, l, on) { return `<button class="chip" ${attr}="${esc(k)}" aria-pressed="${on}">${esc(l)}</button>`; }
 
@@ -709,6 +711,7 @@ function openDrawer(mod, id, preset = {}) {
   if (rec && mod === 'agenda') acts.push(`<button class="btn mini wa" type="button" data-disp-convite>Convidar pessoas pelo WhatsApp</button>`);
   if (rec && mod === 'agenda' && rec.data) acts.push(`<a class="btn mini" href="${esc(ags.linkGoogleEvento(rec))}" target="_blank" rel="noopener">📅 Pôr no Google Agenda</a>`);
   if (rec && mod === 'recepcao') acts.push(`<button class="btn mini primary" type="button" data-recep-demanda>Transformar em demanda</button>`, `<button class="btn mini" type="button" data-cid="${esc(rec.nome)}" data-cid-tel="${esc(rec.telefone || '')}">Histórico de ${esc(primeiroNome(rec.nome))}</button>`);
+  if (rec && mod === 'demandas') linksDe(rec.descricao).forEach((u, i, all) => acts.push(`<a class="btn mini" href="${esc(u)}" target="_blank" rel="noopener noreferrer">🔗 Abrir link enviado${all.length > 1 ? ' ' + (i + 1) : ''}</a>`));
   if (rec && mod === 'demandas' && categoriaDe(rec) === 'Emenda') acts.push(`<button class="btn mini primary" type="button" data-dem-emenda>💰 Cadastrar em Emendas</button>`);
   if (rec && mod === 'demandas' && kindOf('demandas', rec.status) === 'ok') acts.push(`<button class="btn mini primary" type="button" data-arte-atendido>📸 Arte "Pedido atendido" para o Instagram</button>`);
   const lid = rec && mod === 'demandas' && rec.tipo_doc === 'Liderança de Governo', abertaDem = rec && kindOf('demandas', rec.status) !== 'ok';
@@ -1889,6 +1892,7 @@ function renderFormPublico(msg = '', ok = false, vals = {}) {
     ${cidade}
     <div class="f"><label for="fp-bairro">Bairro${tipo === 'cidade' ? ' / comunidade' : ''}</label><input id="fp-bairro" maxlength="80" value="${v('bairro')}"></div>
     <div class="f"><label for="fp-ass">${T.ass} *</label><input id="fp-ass" maxlength="200" placeholder="${esc(T.ph)}" value="${v('assunto')}"></div>
+    ${tipo === 'emenda' ? `<div class="f"><label for="fp-link">Link da emenda ou do documento <span class="m" style="font-weight:400">(opcional)</span></label><input id="fp-link" type="url" inputmode="url" maxlength="500" placeholder="Cole aqui o link (site, Google Drive, PDF…)" value="${v('link')}"></div>` : ''}
     ${tipo === 'emenda' ? `<div class="f"><label for="fp-valor">Valor aproximado <span class="m" style="font-weight:400">(opcional)</span></label><input id="fp-valor" maxlength="40" inputmode="decimal" placeholder="Ex.: R$ 30.000" value="${v('valor')}"></div>` : ''}
     <div class="f"><label for="fp-desc">${tipo === 'denuncia' ? 'Conte com detalhes (onde, quando, quem)' : tipo === 'emenda' ? 'Para que serve e quantas pessoas vai ajudar' : 'Detalhes (endereço, ponto de referência…)'}</label><textarea id="fp-desc" maxlength="2800">${v('descricao')}</textarea></div>
     <div class="f"><label>${tipo === 'denuncia' ? 'Fotos ou provas' : 'Fotos do local'} <span class="m" style="font-weight:400">(opcional, até 5)</span></label>
@@ -1900,7 +1904,7 @@ function renderFormPublico(msg = '', ok = false, vals = {}) {
     <button class="btn primary" type="submit" style="justify-content:center">Enviar ${tipo === 'denuncia' ? 'denúncia' : 'pedido'}</button>
     <div class="m" style="font-size:11.5px">${anon ? 'Sua denúncia chega ao gabinete sem o seu nome.' : 'Seus dados são usados só para o gabinete responder ao seu pedido.'}</div></form></div>`;
   const val = id => ($(id) ? $(id).value.trim() : '');
-  const lerCampos = () => ({ tipo, anonimo: anon, nome: val('#fp-nome'), telefone: val('#fp-tel'), municipio: val('#fp-mun'), bairro: val('#fp-bairro'), assunto: val('#fp-ass'), descricao: val('#fp-desc'), entidade: val('#fp-ent'), valor: val('#fp-valor'), lat: vals.lat, lng: vals.lng });
+  const lerCampos = () => ({ tipo, anonimo: anon, nome: val('#fp-nome'), telefone: val('#fp-tel'), municipio: val('#fp-mun'), bairro: val('#fp-bairro'), assunto: val('#fp-ass'), descricao: val('#fp-desc'), entidade: val('#fp-ent'), valor: val('#fp-valor'), link: val('#fp-link'), lat: vals.lat, lng: vals.lng });
   document.querySelectorAll('[data-fp-tipo]').forEach(b => b.addEventListener('click', () => {
     const c = lerCampos(), novo = b.dataset.fpTipo;
     // ao trocar para "outra cidade" a cidade do gabinete sai; ao voltar, volta
@@ -1930,10 +1934,11 @@ function renderFormPublico(msg = '', ok = false, vals = {}) {
     if (!anon && !c.nome) return renderFormPublico('Preencha seu nome.', false, c);
     if (tipo === 'emenda' && !c.entidade) return renderFormPublico('Diga qual entidade ou comunidade vai receber a emenda.', false, c);
     if (tipo === 'cidade' && !c.municipio) return renderFormPublico('Escreva o nome da sua cidade.', false, c);
+    if (c.link && !/^https?:\/\/\S+\.\S+/i.test(c.link)) { if (/^(www\.)?\S+\.\S+$/i.test(c.link)) c.link = 'https://' + c.link; else return renderFormPublico('O link precisa começar com http:// ou https://. Copie o endereço inteiro e cole de novo.', false, c); }
     if (!c.assunto) return renderFormPublico('Escreva ' + (tipo === 'denuncia' ? 'o que você quer denunciar.' : 'o seu pedido.'), false, c);
     if ((!anon || c.telefone) && !celularOk(c.telefone)) return renderFormPublico('Digite um número de celular válido, com DDD: (45) 99999-9999.', false, c);
     c.telefone = c.telefone ? mascaraTel(c.telefone) : '';
-    const descricao = [tipo === 'emenda' && 'Entidade / comunidade: ' + c.entidade, tipo === 'emenda' && c.valor && 'Valor aproximado: ' + c.valor, tipo === 'cidade' && 'Pedido de outra cidade: ' + c.municipio].filter(Boolean).join('\n') + (c.descricao ? (tipo === 'emenda' || tipo === 'cidade' ? '\n\n' : '') + c.descricao : '');
+    const descricao = [tipo === 'emenda' && 'Entidade / comunidade: ' + c.entidade, tipo === 'emenda' && c.valor && 'Valor aproximado: ' + c.valor, tipo === 'emenda' && c.link && 'Link enviado: ' + c.link, tipo === 'cidade' && 'Pedido de outra cidade: ' + c.municipio].filter(Boolean).join('\n') + (c.descricao ? (tipo === 'emenda' || tipo === 'cidade' ? '\n\n' : '') + c.descricao : '');
     const b = e.target.querySelector('[type=submit]'); b.disabled = true; b.textContent = 'Enviando…';
     try {
       // primeiro as fotos, depois o pedido já com elas
