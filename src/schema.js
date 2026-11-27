@@ -36,6 +36,9 @@ export const AREAS_DEMANDA = [
         'Administração dos Cemitérios e Serviços Funerários de Cascavel - ACESC',
       ];
 
+// Tipos de pedido que chegam em Demandas (o formulário do cidadão também usa).
+export const CATEGORIAS_DEMANDA = ['Pedido', 'Emenda', 'Denúncia'];
+
 export const UFS = ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'];
 
 export const MODS = {
@@ -44,6 +47,7 @@ export const MODS = {
     hint: 'Atendimentos: pedidos da população e de lideranças que chegam ao gabinete.',
     statuses: [['Nova','novo'],['Em andamento','and'],['Encaminhada','and'],['Concluída','ok'],['Arquivada','neg']],
     fields: [
+      { k:'categoria', l:'Tipo de pedido', type:'select', opts:CATEGORIAS_DEMANDA },
       { k:'tipo_doc', l:'O que vai ser feito (tipo de documento)', type:'select', opts:['Ofício','Indicação','Requerimento','Liderança de Governo','E-mail','Contato direto'] },
       { k:'assunto', l:'Assunto', req:1, wide:1 },
       { k:'solicitante', l:'Solicitante', req:1, people:1 },
@@ -60,7 +64,7 @@ export const MODS = {
       { k:'publico', l:'Mostrar na prestação de contas pública (sem nome nem telefone do cidadão)', type:'bool', wide:1 },
     ],
     title: r => r.assunto,
-    meta: r => [r.protocolo && ('Prot. ' + r.protocolo), r.solicitante, r.municipio && (r.municipio + (r.bairro ? ' · ' + r.bairro : '')), r.area].filter(Boolean).join(' · '),
+    meta: r => [r.categoria && r.categoria !== 'Pedido' && r.categoria.toUpperCase(), r.protocolo && ('Prot. ' + r.protocolo), r.solicitante, r.municipio && (r.municipio + (r.bairro ? ' · ' + r.bairro : '')), r.area].filter(Boolean).join(' · '),
     deadline: 'prazo', phone: 'telefone',
     extraCols: [['lat','double precision'],['lng','double precision'],['avaliacao_token','uuid default gen_random_uuid()'],['nota','integer'],['nota_comentario','text'],['nota_em','timestamptz']], geo: 1,
   },

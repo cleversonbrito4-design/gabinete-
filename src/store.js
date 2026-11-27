@@ -199,10 +199,21 @@ export async function apagarAnexo(path) {
 export async function novaDemandaPublica(c) {
   if (!sb) throw new Error('O formulário só funciona com o banco ligado.');
   const base = { p_nome: c.nome, p_telefone: c.telefone, p_municipio: c.municipio, p_bairro: c.bairro, p_assunto: c.assunto, p_descricao: c.descricao, ...(c.lat != null ? { p_lat: c.lat, p_lng: c.lng } : {}) };
-  let { data, error } = await sb.rpc('nova_demanda_publica', c.fotos && c.fotos.length ? { ...base, p_lat: c.lat ?? null, p_lng: c.lng ?? null, p_fotos: c.fotos } : base);
+  const comFotos = c.fotos && c.fotos.length ? { p_lat: c.lat ?? null, p_lng: c.lng ?? null, p_fotos: c.fotos } : {};
+  const cat = c.categoria && c.categoria !== 'Pedido';
+  const novo = cat || c.anonimo ? { p_lat: c.lat ?? null, p_lng: c.lng ?? null, p_fotos: c.fotos && c.fotos.length ? c.fotos : null, p_categoria: c.categoria || 'Pedido', p_anonimo: !!c.anonimo } : {};
+  const semFuncao = e => e && /function|p_fotos|p_categoria|PGRST202/i.test(e.message + ' ' + e.code);
+  let { data, error } = await sb.rpc('nova_demanda_publica', { ...base, ...comFotos, ...novo });
   const prot = d => typeof d === 'string' ? d : null;
+  // banco ainda sem a versão com tipo de pedido: manda com o tipo no assunto
+  if (semFuncao(error) && (cat || c.anonimo)) {
+    if (c.anonimo && !c.telefone) throw new Error('Por enquanto a denúncia anônima ainda não está liberada. Deixe seu telefone (ele fica em sigilo).');
+    const b2 = { ...base, p_assunto: '[' + c.categoria + '] ' + c.assunto };
+    ({ data, error } = await sb.rpc('nova_demanda_publica', { ...b2, ...comFotos }));
+    if (semFuncao(error) && c.fotos && c.fotos.length) { ({ data, error } = await sb.rpc('nova_demanda_publica', b2)); if (!error) return { semFotos: true, protocolo: prot(data) }; }
+  }
   // banco ainda sem a versão com fotos: manda o pedido sem elas
-  if (error && c.fotos && c.fotos.length && /function|p_fotos|PGRST202/i.test(error.message + ' ' + error.code)) { ({ data, error } = await sb.rpc('nova_demanda_publica', base)); if (!error) return { semFotos: true, protocolo: prot(data) }; }
+  else if (semFuncao(error) && c.fotos && c.fotos.length) { ({ data, error } = await sb.rpc('nova_demanda_publica', base)); if (!error) return { semFotos: true, protocolo: prot(data) }; }
   if (error) throw error;
   return { protocolo: prot(data) };
 }
