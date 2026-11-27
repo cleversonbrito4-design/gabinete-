@@ -502,6 +502,8 @@ function filtered(m) {
     else if (state.filter === 'urgentes') a = a.filter(r => isUrgente(m, r));
     else if (state.filter === 'paradas') a = a.filter(r => m === 'demandas' && diasParada(r)).sort((x, y) => diasParada(y) - diasParada(x));
     else if (state.filter === 'meus') a = a.filter(r => r.responsavel && r.responsavel === myName());
+    else if (state.filter.startsWith('cat:')) a = a.filter(r => categoriaDe(r) === state.filter.slice(4));
+    else if (state.filter === 'outracidade') a = a.filter(r => m === 'demandas' && outraCidade(r));
     else if (state.filter !== 'todos') a = a.filter(r => r.status === state.filter);
     if (m === 'recepcao') { // fila: quem chegou primeiro aparece primeiro
       if (state.filter === 'hoje') a = data.recepcao.filter(r => String(r.criado_em || '').slice(0, 10) === t);
@@ -535,6 +537,9 @@ function rowHtml(m, r) {
   return `<button class="row${isUrgente(m, r) ? ' row-urg' : ''}" data-open="${m}:${r.id}"><div style="min-width:0"><div class="t">${esc(MODS[m].title(r))}</div><div class="m">${pr}${esc(MODS[m].meta(r))}</div></div><div class="mid m ${m === 'emendas' ? 'num' : ''}">${esc(midText(m, r))}</div><div class="right"><span class="pill ${late ? 'k-late' : STATUS_KIND[kindOf(m, r.status)]}">${late ? 'Atrasado' : esc(r.status)}</span></div></button>`;
 }
 
+// Tipo de pedido da demanda. Pedidos que chegaram antes do banco ter a coluna vêm com "[Emenda]" ou "[Denúncia]" no assunto.
+const categoriaDe = r => r.categoria || (/^\[(Emenda|Denúncia)\]/.exec(r.assunto || '') || [])[1] || 'Pedido';
+const outraCidade = r => !!r.municipio && !!cfg.cidade_gabinete && semAcento(r.municipio).trim() !== semAcento(cfg.cidade_gabinete).trim();
 function chip(attr, k, l, on) { return `<button class="chip" ${attr}="${esc(k)}" aria-pressed="${on}">${esc(l)}</button>`; }
 
 function renderList(m) {
@@ -551,7 +556,7 @@ function renderList(m) {
     const novos = quemPediuSemCadastro();
     if (novos.length) extra += `<div class="no-print aviso-contatos" style="margin:6px 0;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span class="m"><b>${novos.length}</b> pessoa(s) que fizeram pedidos ainda não estão na lista.</span><button class="btn mini primary" data-trazer-pedidos>Colocar na lista</button></div>`;
   } else {
-    const opts = [['abertos', 'Em aberto']].concat(M.deadline ? [['atrasados', 'Atrasados']] : []).concat(m === 'demandas' ? [['urgentes', '🚨 Urgentes'], ['paradas', 'Sem retorno ' + DIAS_PARADA + '+ dias']] : []).concat(m === 'servicos' ? [['semresp', 'Sem resposta ' + DIAS_REITERAR + '+ dias']] : []).concat(M.fields.some(f => f.k === 'responsavel') ? [['meus', 'Comigo']] : []).concat([['todos', 'Todos']], M.statuses.map(s => [s[0], s[0]]));
+    const opts = [['abertos', 'Em aberto']].concat(M.deadline ? [['atrasados', 'Atrasados']] : []).concat(m === 'demandas' ? [['urgentes', '🚨 Urgentes'], ['paradas', 'Sem retorno ' + DIAS_PARADA + '+ dias'], ['cat:Emenda', '💰 Pedidos de emenda'], ['cat:Denúncia', '📢 Denúncias'], ['outracidade', '🗺️ Outras cidades']] : []).concat(m === 'servicos' ? [['semresp', 'Sem resposta ' + DIAS_REITERAR + '+ dias']] : []).concat(M.fields.some(f => f.k === 'responsavel') ? [['meus', 'Comigo']] : []).concat([['todos', 'Todos']], M.statuses.map(s => [s[0], s[0]]));
     chips = opts.map(([k, l]) => chip('data-filter', k, l, state.filter === k)).join('');
     if (['demandas', 'servicos'].includes(m)) extra = `<div class="no-print" style="margin-bottom:4px"><button class="btn mini" data-mapa-de="${m}">Ver no mapa</button></div>`;
     if (m === 'recepcao') { chips = chip('data-filter', 'abertos', 'Fila agora', state.filter === 'abertos') + chip('data-filter', 'hoje', 'Hoje', state.filter === 'hoje') + chip('data-filter', 'todos', 'Todos', state.filter === 'todos'); const n = data.recepcao.filter(r => r.status === 'Aguardando').length; extra = `<div class="m" style="margin-bottom:4px">${n ? `<b>${n}</b> pessoa(s) aguardando.` : 'Ninguém aguardando agora.'}</div>`; }
@@ -636,7 +641,9 @@ function renderConta() {
     <section class="panel"><h3>Formulário para o cidadão</h3>
       <p class="m" style="margin-top:0">Divulgue este link no WhatsApp, Instagram e site. Quem preencher cai direto em <b>Demandas</b>, como "Nova", com origem "Site do gabinete". A pessoa não vê nada do sistema.</p>
       <div class="f"><label for="pub-link">Link do formulário</label><input id="pub-link" value="${esc(linkPublico())}" readonly></div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><button class="btn mini" id="pub-copiar" type="button">Copiar link</button><a class="btn mini wa" href="${esc('https://wa.me/?text=' + encodeURIComponent('Precisa de ajuda do gabinete do ' + DEP() + '? Faça seu pedido aqui: ' + linkPublico()))}" target="_blank" rel="noopener">Enviar pelo WhatsApp</a><a class="btn mini ghost" href="${esc(linkPublico())}" target="_blank" rel="noopener">Ver formulário</a></div></section>` : ''}
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><button class="btn mini" id="pub-copiar" type="button">Copiar link</button><a class="btn mini wa" href="${esc('https://wa.me/?text=' + encodeURIComponent('Precisa de ajuda do gabinete do ' + DEP() + '? Faça seu pedido aqui: ' + linkPublico()))}" target="_blank" rel="noopener">Enviar pelo WhatsApp</a><a class="btn mini ghost" href="${esc(linkPublico())}" target="_blank" rel="noopener">Ver formulário</a></div>
+      <p class="m" style="margin:14px 0 6px">No formulário a pessoa escolhe: <b>Pedido</b>, <b>Emenda</b>, <b>Denúncia</b> (pode ser anônima) ou <b>Outra cidade</b>. Links que já abrem na opção certa:</p>
+      ${[['emenda', '💰 Pedir emenda'], ['denuncia', '📢 Denúncia'], ['outra-cidade', '🗺️ Outra cidade']].map(([k, l]) => `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px"><b style="min-width:130px">${l}</b><input readonly value="${esc(linkPublico() + '=' + k)}" style="flex:1;min-width:200px"><button class="btn mini" type="button" data-copiar-cfg="${esc(linkPublico() + '=' + k)}">Copiar</button></div>`).join('')}</section>` : ''}
     ${gcal.googleAvailable ? `<section class="panel"><h3>Google Agenda</h3>
       <div class="f"><label for="g-cal">ID do calendário do parlamentar</label><input id="g-cal" value="${esc(gcal.calendarId())}"></div>
       <p class="m">Use "primary" para o seu calendário principal, ou o ID que aparece em Configurações do calendário → Integrar agenda (termina em @group.calendar.google.com ou é o e-mail do parlamentar).</p>
@@ -702,6 +709,7 @@ function openDrawer(mod, id, preset = {}) {
   if (rec && mod === 'agenda') acts.push(`<button class="btn mini wa" type="button" data-disp-convite>Convidar pessoas pelo WhatsApp</button>`);
   if (rec && mod === 'agenda' && rec.data) acts.push(`<a class="btn mini" href="${esc(ags.linkGoogleEvento(rec))}" target="_blank" rel="noopener">📅 Pôr no Google Agenda</a>`);
   if (rec && mod === 'recepcao') acts.push(`<button class="btn mini primary" type="button" data-recep-demanda>Transformar em demanda</button>`, `<button class="btn mini" type="button" data-cid="${esc(rec.nome)}" data-cid-tel="${esc(rec.telefone || '')}">Histórico de ${esc(primeiroNome(rec.nome))}</button>`);
+  if (rec && mod === 'demandas' && categoriaDe(rec) === 'Emenda') acts.push(`<button class="btn mini primary" type="button" data-dem-emenda>💰 Cadastrar em Emendas</button>`);
   if (rec && mod === 'demandas' && kindOf('demandas', rec.status) === 'ok') acts.push(`<button class="btn mini primary" type="button" data-arte-atendido>📸 Arte "Pedido atendido" para o Instagram</button>`);
   const lid = rec && mod === 'demandas' && rec.tipo_doc === 'Liderança de Governo', abertaDem = rec && kindOf('demandas', rec.status) !== 'ok';
   if (rec && mod === 'demandas') acts.push(`<button class="btn mini${abertaDem && !lid ? ' primary' : ''}" type="button" data-oficio-de>${esc(rotuloDocDemanda(rec))}</button>`);
@@ -1348,7 +1356,7 @@ function quemPediuSemCadastro(fonte) {
   const ja = new Set(); data.pessoas.forEach(p => chavesPessoa(p.nome, p.telefone).forEach(k => ja.add(k)));
   const out = []; const visto = new Map();
   const add = (nome, tel, bairro, municipio, quando, origem) => {
-    nome = String(nome || '').trim(); if (!nome && !tel) return;
+    nome = String(nome || '').trim(); if (/^an[oô]nimo$/i.test(nome)) nome = ''; if (!nome && !tel) return;
     const ks = chavesPessoa(nome, tel); if (!ks.length || ks.some(k => ja.has(k))) return;
     const prev = ks.map(k => visto.get(k)).find(Boolean);
     if (prev) { prev.n++; if (!prev.telefone && tel) prev.telefone = tel; if (!prev.bairro && bairro) prev.bairro = bairro; if (!prev.municipio && municipio) prev.municipio = municipio; if (quando > prev.ultimo) prev.ultimo = quando; ks.forEach(k => visto.set(k, prev)); return; }
@@ -1846,34 +1854,61 @@ const dddOk = d => /^[1-9][1-9]/.test(d);
 const celularOk = v => { const d = digitosTel(v); return d.length === 11 && dddOk(d) && d[2] === '9'; };
 const telefoneOk = v => { const d = digitosTel(v); return celularOk(d) || (d.length === 10 && dddOk(d) && /[2-5]/.test(d[2])); };
 
+// Tipos do formulário do cidadão. "cidade" grava como Pedido, com a cidade escrita pela pessoa.
+const TIPOS_FP = {
+  pedido: { ico: '🏘️', nome: 'Pedido', cat: 'Pedido', h1: 'Fale com o gabinete', sub: 'Conte o que você precisa: um buraco na rua, iluminação, saúde, um pedido para o seu bairro. A equipe responde pelo WhatsApp.', ass: 'Qual é o pedido?', ph: 'Ex.: Troca de lâmpada na Rua das Flores', ok: 'Pedido recebido!' },
+  emenda: { ico: '💰', nome: 'Emenda', cat: 'Emenda', h1: 'Pedir uma emenda', sub: 'Emenda é um recurso que o vereador indica no orçamento para uma obra, compra ou projeto. Escolas, associações, entidades e comunidades podem pedir.', ass: 'O que a emenda vai fazer ou comprar?', ph: 'Ex.: Reforma do salão da associação de moradores', ok: 'Pedido de emenda recebido!' },
+  denuncia: { ico: '📢', nome: 'Denúncia', cat: 'Denúncia', h1: 'Fazer uma denúncia', sub: 'Viu obra abandonada, desperdício, descaso ou algo errado no serviço público? Conte aqui. Você pode denunciar sem se identificar.', ass: 'O que você quer denunciar?', ph: 'Ex.: Obra parada há meses na Rua…', ok: 'Denúncia recebida!' },
+  cidade: { ico: '🗺️', nome: 'Outra cidade', cat: 'Pedido', h1: 'Pedido de outra cidade', sub: 'Mora em outra cidade da região? Conte o que você precisa. O gabinete encaminha para quem pode resolver.', ass: 'Qual é o pedido?', ph: 'Ex.: Asfalto na estrada da comunidade', ok: 'Pedido recebido!' },
+};
+const CIDADES_REGIAO = ['Anahy', 'Assis Chateaubriand', 'Boa Vista da Aparecida', 'Braganey', 'Cafelândia', 'Campo Bonito', 'Capitão Leônidas Marques', 'Catanduvas', 'Céu Azul', 'Corbélia', 'Diamante do Sul', 'Foz do Iguaçu', 'Guaíra', 'Guaraniaçu', 'Ibema', 'Iguatu', 'Lindoeste', 'Marechal Cândido Rondon', 'Matelândia', 'Medianeira', 'Nova Aurora', 'Palotina', 'Quedas do Iguaçu', 'Santa Helena', 'Santa Lúcia', 'Santa Tereza do Oeste', 'São Miguel do Iguaçu', 'Toledo', 'Três Barras do Paraná'];
+const tipoFpUrl = () => { const v = String(new URLSearchParams(location.search).get('solicitar') || '').toLowerCase().normalize('NFD').replace(/[^a-z]/g, ''); return v.startsWith('emenda') ? 'emenda' : v.startsWith('denuncia') ? 'denuncia' : v.includes('cidade') ? 'cidade' : 'pedido'; };
 function renderFormPublico(msg = '', ok = false, vals = {}) {
-  document.title = 'Fala Cascavel · Fale com o gabinete';
+  const tipo = TIPOS_FP[vals.tipo] ? vals.tipo : tipoFpUrl(), T = TIPOS_FP[tipo];
+  const anon = tipo === 'denuncia' && !!vals.anonimo;
+  document.title = 'Fala Cascavel · ' + T.h1;
   if (ok) {
+    const semTel = !vals.telefone;
     document.body.innerHTML = `<div class="login portal">${topoPortal('consulta')}<div class="login-card pub">${marcaPub()}
-      ${tituloPortal('Pedido recebido!', 'Obrigado. A equipe do gabinete do ' + esc(DEP()) + ' vai analisar e entrar em contato pelo telefone informado.')}${vals.protocolo ? `<div class="prot-box"><span class="m">Seu número de protocolo</span><b class="num">${esc(vals.protocolo)}</b><span class="m">Anote ou tire um print. Com ele e o seu celular você acompanha o pedido.</span><a class="btn primary" href="${esc(linkConsulta(vals.protocolo))}">Acompanhar meu pedido</a></div>` : ''}${vals.avisoFotos ? `<p class="m">${esc(vals.avisoFotos)}</p>` : ''}
-      <button class="btn" id="fp-outro" style="justify-content:center">Fazer outro pedido</button></div></div>`;
-    $('#fp-outro').addEventListener('click', () => renderFormPublico());
+      ${tituloPortal(T.ok, semTel ? 'Obrigado. A equipe do gabinete do ' + esc(DEP()) + ' vai analisar o que você contou.' : 'Obrigado. A equipe do gabinete do ' + esc(DEP()) + ' vai analisar e entrar em contato pelo telefone informado.')}${vals.protocolo ? `<div class="prot-box"><span class="m">Seu número de protocolo</span><b class="num">${esc(vals.protocolo)}</b>${semTel ? '<span class="m">Como você não deixou telefone, o gabinete não tem como avisar você nem mostrar o andamento pelo site.</span>' : `<span class="m">Anote ou tire um print. Com ele e o seu celular você acompanha o pedido.</span><a class="btn primary" href="${esc(linkConsulta(vals.protocolo))}">Acompanhar meu pedido</a>`}</div>` : ''}${vals.avisoFotos ? `<p class="m">${esc(vals.avisoFotos)}</p>` : ''}
+      <button class="btn" id="fp-outro" style="justify-content:center">Enviar outro</button></div></div>`;
+    $('#fp-outro').addEventListener('click', () => renderFormPublico('', false, { tipo }));
     return;
   }
-  const v = k => esc(vals[k] ?? (k === 'municipio' ? cfg.cidade_gabinete : '') ?? '');
+  const v = k => esc(vals[k] ?? (k === 'municipio' && tipo !== 'cidade' ? cfg.cidade_gabinete : '') ?? '');
+  const escolha = `<div class="fp-tipos" role="radiogroup" aria-label="O que você quer enviar?">${Object.entries(TIPOS_FP).map(([k, x]) => `<button type="button" role="radio" class="fp-tipo" data-fp-tipo="${k}" aria-checked="${k === tipo}"><span aria-hidden="true">${x.ico}</span>${esc(x.nome)}</button>`).join('')}</div>`;
+  const cidade = `<div class="f"><label for="fp-mun">${tipo === 'cidade' ? 'Qual cidade? *' : 'Cidade'}</label><input id="fp-mun" maxlength="80" list="fp-cidades" autocomplete="address-level2" value="${v('municipio')}"><datalist id="fp-cidades">${[cfg.cidade_gabinete].concat(CIDADES_REGIAO).filter(Boolean).map(c => `<option value="${esc(c)}">`).join('')}</datalist></div>`;
   document.body.innerHTML = `<div class="login portal">${topoPortal('consulta')}<form class="login-card pub" id="fpub" novalidate>
     ${marcaPub()}
-    ${tituloPortal('Fale com o gabinete', 'Conte o que você precisa: um buraco na rua, iluminação, saúde, um pedido para o seu bairro. A equipe responde pelo WhatsApp.')}
-    <div class="f"><label for="fp-nome">Seu nome *</label><input id="fp-nome" autocomplete="name" maxlength="120" value="${v('nome')}"></div>
-    <div class="f"><label for="fp-tel">WhatsApp / telefone *</label><input id="fp-tel" type="tel" inputmode="numeric" autocomplete="tel" maxlength="20" placeholder="(45) 99999-9999" value="${esc(mascaraTel(vals.telefone))}"></div>
-    <div class="f"><label for="fp-mun">Cidade</label><input id="fp-mun" maxlength="80" value="${v('municipio')}"></div>
-    <div class="f"><label for="fp-bairro">Bairro</label><input id="fp-bairro" maxlength="80" value="${v('bairro')}"></div>
-    <div class="f"><label for="fp-ass">Qual é o pedido? *</label><input id="fp-ass" maxlength="200" placeholder="Ex.: Troca de lâmpada na Rua das Flores" value="${v('assunto')}"></div>
-    <div class="f"><label for="fp-desc">Detalhes (endereço, ponto de referência…)</label><textarea id="fp-desc" maxlength="3000">${v('descricao')}</textarea></div>
-    <div class="f"><label>Fotos do local <span class="m" style="font-weight:400">(opcional, até 5)</span></label>
+    ${tituloPortal(T.h1, T.sub)}
+    ${escolha}
+    ${tipo === 'denuncia' ? `<label class="fp-anon"><input type="checkbox" id="fp-anon" ${anon ? 'checked' : ''}> <span><b>Quero denunciar sem me identificar</b><br><span class="m">Não precisa de nome. O telefone é opcional e fica só com o gabinete.</span></span></label>` : ''}
+    ${anon ? '' : `<div class="f"><label for="fp-nome">Seu nome *</label><input id="fp-nome" autocomplete="name" maxlength="120" value="${v('nome')}"></div>`}
+    <div class="f"><label for="fp-tel">${anon ? 'WhatsApp (opcional, fica em sigilo)' : 'WhatsApp / telefone *'}</label><input id="fp-tel" type="tel" inputmode="numeric" autocomplete="tel" maxlength="20" placeholder="(45) 99999-9999" value="${esc(mascaraTel(vals.telefone))}"></div>
+    ${tipo === 'emenda' ? `<div class="f"><label for="fp-ent">Entidade ou comunidade que vai receber *</label><input id="fp-ent" maxlength="150" placeholder="Ex.: Associação de Moradores do Bairro…" value="${v('entidade')}"></div>` : ''}
+    ${cidade}
+    <div class="f"><label for="fp-bairro">Bairro${tipo === 'cidade' ? ' / comunidade' : ''}</label><input id="fp-bairro" maxlength="80" value="${v('bairro')}"></div>
+    <div class="f"><label for="fp-ass">${T.ass} *</label><input id="fp-ass" maxlength="200" placeholder="${esc(T.ph)}" value="${v('assunto')}"></div>
+    ${tipo === 'emenda' ? `<div class="f"><label for="fp-valor">Valor aproximado <span class="m" style="font-weight:400">(opcional)</span></label><input id="fp-valor" maxlength="40" inputmode="decimal" placeholder="Ex.: R$ 30.000" value="${v('valor')}"></div>` : ''}
+    <div class="f"><label for="fp-desc">${tipo === 'denuncia' ? 'Conte com detalhes (onde, quando, quem)' : tipo === 'emenda' ? 'Para que serve e quantas pessoas vai ajudar' : 'Detalhes (endereço, ponto de referência…)'}</label><textarea id="fp-desc" maxlength="2800">${v('descricao')}</textarea></div>
+    <div class="f"><label>${tipo === 'denuncia' ? 'Fotos ou provas' : 'Fotos do local'} <span class="m" style="font-weight:400">(opcional, até 5)</span></label>
       <div class="fp-fotos">${fotosPub.map((x, i) => `<div class="fp-foto"><img src="${x.url}" alt="Foto ${i + 1}"><button type="button" data-fp-tirar="${i}" aria-label="Tirar foto ${i + 1}">✕</button></div>`).join('')}
       ${fotosPub.length < 5 ? `<label class="btn fp-add">📷 ${fotosPub.length ? 'Mais fotos' : 'Tirar foto ou escolher da galeria'}<input id="fp-foto" type="file" accept="image/*" multiple hidden></label>` : ''}</div></div>
     <div><button class="btn" type="button" id="fp-gps">📍 ${vals.lat != null ? 'Localização marcada ✓' : 'Estou no local: enviar minha localização'}</button></div>
     <div class="hp" aria-hidden="true"><label for="fp-site">Não preencha</label><input id="fp-site" tabindex="-1" autocomplete="off"></div>
     ${msg ? `<div class="err">${esc(msg)}</div>` : ''}
-    <button class="btn primary" type="submit" style="justify-content:center">Enviar pedido</button>
-    <div class="m" style="font-size:11.5px">Seus dados são usados só para o gabinete responder ao seu pedido.</div></form></div>`;
-  const lerCampos = () => ({ nome: $('#fp-nome').value.trim(), telefone: $('#fp-tel').value.trim(), municipio: $('#fp-mun').value.trim(), bairro: $('#fp-bairro').value.trim(), assunto: $('#fp-ass').value.trim(), descricao: $('#fp-desc').value.trim(), lat: vals.lat, lng: vals.lng });
+    <button class="btn primary" type="submit" style="justify-content:center">Enviar ${tipo === 'denuncia' ? 'denúncia' : 'pedido'}</button>
+    <div class="m" style="font-size:11.5px">${anon ? 'Sua denúncia chega ao gabinete sem o seu nome.' : 'Seus dados são usados só para o gabinete responder ao seu pedido.'}</div></form></div>`;
+  const val = id => ($(id) ? $(id).value.trim() : '');
+  const lerCampos = () => ({ tipo, anonimo: anon, nome: val('#fp-nome'), telefone: val('#fp-tel'), municipio: val('#fp-mun'), bairro: val('#fp-bairro'), assunto: val('#fp-ass'), descricao: val('#fp-desc'), entidade: val('#fp-ent'), valor: val('#fp-valor'), lat: vals.lat, lng: vals.lng });
+  document.querySelectorAll('[data-fp-tipo]').forEach(b => b.addEventListener('click', () => {
+    const c = lerCampos(), novo = b.dataset.fpTipo;
+    // ao trocar para "outra cidade" a cidade do gabinete sai; ao voltar, volta
+    if (novo === 'cidade' && c.municipio === cfg.cidade_gabinete) c.municipio = '';
+    if (novo !== 'cidade' && tipo === 'cidade' && !c.municipio) delete c.municipio;
+    renderFormPublico('', false, { ...c, tipo: novo });
+  }));
+  const ca = $('#fp-anon'); if (ca) ca.addEventListener('change', () => renderFormPublico('', false, { ...lerCampos(), anonimo: ca.checked }));
   const fi = $('#fp-foto');
   if (fi) fi.addEventListener('change', async () => {
     const arqs = [...fi.files].slice(0, 5 - fotosPub.length); const campos = lerCampos(); let falhou = 0;
@@ -1890,11 +1925,15 @@ function renderFormPublico(msg = '', ok = false, vals = {}) {
   });
   $('#fpub').addEventListener('submit', async e => {
     e.preventDefault();
-    const c = { lat: vals.lat, lng: vals.lng, nome: $('#fp-nome').value.trim(), telefone: $('#fp-tel').value.trim(), municipio: $('#fp-mun').value.trim(), bairro: $('#fp-bairro').value.trim(), assunto: $('#fp-ass').value.trim(), descricao: $('#fp-desc').value.trim() };
-    if ($('#fp-site').value) return renderFormPublico('', true);
-    if (!c.nome || !c.assunto) return renderFormPublico('Preencha seu nome e o pedido.', false, c);
-    if (!celularOk(c.telefone)) return renderFormPublico('Digite um número de celular válido, com DDD: (45) 99999-9999.', false, c);
-    c.telefone = mascaraTel(c.telefone);
+    const c = lerCampos();
+    if ($('#fp-site').value) return renderFormPublico('', true, { tipo });
+    if (!anon && !c.nome) return renderFormPublico('Preencha seu nome.', false, c);
+    if (tipo === 'emenda' && !c.entidade) return renderFormPublico('Diga qual entidade ou comunidade vai receber a emenda.', false, c);
+    if (tipo === 'cidade' && !c.municipio) return renderFormPublico('Escreva o nome da sua cidade.', false, c);
+    if (!c.assunto) return renderFormPublico('Escreva ' + (tipo === 'denuncia' ? 'o que você quer denunciar.' : 'o seu pedido.'), false, c);
+    if ((!anon || c.telefone) && !celularOk(c.telefone)) return renderFormPublico('Digite um número de celular válido, com DDD: (45) 99999-9999.', false, c);
+    c.telefone = c.telefone ? mascaraTel(c.telefone) : '';
+    const descricao = [tipo === 'emenda' && 'Entidade / comunidade: ' + c.entidade, tipo === 'emenda' && c.valor && 'Valor aproximado: ' + c.valor, tipo === 'cidade' && 'Pedido de outra cidade: ' + c.municipio].filter(Boolean).join('\n') + (c.descricao ? (tipo === 'emenda' || tipo === 'cidade' ? '\n\n' : '') + c.descricao : '');
     const b = e.target.querySelector('[type=submit]'); b.disabled = true; b.textContent = 'Enviando…';
     try {
       // primeiro as fotos, depois o pedido já com elas
@@ -1905,13 +1944,13 @@ function renderFormPublico(msg = '', ok = false, vals = {}) {
         const path = `${pasta}/${i + 1}.jpg`;
         try { await store.enviarFotoPublica(path, fotosPub[i].blob); fotos.push(path); } catch { falhas++; }
       }
-      b.textContent = 'Enviando pedido…';
-      const r = await store.novaDemandaPublica({ ...c, fotos });
+      b.textContent = 'Enviando…';
+      const r = await store.novaDemandaPublica({ ...c, nome: anon ? 'Anônimo' : c.nome, descricao, categoria: T.cat, anonimo: anon, fotos });
       const avisoFotos = fotosPub.length && (falhas === fotosPub.length || r?.semFotos) ? 'Não foi possível enviar as fotos. Se quiser, mande pelo WhatsApp do gabinete.' : falhas ? `${falhas} foto(s) não foram enviadas.` : '';
       fotosPub.forEach(x => globalThis.URL.revokeObjectURL(x.url)); fotosPub = [];
-      renderFormPublico('', true, { avisoFotos, protocolo: r?.protocolo, telefone: c.telefone });
+      renderFormPublico('', true, { tipo, avisoFotos, protocolo: r?.protocolo, telefone: c.telefone });
     }
-    catch (err) { renderFormPublico(errMsg(err), false, c); }
+    catch (err) { b.disabled = false; renderFormPublico(errMsg(err), false, c); }
   });
 }
 
@@ -2621,6 +2660,7 @@ document.addEventListener('click', e => {
   const cd = e.target.closest('[data-cal-dia]'); if (cd) { openDrawer('agenda', null, { data: cd.dataset.calDia }); return; }
   const cn = e.target.closest('[data-cal-nav]'); if (cn) { const [y, mo] = (state.cal || todayStr().slice(0, 7)).split('-').map(Number); const n = +cn.dataset.calNav; state.cal = n === 0 ? '' : ymd(new Date(y, mo - 1 + n, 1)).slice(0, 7); render(); return; }
   const cpv = e.target.closest('#overlay [data-comprovante]'); if (cpv) { baixarComprovante(cpv.dataset.comprovante, cpv); return; }
+  const cpc = e.target.closest('[data-copiar-cfg]'); if (cpc) { copiarTexto(cpc.dataset.copiarCfg, 'Link copiado'); return; }
   const cpy = e.target.closest('#overlay [data-copiar]'); if (cpy) { copiarTexto(cpy.dataset.copiar, cpy.dataset.copiarMsg || 'Copiado'); return; }
   const rdel = e.target.closest('[data-rota-del]'); if (rdel) { state.rota.splice(+rdel.dataset.rotaDel, 1); atualizarRota(); return; }
   if (e.target.closest('[data-rota-ordenar]')) { state.rota = ordenarRota(state.rota); atualizarRota(); toast('Paradas em ordem pelo caminho mais curto'); return; }
@@ -2632,6 +2672,14 @@ document.addEventListener('click', e => {
   if (e.target.closest('[data-disp-enviar]')) { setTimeout(() => avancarDisparo(true), 300); return; }
   if (e.target.closest('[data-disp-reiniciar]')) { state.disp.i = 0; state.disp.feitos = []; render(); return; }
   if (e.target.closest('#msgs-padrao')) { if (!confirm('Voltar todas as mensagens ao texto original?')) return; store.setConfig('mensagens', {}).then(() => { msgs = {}; render(); toast('Mensagens originais de volta'); }).catch(err => toast(errMsg(err))); return; }
+  if (e.target.closest('[data-dem-emenda]')) {
+    const r = data.demandas.find(x => x.id === drawer.id); if (!r) return;
+    const ent = (/^Entidade \/ comunidade: (.+)$/m.exec(r.descricao || '') || [])[1], valor = (/^Valor aproximado: (.+)$/m.exec(r.descricao || '') || [])[1];
+    const num = valor ? +String(valor).replace(/[^\d,]/g, '').replace(',', '.') || '' : '';
+    closeDrawer(); go('emendas');
+    openDrawer('emendas', null, { objeto: String(r.assunto || '').replace(/^\[Emenda\]\s*/, ''), beneficiario: ent || r.solicitante, municipio: r.municipio, quem_pediu: r.solicitante, valor_pedido: num, exercicio: new Date().getFullYear(), obs: [r.protocolo && 'Veio da demanda protocolo ' + r.protocolo, r.descricao].filter(Boolean).join('\n\n') });
+    return;
+  }
   if (e.target.closest('[data-recep-demanda]')) { const r = data.recepcao.find(x => x.id === drawer.id); const p = data.pessoas.find(x => normNome(x.nome) === normNome(r.nome)); closeDrawer(); if (r.status === 'Aguardando' || r.status === 'Em atendimento') store.saveRow('recepcao', r.id, { status: 'Atendido', historico: (r.historico || []).concat({ em: new Date().toISOString(), txt: 'Virou demanda', por: myName() }) }).then(row => upsertLocal('recepcao', row)).catch(() => {}); go('demandas'); openDrawer('demandas', null, { solicitante: r.nome, telefone: r.telefone || p?.telefone, bairro: r.bairro || p?.bairro, municipio: p?.municipio, assunto: r.motivo, origem: 'Presencial' }); return; }
   const cb = e.target.closest('[data-cid]'); if (cb) { closeDrawer(); abrirCidadao(cb.dataset.cid, cb.dataset.cidTel); return; }
   if (e.target.closest('[data-cid-nova]')) { const c = state.cid; const p = data.pessoas.find(x => normNome(x.nome) === normNome(c.nome)); go('demandas'); openDrawer('demandas', null, { solicitante: c.nome, telefone: c.tel || p?.telefone, municipio: p?.municipio, bairro: p?.bairro }); return; }

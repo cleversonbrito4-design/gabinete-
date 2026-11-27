@@ -235,26 +235,40 @@ grant execute on function public.consultar_protocolo(text, text) to anon, authen
 drop function if exists public.nova_demanda_publica(text, text, text, text, text, text);
 drop function if exists public.nova_demanda_publica(text, text, text, text, text, text, double precision, double precision);
 drop function if exists public.nova_demanda_publica(text, text, text, text, text, text, double precision, double precision, jsonb);
+drop function if exists public.nova_demanda_publica(text, text, text, text, text, text, double precision, double precision, jsonb, text, boolean);
+-- p_categoria: Pedido, Emenda ou Denúncia. p_anonimo: denúncia sem nome e sem telefone.
 create or replace function public.nova_demanda_publica(
   p_nome text, p_telefone text, p_municipio text, p_bairro text, p_assunto text, p_descricao text,
-  p_lat double precision default null, p_lng double precision default null, p_fotos jsonb default null
+  p_lat double precision default null, p_lng double precision default null, p_fotos jsonb default null,
+  p_categoria text default null, p_anonimo boolean default false
 ) returns text language plpgsql security definer set search_path = public as $$
-declare v_anexos jsonb := '[]'::jsonb; v_prot text;
+declare v_anexos jsonb := '[]'::jsonb; v_prot text; v_cat text; v_anon boolean;
 begin
-  if coalesce(trim(p_nome), '') = '' or coalesce(trim(p_assunto), '') = '' or coalesce(trim(p_telefone), '') = '' then
+  v_cat := case when p_categoria in ('Emenda', 'Denúncia') then p_categoria else 'Pedido' end;
+  v_anon := v_cat = 'Denúncia' and coalesce(p_anonimo, false);
+  if v_anon then
+    p_nome := 'Anônimo';
+    p_telefone := nullif(regexp_replace(coalesce(p_telefone, ''), '\\D', '', 'g'), '');
+  end if;
+  if coalesce(trim(p_nome), '') = '' or coalesce(trim(p_assunto), '') = '' or (not v_anon and coalesce(trim(p_telefone), '') = '') then
     raise exception 'Preencha nome, telefone e assunto.';
   end if;
   -- trava do celular: só aceita celular brasileiro com DDD (11 dígitos, o 3º é 9); grava no formato (45) 99999-9999
-  p_telefone := regexp_replace(p_telefone, '\\D', '', 'g');
-  if length(p_telefone) > 11 and p_telefone like '55%' then p_telefone := substr(p_telefone, 3); end if;
-  if p_telefone !~ '^[1-9][1-9]9[0-9]{8}$' then raise exception 'Digite um número de celular válido, com DDD.'; end if;
-  p_telefone := '(' || substr(p_telefone, 1, 2) || ') ' || substr(p_telefone, 3, 5) || '-' || substr(p_telefone, 8);
-  -- trava contra abuso: no máximo 60 pedidos pelo site por hora e 3 por telefone por dia
+  if p_telefone is not null then
+    p_telefone := regexp_replace(p_telefone, '\\D', '', 'g');
+    if length(p_telefone) > 11 and p_telefone like '55%' then p_telefone := substr(p_telefone, 3); end if;
+    if p_telefone !~ '^[1-9][1-9]9[0-9]{8}$' then raise exception 'Digite um número de celular válido, com DDD.'; end if;
+    p_telefone := '(' || substr(p_telefone, 1, 2) || ') ' || substr(p_telefone, 3, 5) || '-' || substr(p_telefone, 8);
+  end if;
+  -- trava contra abuso: no máximo 60 pedidos pelo site por hora, 3 por telefone por dia e 10 denúncias anônimas por hora
   if (select count(*) from public.demandas where origem = 'Site do gabinete' and criado_em > now() - interval '1 hour') >= 60 then
     raise exception 'Muitos pedidos agora. Tente de novo mais tarde.';
   end if;
-  if (select count(*) from public.demandas where origem = 'Site do gabinete' and telefone = left(trim(p_telefone), 30) and criado_em > now() - interval '1 day') >= 3 then
+  if p_telefone is not null and (select count(*) from public.demandas where origem = 'Site do gabinete' and telefone = left(trim(p_telefone), 30) and criado_em > now() - interval '1 day') >= 3 then
     raise exception 'Já recebemos seus pedidos de hoje. Em breve entraremos em contato.';
+  end if;
+  if p_telefone is null and (select count(*) from public.demandas where origem = 'Site do gabinete' and telefone is null and criado_em > now() - interval '1 hour') >= 10 then
+    raise exception 'Muitas denúncias anônimas agora. Tente de novo mais tarde.';
   end if;
   if p_lat is not null and (p_lat not between -34 and 6 or p_lng not between -74 and -34) then p_lat := null; p_lng := null; end if;
   -- fotos já enviadas pelo cidadão (no máximo 5, só da pasta publico/)
@@ -266,15 +280,16 @@ begin
     join storage.objects o on o.bucket_id = 'anexos' and o.name = x.path
     where x.path ~ '^publico/[0-9a-f-]{36}/[0-9]+[.]jpg$';
   end if;
-  insert into public.demandas (status, assunto, solicitante, telefone, municipio, bairro, origem, descricao, prioridade, historico, criado_por, lat, lng, anexos)
-  values ('Nova', left(trim(p_assunto), 200), left(trim(p_nome), 120), left(trim(p_telefone), 30), nullif(left(trim(coalesce(p_municipio, '')), 80), ''),
-    nullif(left(trim(coalesce(p_bairro, '')), 80), ''), 'Site do gabinete', nullif(left(trim(coalesce(p_descricao, '')), 3000), ''), 'Média',
-    jsonb_build_array(jsonb_build_object('em', now(), 'txt', 'Recebida pelo formulário do site' || case when jsonb_array_length(v_anexos) > 0 then ' com ' || jsonb_array_length(v_anexos) || ' foto(s)' else '' end, 'por', 'Site')), null, p_lat, p_lng, v_anexos)
+  insert into public.demandas (status, categoria, assunto, solicitante, telefone, municipio, bairro, origem, descricao, prioridade, historico, criado_por, lat, lng, anexos)
+  values ('Nova', v_cat, left(trim(p_assunto), 200), left(trim(p_nome), 120), left(trim(p_telefone), 30), nullif(left(trim(coalesce(p_municipio, '')), 80), ''),
+    nullif(left(trim(coalesce(p_bairro, '')), 80), ''), 'Site do gabinete', nullif(left(trim(coalesce(p_descricao, '')), 3000), ''), case when v_cat = 'Denúncia' then 'Alta' else 'Média' end,
+    jsonb_build_array(jsonb_build_object('em', now(), 'txt', 'Recebida pelo formulário do site'
+      || case v_cat when 'Emenda' then ' (pedido de emenda)' when 'Denúncia' then ' (denúncia' || case when v_anon then ' anônima' else '' end || ')' else '' end || case when jsonb_array_length(v_anexos) > 0 then ' com ' || jsonb_array_length(v_anexos) || ' foto(s)' else '' end, 'por', 'Site')), null, p_lat, p_lng, v_anexos)
   returning protocolo into v_prot;
   return v_prot;
 end $$;
-revoke all on function public.nova_demanda_publica(text, text, text, text, text, text, double precision, double precision, jsonb) from public;
-grant execute on function public.nova_demanda_publica(text, text, text, text, text, text, double precision, double precision, jsonb) to anon, authenticated;`);
+revoke all on function public.nova_demanda_publica(text, text, text, text, text, text, double precision, double precision, jsonb, text, boolean) from public;
+grant execute on function public.nova_demanda_publica(text, text, text, text, text, text, double precision, double precision, jsonb, text, boolean) to anon, authenticated;`);
 
 p(`
 -- Prestação de contas pública: só o que a equipe marcou como público e já foi resolvido.

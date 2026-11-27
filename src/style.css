@@ -678,3 +678,14 @@ body.mapa-cheio{overflow:hidden}
 .dia-hora{font-family:var(--mono);font-weight:700;font-size:13.5px}
 @media (max-width:560px){.dia-item{grid-template-columns:74px minmax(0,1fr)}.dia-item .pill{display:none}.dia-hora{font-size:12.5px}}
 @media print{.dia-item{break-inside:avoid;padding:8px 0}.dia-lista{border:0}}
+
+/* formulário do cidadão: escolha do tipo (pedido, emenda, denúncia, outra cidade) */
+.fp-tipos{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.fp-tipo{display:flex;align-items:center;justify-content:center;gap:8px;min-height:54px;padding:8px 12px;border-radius:18px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.06);color:#dbe6f0;font:inherit;font-size:15px;font-weight:600;cursor:pointer;-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);transition:background .15s,border-color .15s}
+.fp-tipo span{font-size:20px;line-height:1}
+.fp-tipo:hover{background:rgba(255,255,255,.1)}
+.fp-tipo[aria-checked="true"]{background:#fff;border-color:#fff;color:#07111c}
+.fp-tipo:focus-visible{outline:none;box-shadow:0 0 0 4px rgba(75,163,227,.35)}
+.fp-anon{display:flex;gap:12px;align-items:flex-start;padding:14px 16px;border-radius:18px;background:rgba(255,210,0,.08);border:1px solid rgba(255,210,0,.28);color:#fff;font-size:15px;line-height:1.4;cursor:pointer}
+.fp-anon input{width:22px;height:22px;margin-top:2px;flex:none;accent-color:#ffd200}
+@media (min-width:560px){.fp-tipos{grid-template-columns:repeat(4,1fr)}.fp-tipo{flex-direction:column;gap:4px;font-size:13.5px;min-height:70px}}
